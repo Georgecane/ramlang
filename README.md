@@ -1,2 +1,2 @@
 # ramlang
-Ram, is a C like prograsmming langauge with fast GC written in Zig
+Ram, is a C/C++ like prograsmming langauge written in Zig with no GC and no inline ASM.
