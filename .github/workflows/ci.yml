@@ -332,6 +332,11 @@ jobs:
         run: |
           cargo run --release -- examples/variadic_printf.ram -o target/variadic-printf
           test "$(target/variadic-printf)" = "65 1 2.5"
+      - name: Compile and run checked arithmetic example
+        run: |
+          cargo run --release -- examples/checked_arithmetic.ram -o target/checked-arithmetic
+          expected="$(printf '%s\n%s\n%s\n%s' '-2147483648' '1' '0' '1')"
+          test "$(target/checked-arithmetic)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
