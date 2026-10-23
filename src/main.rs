@@ -6800,6 +6800,24 @@ mod tests {
     }
 
     #[test]
+    fn declares_last_error_runtime_symbol_only_once_with_legacy_extern() {
+        let source = "extern fn ramlang_last_error() -> str; fn main() -> i32 { print(last_error()); return 0; }";
+        let ir = compile(source).unwrap();
+        assert_eq!(ir.matches("declare ptr @ramlang_last_error()").count(), 1);
+        assert!(ir.contains("call ptr @ramlang_last_error()"));
+    }
+
+    #[test]
+    fn rejects_incompatible_last_error_foreign_signature() {
+        let source = "extern fn ramlang_last_error() -> i32; fn main() -> i32 { return 0; }";
+        let error = compile(source).unwrap_err();
+        assert!(
+            error.contains("reserved runtime symbol"),
+            "unexpected diagnostic: {error}"
+        );
+    }
+
+    #[test]
     fn rejects_awaiting_a_non_future_value() {
         let error = compile("fn main() -> i32 { let result: i32 = await 41; return 0; }").unwrap_err();
         assert!(error.contains("await expects Future<T>"), "unexpected error: {error}");
