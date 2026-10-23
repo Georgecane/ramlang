@@ -1,0 +1,23 @@
+enum Mode {
+    Idle = 0,
+    Active = 2,
+}
+
+static mut counter: i32 = 0;
+static limit: u32 = 100;
+const ratio: f32 = 0.5;
+
+extern static C_LIMIT: u64;
+extern fn printf(format: str, ...) -> i32;
+
+fn add(left: i32, right: i32) -> i32 {
+    return left + right;
+}
+
+fn convert(value: f32) -> f64 {
+    return value as f64;
+}
+
+fn main() -> i32 {
+    return 0;
+}
