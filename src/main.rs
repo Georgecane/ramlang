@@ -4239,6 +4239,22 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_constants_using_earlier_constant_values() {
+        let source = "const BASE: i32 = 40; const ANSWER: i32 = BASE + 2; const VALID: bool = ANSWER == 42; const RATE: f64 = 5.0 * 2.0; fn main() -> i32 { print(ANSWER); print(VALID); print(RATE); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("@BASE = constant i32 40"));
+        assert!(ir.contains("@ANSWER = constant i32 42"));
+        assert!(ir.contains("@VALID = constant i1 true"));
+        assert!(ir.contains("@RATE = constant double 1.00000000000000000e1"));
+    }
+
+    #[test]
+    fn rejects_forward_references_in_global_constants() {
+        let error = compile("const ANSWER: i32 = BASE + 2; const BASE: i32 = 40; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(error.contains("requires a literal compatible with type i32"));
+    }
+
+    #[test]
     fn lowers_mutable_and_immutable_static_variables() {
         let source = r#"static mut COUNTER: i32 = 40; static LIMIT: u32 = 42; static MESSAGE: str = "ready"; fn main() -> i32 { COUNTER = COUNTER + 2; print(COUNTER); print(LIMIT); print(MESSAGE); let p: ptr = &COUNTER; store_i32(p, 43); print(COUNTER); return 0; }"#;
         let ir = compile(source).unwrap();
