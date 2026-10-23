@@ -384,6 +384,25 @@ jobs:
             echo "expected oversized shift count to trap"
             exit 1
           fi
+      - name: Generate and syntax-check C API header
+        run: |
+          cargo run --release -- examples/c_header_api.ram --emit-header target/ramlang_api.h
+          cat > target/c-header-smoke.c <<'EOF'
+          #include "ramlang_api.h"
+          int main(void) {
+              int32_t total = add(19, 23);
+              double converted = convert(1.5f);
+              counter = total;
+              if (total != 42 || converted != 1.5 || counter != 42 ||
+                  limit != 100 || ratio != 0.5f ||
+                  C_LIMIT != 0 || RAMLANG_MODE_ACTIVE != 2) {
+                  return 1;
+              }
+              printf("%d\n", total);
+              return 0;
+          }
+          EOF
+          clang -std=c11 -Wall -Werror -fsyntax-only -I target target/c-header-smoke.c
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
