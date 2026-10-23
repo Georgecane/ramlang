@@ -185,6 +185,12 @@ jobs:
           cargo run --release -- examples/multi_file/state_main.ram examples/multi_file/state.ram -o target/static-state
           expected="$(printf '%s\n%s' '1' '100')"
           test "$(target/static-state)" = "$expected"
+      - name: Verify compile-only MMIO register IR
+        run: |
+          cargo run --release -- examples/mmio_registers.ram --emit-llvm target/mmio-registers.ll
+          grep -Fq '@MMIO_BASE = global ptr inttoptr (i64 1073741824 to ptr)' target/mmio-registers.ll
+          grep -Fq 'load volatile i32, ptr' target/mmio-registers.ll
+          grep -Fq 'store volatile i32' target/mmio-registers.ll
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
