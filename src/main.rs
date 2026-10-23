@@ -3952,6 +3952,20 @@ mod tests {
     }
 
     #[test]
+    fn allows_explicit_enum_value_after_i32_maximum() {
+        let ir = compile("enum Wide { Max = 2147483647, Reset = -3, Next } fn main() -> i32 { print(Wide.Max); print(Wide.Reset); print(Wide.Next); return 0; }").unwrap();
+        assert!(ir.contains("printf(ptr @.fmt.i32, i32 2147483647)"));
+        assert!(ir.contains("printf(ptr @.fmt.i32, i32 -3)"));
+        assert!(ir.contains("printf(ptr @.fmt.i32, i32 -2)"));
+    }
+
+    #[test]
+    fn rejects_implicit_enum_discriminant_overflow() {
+        let error = parse_source("enum Wide { Max = 2147483647, Overflow } fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(error.contains("enum discriminant overflow before implicit variant"));
+    }
+
+    #[test]
     fn lowers_named_struct_declarations_and_fields() {
         let source = "struct Point { x: i32, y: i32 } fn main() -> i32 { let mut point: Point = Point { x: 20, y: 22 }; print(point.x + point.y); point.x = 30; print(point.x); return 0; }";
         let ir = compile(source).unwrap();
