@@ -170,6 +170,11 @@ jobs:
           cargo run --release -- examples/bit_intrinsics.ram -o target/bit-intrinsics
           expected="$(printf '%s\n%s\n%s\n%s\n%s' '8' '31' '3' '67305985' '-2147483648')"
           test "$(target/bit-intrinsics)" = "$expected"
+      - name: Compile and run unaligned memory example
+        run: |
+          cargo run --release -- examples/unaligned_memory.ram -o target/unaligned-memory
+          expected="$(printf '%s\n%s' '42' '7')"
+          test "$(target/unaligned-memory)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
