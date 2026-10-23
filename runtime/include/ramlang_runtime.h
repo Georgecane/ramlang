@@ -12,6 +12,7 @@ typedef struct RamlangTcpConnection RamlangTcpConnection;
 typedef struct RamlangTcpRequest RamlangTcpRequest;
 typedef struct RamlangUdpEndpoint RamlangUdpEndpoint;
 typedef struct RamlangUdpRequest RamlangUdpRequest;
+typedef struct RamlangTaskScope RamlangTaskScope;
 
 /*
  * Blocking C ABI for the current RamLang compiler.
@@ -41,6 +42,20 @@ int64_t ramlang_tcp_read_frame(
     uint64_t capacity
 );
 void ramlang_tcp_close(RamlangTcpConnection *connection);
+
+/*
+ * Explicit cancellation scope for background network requests.
+ *
+ * Track each request you create. Cancelling/closing the scope wakes pending waits and
+ * cancels unfinished tracked requests. The scope does not free request handles; the
+ * caller remains responsible for closing each request handle.
+ */
+RamlangTaskScope *ramlang_task_scope_new(void);
+int32_t ramlang_task_scope_track_tcp(RamlangTaskScope *scope, RamlangTcpRequest *request);
+int32_t ramlang_task_scope_track_udp(RamlangTaskScope *scope, RamlangUdpRequest *request);
+int32_t ramlang_task_scope_cancel(RamlangTaskScope *scope);
+int64_t ramlang_task_scope_len(RamlangTaskScope *scope);
+void ramlang_task_scope_close(RamlangTaskScope *scope);
 
 /*
  * Non-blocking TCP request API. start copies the address and payload, then launches
