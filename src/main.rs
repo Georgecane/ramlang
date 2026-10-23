@@ -2284,6 +2284,7 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
     }
 
     let mut global_values = HashMap::<String, (Type, String)>::new();
+    let mut global_bindings = HashMap::<String, Binding>::new();
     let mut global_declarations = Vec::<String>::new();
     for constant in &program.constants {
         if signatures.contains_key(&constant.name) {
@@ -2292,7 +2293,7 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
         if matches!(constant.name.as_str(), "printf" | "malloc" | "free" | "llvm.trap") {
             return Err(format!("global constant '{}' conflicts with a reserved runtime symbol", constant.name));
         }
-        if global_values.contains_key(&constant.name) {
+        if global_values.contains_key(&constant.name) || global_bindings.contains_key(&constant.name) {
             return Err(format!("duplicate global constant '{}'", constant.name));
         }
         let (value, declaration) = lower_global_constant(constant)?;
@@ -2305,6 +2306,42 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
             ));
         }
         global_values.insert(constant.name.clone(), (constant.ty, value));
+    }
+
+    for variable in &program.static_vars {
+        if signatures.contains_key(&variable.name) {
+            return Err(format!("static variable '{}' conflicts with a function", variable.name));
+        }
+        if matches!(variable.name.as_str(), "printf" | "malloc" | "free" | "llvm.trap") {
+            return Err(format!("static variable '{}' conflicts with a reserved runtime symbol", variable.name));
+        }
+        if global_values.contains_key(&variable.name) || global_bindings.contains_key(&variable.name) {
+            return Err(format!("duplicate global symbol '{}'", variable.name));
+        }
+        let initializer_name = if variable.ty == Type::Str && matches!(&variable.value, Expr::String(_)) {
+            format!(".ramlang.static.{}", variable.name)
+        } else {
+            variable.name.clone()
+        };
+        let initializer = GlobalConst {
+            name: initializer_name,
+            ty: variable.ty,
+            value: variable.value.clone(),
+        };
+        let (value, declaration) = lower_global_constant(&initializer)?;
+        if let Some(declaration) = declaration {
+            global_declarations.push(declaration);
+        }
+        let storage = if variable.mutable { "global" } else { "constant" };
+        global_declarations.push(format!(
+            "@{} = {storage} {} {}",
+            variable.name, variable.ty.llvm(), value
+        ));
+        global_bindings.insert(variable.name.clone(), Binding {
+            ty: variable.ty,
+            slot: format!("@{}", variable.name),
+            mutable: variable.mutable,
+        });
     }
 
     let main = signatures.get("main").ok_or_else(|| "program must define fn main() -> i32".to_owned())?;
@@ -2375,7 +2412,7 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
             .map(|(index, (_, ty))| format!("{} %arg{index}", ty.llvm()))
             .collect::<Vec<_>>()
             .join(", ");
-        let generator = FunctionGenerator::new(&signatures, &structures, &global_values, function.return_type, &function.name);
+        let generator = FunctionGenerator::new(&signatures, &structures, &global_values, &global_bindings, function.return_type, &function.name);
         let (body, string_globals, _) = generator.generate(function)?;
         for global in string_globals {
             module.push_str(&global);
