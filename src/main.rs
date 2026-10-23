@@ -1420,4 +1420,18 @@ mod tests {
         assert!(ir.contains("phi i1"));
         assert!(ir.contains("srem i32 7, 4"));
     }
+
+    #[test]
+    fn emits_break_and_continue_branches() {
+        let source = "fn main() -> i32 { let mut i: i32 = 0; while (true) { i = i + 1; if (i == 2) { continue; } if (i == 3) { break; } } print(i); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("while.cond"));
+        assert!(ir.contains("while.end"));
+    }
+
+    #[test]
+    fn rejects_break_outside_loops() {
+        let source = "fn main() -> i32 { break; return 0; }";
+        assert!(compile(source).unwrap_err().contains("only be used inside a loop"));
+    }
 }
