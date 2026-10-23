@@ -116,6 +116,10 @@ jobs:
           cargo run --release -- examples/structs.ram -o target/structs
           expected="$(printf '%s\n%s' '42' '30')"
           test "$(target/structs)" = "$expected"
+      - name: Compile struct definitions across source files
+        run: |
+          cargo run --release -- examples/multi_file/point_main.ram examples/multi_file/point.ram -o target/point-multi
+          test "$(target/point-multi)" = "42"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
