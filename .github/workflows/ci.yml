@@ -139,6 +139,11 @@ jobs:
         run: |
           cargo run --release -- examples/array_literals.ram -o target/array-literals
           test "$(target/array-literals)" = "42"
+      - name: Compile and run type aliases example
+        run: |
+          cargo run --release -- examples/type_aliases.ram -o target/type-aliases
+          expected="$(printf '%s\n%s' '17' '7')"
+          test "$(target/type-aliases)" = "$expected"
       - name: Compile and run named struct example
         run: |
           cargo run --release -- examples/structs.ram -o target/structs
