@@ -16,10 +16,13 @@ jobs:
       - name: Install LLVM and Clang
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-23 llvm-23-dev
-          echo "LLVM_SYS_231_PREFIX=/usr/lib/llvm-23" >> "$GITHUB_ENV"
-          echo "LLVM_CONFIG_PATH=/usr/lib/llvm-23/bin/llvm-config" >> "$GITHUB_ENV"
-          echo "RAMLANG_CLANG=clang-23" >> "$GITHUB_ENV"
+          sudo apt-get install -y clang llvm llvm-dev
+          LLVM_CONFIG="$(command -v llvm-config-23 || command -v llvm-config)"
+          LLVM_VERSION="$("$LLVM_CONFIG" --version)"
+          echo "LLVM_CONFIG_PATH=$LLVM_CONFIG" >> "$GITHUB_ENV"
+          echo "LLVM_SYS_231_PREFIX=$("$LLVM_CONFIG" --prefix)" >> "$GITHUB_ENV"
+          echo "RAMLANG_CLANG=clang" >> "$GITHUB_ENV"
+          echo "$LLVM_VERSION" | grep -E '^23\\.'
       - name: Format check
         run: cargo fmt --manifest-path runtime/Cargo.toml -- --check
       - name: Test workspace
