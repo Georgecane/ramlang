@@ -330,7 +330,6 @@ enum FutureOutput {
     Ptr,
     Void,
     Enum(u64),
-    Named(u64),
 }
 
 impl FutureOutput {
@@ -351,8 +350,7 @@ impl FutureOutput {
             Type::Ptr => Some(Self::Ptr),
             Type::Void => Some(Self::Void),
             Type::Enum(id) => Some(Self::Enum(id)),
-            Type::Struct(id) => Some(Self::Named(id)),
-            Type::Array(_, _) | Type::Future(_) => None,
+            Type::Struct(_) | Type::Array(_, _) | Type::Future(_) => None,
         }
     }
 
@@ -373,7 +371,6 @@ impl FutureOutput {
             Self::Ptr => Type::Ptr,
             Self::Void => Type::Void,
             Self::Enum(id) => Type::Enum(id),
-            Self::Named(id) => Type::Struct(id),
         }
     }
 }
@@ -2478,9 +2475,33 @@ impl<'a> FunctionGenerator<'a> {
                             self.emit(format!("{decoded} = bitcast i32 {bits} to float"));
                         }
                         Type::F64 => self.emit(format!("{decoded} = bitcast i64 {encoded} to double")),
+                        Type::Str | Type::Ptr => {
+                            let raw_pointer = self.fresh_value();
+                            let failed = self.fresh_value();
+                            self.emit(format!("{raw_pointer} = inttoptr i64 {encoded} to ptr"));
+                            self.emit(format!("{failed} = icmp eq i64 {encoded}, -1"));
+                            self.emit(format!("{decoded} = select i1 {failed}, ptr null, ptr {raw_pointer}"));
+                        }
                         _ => return Err("unsupported Future<T> output type in await".to_owned()),
                     }
                     return Ok((decoded, output_type));
+                }
+
+                if name == "tcp_request" {
+                    if args.len() != 3 {
+                        return Err("tcp_request expects an address, UTF-8 payload, and timeout in milliseconds".to_owned());
+                    }
+                    let (address, address_type) = self.emit_expr_expected(&args[0], Some(Type::Str))?;
+                    self.require_same(Type::Str, address_type, "tcp_request address")?;
+                    let (payload, payload_type) = self.emit_expr_expected(&args[1], Some(Type::Str))?;
+                    self.require_same(Type::Str, payload_type, "tcp_request payload")?;
+                    let (timeout, timeout_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
+                    self.require_same(Type::I64, timeout_type, "tcp_request timeout")?;
+                    let future = self.fresh_value();
+                    self.emit(format!(
+                        "{future} = call ptr @ramlang_tcp_request_future(ptr {address}, ptr {payload}, i64 {timeout})"
+                    ));
+                    return Ok((future, Type::Future(FutureOutput::Str)));
                 }
 
                 if name == "print" {
@@ -3722,6 +3743,7 @@ fn emit_async_entry_wrapper(function: &Function) -> String {
         Type::U16 => output.push_str("  %encoded = zext i16 %result to i64\n  ret i64 %encoded\n"),
         Type::U32 => output.push_str("  %encoded = zext i32 %result to i64\n  ret i64 %encoded\n"),
         Type::U64 => output.push_str("  ret i64 %result\n"),
+        Type::Str | Type::Ptr => output.push_str("  %encoded = ptrtoint ptr %result to i64\n  ret i64 %encoded\n"),
         Type::F32 => {
             output.push_str("  %result_bits = bitcast float %result to i32\n");
             output.push_str("  %encoded = zext i32 %result_bits to i64\n  ret i64 %encoded\n");
@@ -4366,7 +4388,7 @@ fn async_abi_parameter_type(ty: Type) -> bool {
 }
 
 fn async_abi_result_type(ty: Type) -> bool {
-    ty == Type::Void || async_abi_parameter_type(ty)
+    ty == Type::Void || async_abi_parameter_type(ty) || matches!(ty, Type::Str | Type::Ptr)
 }
 
 fn compile_to_llvm_for_target(
@@ -4636,6 +4658,7 @@ fn compile_to_llvm_for_target(
     module.push_str("declare ptr @ramlang_future_spawn_i64(ptr, ptr)\n");
     module.push_str("declare i64 @ramlang_future_await_i64(ptr)\n");
     module.push_str("declare void @ramlang_future_close(ptr)\n");
+    module.push_str("declare ptr @ramlang_tcp_request_future(ptr, ptr, i64)\n");
     module.push_str("declare void @llvm.trap() cold noreturn nounwind\n");
     module.push_str("declare void @llvm.assume(i1) nounwind\n");
 
