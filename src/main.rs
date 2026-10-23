@@ -1494,7 +1494,6 @@ impl<'a> FunctionGenerator<'a> {
                         Type::Ptr => return Err("print does not accept raw pointers".to_owned()),
                         Type::Array(_, _) => return Err("print does not accept arrays directly".to_owned()),
                         Type::Struct(_) => return Err("print does not accept structs directly".to_owned()),
-                        Type::Struct(_) => return Err("print does not accept structs directly".to_owned()),
                         Type::Void => return Err("print cannot print a void expression".to_owned()),
                     }
                     return Ok((String::new(), Type::Void));
