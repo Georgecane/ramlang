@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     env, fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{self, Command},
 };
 
@@ -219,10 +219,6 @@ impl Parser {
 
     fn current(&self) -> &Token {
         &self.tokens[self.index]
-    }
-
-    fn previous(&self) -> &Token {
-        &self.tokens[self.index - 1]
     }
 
     fn at_end(&self) -> bool {
@@ -566,6 +562,10 @@ impl<'a> FunctionGenerator<'a> {
     }
 
     fn emit_expr(&mut self, expression: &Expr) -> Result<(String, Type), String> {
+        self.emit_expr_expected(expression, None)
+    }
+
+    fn emit_expr_expected(&mut self, expression: &Expr, expected: Option<Type>) -> Result<(String, Type), String> {
         match expression {
             Expr::Number(text) => {
                 if text.contains('.') {
@@ -576,7 +576,15 @@ impl<'a> FunctionGenerator<'a> {
                     Ok((format!("{value:.17e}"), Type::F64))
                 } else {
                     let value: i64 = text.parse().map_err(|_| format!("integer literal '{text}' is outside the i64 range"))?;
-                    if (i32::MIN as i64..=i32::MAX as i64).contains(&value) {
+                    if expected == Some(Type::I64) {
+                        Ok((value.to_string(), Type::I64))
+                    } else if expected == Some(Type::I32) {
+                        if (i32::MIN as i64..=i32::MAX as i64).contains(&value) {
+                            Ok((value.to_string(), Type::I32))
+                        } else {
+                            Err(format!("integer literal '{text}' does not fit i32"))
+                        }
+                    } else if (i32::MIN as i64..=i32::MAX as i64).contains(&value) {
                         Ok((value.to_string(), Type::I32))
                     } else {
                         Ok((value.to_string(), Type::I64))
@@ -591,7 +599,8 @@ impl<'a> FunctionGenerator<'a> {
                 Ok((result, binding.ty))
             }
             Expr::Unary { op, right } => {
-                let (value, ty) = self.emit_expr(right)?;
+                let expected_operand = if op == "!" { Some(Type::Bool) } else { expected };
+                let (value, ty) = self.emit_expr_expected(right, expected_operand)?;
                 match op.as_str() {
                     "-" if ty.is_numeric() => {
                         let result = self.fresh_value();
@@ -613,8 +622,10 @@ impl<'a> FunctionGenerator<'a> {
                 }
             }
             Expr::Binary { left, op, right } => {
-                let (lhs, lhs_ty) = self.emit_expr(left)?;
-                let (rhs, rhs_ty) = self.emit_expr(right)?;
+                let arithmetic = matches!(op.as_str(), "+" | "-" | "*" | "/");
+                let expected_lhs = if arithmetic && expected.is_some_and(Type::is_numeric) { expected } else { None };
+                let (lhs, lhs_ty) = self.emit_expr_expected(left, expected_lhs)?;
+                let (rhs, rhs_ty) = self.emit_expr_expected(right, Some(lhs_ty))?;
                 self.require_same(lhs_ty, rhs_ty, &format!("operator '{op}'"))?;
 
                 let result_ty = match op.as_str() {
@@ -681,7 +692,7 @@ impl<'a> FunctionGenerator<'a> {
                 }
                 let mut lowered = Vec::new();
                 for (arg, expected) in args.iter().zip(signature.params.iter()) {
-                    let (value, actual) = self.emit_expr(arg)?;
+                    let (value, actual) = self.emit_expr_expected(arg, Some(*expected))?;
                     self.require_same(*expected, actual, &format!("argument to '{name}'"))?;
                     lowered.push(format!("{} {value}", actual.llvm()));
                 }
@@ -715,7 +726,7 @@ impl<'a> FunctionGenerator<'a> {
                 if self.scopes.last().is_some_and(|scope| scope.contains_key(name)) {
                     return Err(format!("variable '{name}' is already declared in this scope"));
                 }
-                let (value, inferred_type) = self.emit_expr(value)?;
+                let (value, inferred_type) = self.emit_expr_expected(value, *declared_type)?;
                 let ty = declared_type.unwrap_or(inferred_type);
                 if ty == Type::Void {
                     return Err("cannot infer a variable from a void expression".to_owned());
@@ -730,7 +741,7 @@ impl<'a> FunctionGenerator<'a> {
                 if !binding.mutable {
                     return Err(format!("cannot assign to immutable variable '{name}'; declare it with 'let mut'"));
                 }
-                let (value, ty) = self.emit_expr(value)?;
+                let (value, ty) = self.emit_expr_expected(value, Some(binding.ty))?;
                 self.require_same(binding.ty, ty, &format!("assignment to '{name}'"))?;
                 self.emit(format!("store {} {value}, ptr {}", ty.llvm(), binding.slot));
             }
@@ -740,7 +751,7 @@ impl<'a> FunctionGenerator<'a> {
                     (Type::Void, Some(_)) => return Err("void function cannot return a value".to_owned()),
                     (_, None) => return Err(format!("function must return {}", self.return_type.llvm())),
                     (expected, Some(expression)) => {
-                        let (value, actual) = self.emit_expr(expression)?;
+                        let (value, actual) = self.emit_expr_expected(expression, Some(expected))?;
                         self.require_same(expected, actual, "return value")?;
                         self.emit(format!("ret {} {value}", expected.llvm()));
                     }
@@ -884,17 +895,12 @@ fn compile_to_llvm(functions: &[Function]) -> Result<String, String> {
             .map(|(index, (_, ty))| format!("{} %arg{index}", ty.llvm()))
             .collect::<Vec<_>>()
             .join(", ");
-        let signature_params = function.params.iter()
-            .map(|(_, ty)| ty.llvm())
-            .collect::<Vec<_>>()
-            .join(", ");
         let generator = FunctionGenerator::new(&signatures, function.return_type);
         let (body, _) = generator.generate(function)?;
         let header = format!("define {} @{}({params}) {{\n", function.return_type.llvm(), function.name);
         module.push_str(&header);
         module.push_str(&body);
         module.push_str("}\n\n");
-        let _ = signature_params;
     }
     Ok(module)
 }
