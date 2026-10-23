@@ -52,6 +52,31 @@ jobs:
           expected="$(printf '4\n112')"
           test "$output" = "$expected"
           wait "$server_pid"
+      - name: Compile and run RamLang UDP networking example
+        shell: bash
+        run: |
+          cargo run --release -- examples/network/udp_client.ram \
+            --link-search target/release --link-lib ramlang_runtime \
+            -o target/udp-client
+          cargo run --release -p ramlang-runtime --example udp_echo_server -- 127.0.0.1:39872 > target/udp-echo-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 50); do
+            if grep -q READY target/udp-echo-server.log; then
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat target/udp-echo-server.log
+              exit 1
+            fi
+            sleep 0.1
+          done
+          grep -q READY target/udp-echo-server.log
+          export LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH"
+          output="$(target/udp-client)"
+          expected="$(printf '4\n112')"
+          test "$output" = "$expected"
+          wait "$server_pid"
       - name: Compile and run hello example
         run: |
           cargo run --release -- examples/hello.ram -o target/hello
