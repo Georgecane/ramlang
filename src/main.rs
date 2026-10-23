@@ -2896,6 +2896,25 @@ mod tests {
     }
 
     #[test]
+    fn lowers_struct_field_offsets_using_llvm_layout() {
+        let source = "struct Packet { tag: u8, value: i64, tail: u32 } fn main() -> i32 { let a: i64 = offset_of(Packet, tag); let b: i64 = offset_of(Packet, value); let c: i64 = offsetof(Packet, tail); print(a); print(b); print(c); return 0; }";
+        let ir = compile(source).unwrap();
+        let type_id = struct_type_id("Packet");
+        assert!(ir.contains(&format!("getelementptr %struct.{type_id:016x}, ptr null, i32 0, i32 0")));
+        assert!(ir.contains(&format!("getelementptr %struct.{type_id:016x}, ptr null, i32 0, i32 1")));
+        assert!(ir.contains(&format!("getelementptr %struct.{type_id:016x}, ptr null, i32 0, i32 2")));
+        assert!(ir.matches("ptrtoint ptr").count() >= 3);
+    }
+
+    #[test]
+    fn rejects_invalid_offset_of_types_and_fields() {
+        let non_struct = compile("fn main() -> i32 { let n: i64 = offset_of(i32, value); return 0; }").unwrap_err();
+        assert!(non_struct.contains("offset_of requires a struct type"));
+        let missing = compile("struct Point { x: i32 } fn main() -> i32 { let n: i64 = offset_of(Point, y); return 0; }").unwrap_err();
+        assert!(missing.contains("has no field 'y'"));
+    }
+
+    #[test]
     fn rejects_size_of_void() {
         let error = compile("fn main() -> i32 { let n: i64 = size_of(void); return 0; }").unwrap_err();
         assert!(error.contains("size_of(void) is invalid"));
