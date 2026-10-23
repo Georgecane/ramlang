@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    let value: i32 = 5;
+    match (value) {
+        1 => { print(1); },
+        2 => { print(2); },
+        _ => { print(9); },
+    }
+    return 0;
+}
