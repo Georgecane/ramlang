@@ -1445,15 +1445,18 @@ struct Options {
     output: Option<PathBuf>,
     emit_llvm: bool,
     check_only: bool,
+    link_libs: Vec<String>,
+    link_search_paths: Vec<PathBuf>,
+    link_args: Vec<String>,
 }
 
 fn parse_args() -> Result<Options, String> {
     let mut args = env::args().skip(1).peekable();
     let Some(source) = args.next() else {
-        return Err("usage: ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output]".to_owned());
+        return Err("usage: ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
     };
     if source == "--help" || source == "-h" {
-        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output]\n\nOPTIONS:\n  --check          Parse and type-check without producing an executable\n  --emit-llvm      Write LLVM IR instead of compiling a native executable\n  -o <path>        Set output executable or IR path\n  -h, --help       Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
+        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
         process::exit(0);
     }
 
@@ -1462,6 +1465,9 @@ fn parse_args() -> Result<Options, String> {
         output: None,
         emit_llvm: false,
         check_only: false,
+        link_libs: Vec::new(),
+        link_search_paths: Vec::new(),
+        link_args: Vec::new(),
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -1476,11 +1482,31 @@ fn parse_args() -> Result<Options, String> {
                 let Some(path) = args.next() else { return Err("expected a path after -o".to_owned()); };
                 options.output = Some(PathBuf::from(path));
             }
+            "--link-lib" | "-l" => {
+                let Some(name) = args.next() else { return Err(format!("expected a library name after {arg}")); };
+                if name.starts_with('-') || name.is_empty() {
+                    return Err(format!("invalid library name '{name}'"));
+                }
+                options.link_libs.push(name);
+            }
+            "--link-search" | "-L" => {
+                let Some(path) = args.next() else { return Err(format!("expected a directory after {arg}")); };
+                options.link_search_paths.push(PathBuf::from(path));
+            }
+            "--link-arg" => {
+                let Some(value) = args.next() else { return Err("expected an argument after --link-arg".to_owned()); };
+                options.link_args.push(value);
+            }
             _ => return Err(format!("unknown option '{arg}'")),
         }
     }
     if options.check_only && options.emit_llvm {
         return Err("--check cannot be combined with --emit-llvm".to_owned());
+    }
+    if (options.check_only || options.emit_llvm)
+        && (!options.link_libs.is_empty() || !options.link_search_paths.is_empty() || !options.link_args.is_empty())
+    {
+        return Err("linker options require native compilation and cannot be combined with --check or --emit-llvm".to_owned());
     }
     Ok(options)
 }
@@ -1510,10 +1536,18 @@ fn compile(options: Options) -> Result<(), String> {
     fs::write(&ir_path, llvm_ir)
         .map_err(|error| format!("cannot write temporary LLVM IR: {error}"))?;
     let clang = env::var_os("RAMLANG_CLANG").unwrap_or_else(|| "clang".into());
-    let result = Command::new(&clang)
-        .arg("-O2")
-        .arg("-Wno-override-module")
-        .arg(&ir_path)
+    let mut command = Command::new(&clang);
+    command.arg("-O2").arg("-Wno-override-module").arg(&ir_path);
+    for path in &options.link_search_paths {
+        command.arg("-L").arg(path);
+    }
+    for library in &options.link_libs {
+        command.arg(format!("-l{library}"));
+    }
+    for argument in &options.link_args {
+        command.arg(argument);
+    }
+    let result = command
         .arg("-o")
         .arg(&output)
         .output()
