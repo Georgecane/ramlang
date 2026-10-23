@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    let memory: ptr = alloc(4);
+    let address: u64 = memory as u64;
+    let alias: ptr = address as ptr;
+    store_i32(alias, 42);
+    print(load_i32(memory));
+    free(memory);
+    return 0;
+}
