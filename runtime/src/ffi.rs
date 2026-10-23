@@ -1772,8 +1772,9 @@ pub unsafe extern "C" fn ramlang_tcp_request_future(
     let operation_timeout = Duration::from_millis(timeout_ms as u64);
     runtime.spawn(async move {
         let result: Result<i64, String> = async {
-            let mut connection =
-                TcpConnection::connect(&address, operation_timeout).await.map_err(|e| e.to_string())?;
+            let mut connection = TcpConnection::connect(&address, operation_timeout)
+                .await
+                .map_err(|e| e.to_string())?;
             connection
                 .write_frame(payload.as_bytes())
                 .await
@@ -1797,11 +1798,7 @@ pub unsafe extern "C" fn ramlang_tcp_request_future(
             }
             // SAFETY: the allocation is response length plus one byte, as requested above.
             unsafe {
-                ptr::copy_nonoverlapping(
-                    response.as_ptr(),
-                    output.cast::<u8>(),
-                    response.len(),
-                );
+                ptr::copy_nonoverlapping(response.as_ptr(), output.cast::<u8>(), response.len());
                 *output.cast::<u8>().add(response.len()) = 0;
             }
             Ok(output as usize as i64)
