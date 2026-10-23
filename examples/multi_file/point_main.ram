@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    let point: Point = Point { x: 10, y: 32 };
+    print(point.x + point.y);
+    return 0;
+}
