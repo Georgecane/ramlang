@@ -107,6 +107,10 @@ jobs:
         run: |
           cargo run --release -- examples/arrays.ram -o target/arrays
           test "$(target/arrays)" = "30"
+      - name: Compile and run stack array literal example
+        run: |
+          cargo run --release -- examples/array_literals.ram -o target/array-literals
+          test "$(target/array-literals)" = "42"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
