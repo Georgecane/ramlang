@@ -19,6 +19,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Target-aware `size_of(Type)`, `align_of(Type)`, and `offset_of(Type, field)` layout queries, including `packed struct` layouts
 - Target-ABI-aware `size_t` calls for allocation, string, and memory routines, with checked 64-to-32-bit byte-count conversion
 - LLVM bit intrinsics for population count, leading/trailing zero counts, byte swap, and bit reversal
+- Checked signed and unsigned integer add, subtract, and multiply with overflow flags
 - Typed LLVM inline assembly built-ins for target-specific instructions
 - Typed atomic integer loads, stores, exchanges, and read-modify-write operations with explicit memory ordering
 - Runtime `assert(bool)` with a trap on failure, `panic(str)` for non-returning errors, `assume(bool)` lowered to `llvm.assume`, volatile memory access built-ins, and LLVM memory-order fences
@@ -579,6 +580,23 @@ fn main() -> i32 {
 ```
 
 `size_of(void)` is invalid. Cross-compiling may change pointer and struct sizes; use this intrinsic instead of hardcoding ABI-dependent byte counts. Heap allocation and C memory routines use target-sized `size_t` arguments (`i32` on supported 32-bit targets, `i64` on supported 64-bit targets). The source-language `size_of` result remains `i64`, so the compiler converts sizes to the target ABI width at calls.
+
+## Checked integer arithmetic
+
+Use `sadd_overflow_i32(left, right, output_ptr)`, `ssub_overflow_i32`, and `smul_overflow_i32` for signed integer widths 8, 16, 32, and 64. The matching `uadd_overflow_u32`, `usub_overflow_u32`, and `umul_overflow_u32` forms support unsigned widths. Each function stores the wrapped arithmetic result through the output pointer and returns a `bool` that is `true` when overflow occurred.
+
+```rust
+fn main() -> i32 {
+    let mut result: i32 = 0;
+    let output: ptr = &result;
+    let overflow: bool = sadd_overflow_i32(2147483647, 1, output);
+    print(result);
+    print(overflow);
+    return 0;
+}
+```
+
+These functions lower to LLVM's `*.with.overflow` intrinsics. The output pointer must point to a writable, naturally aligned value of the matching integer type. The wrapped result is defined by the intrinsic; the overflow flag lets callers choose whether to trap, saturate, or handle the condition another way.
 
 ## Bit-manipulation intrinsics
 
