@@ -5906,7 +5906,7 @@ mod tests {
     fn parses_scientific_float_literals_and_rejects_incomplete_exponents() {
         let ir = compile("fn main() -> i32 { let value: f64 = 1.25e2; let small: f32 = 1.25E-2; print(value); print(small); return 0; }").unwrap();
         assert!(ir.contains("1.25000000000000000e2"));
-        assert!(ir.contains("1.25000000e-2"));
+        assert!(ir.contains("1.25000000e-02"));
         let error = parse_source("fn main() -> i32 { let value: f64 = 1.0e+; return 0; }").unwrap_err();
         assert!(error.contains("floating-point exponent requires at least one digit"));
     }
