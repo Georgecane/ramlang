@@ -47,6 +47,27 @@ jobs:
           cargo run --release -- examples/async/basic.ram -o target/async-basic
           output="$(target/async-basic)"
           test "$output" = "42"
+      - name: Compile and run native async TCP request
+        shell: bash
+        run: |
+          cargo run --release -- examples/async/tcp_request.ram -o target/tcp-request-native
+          cargo run --release -p ramlang-runtime --example tcp_echo_server -- 127.0.0.1:39874 > target/tcp-request-native-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 100); do
+            if grep -q READY target/tcp-request-native-server.log; then
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat target/tcp-request-native-server.log
+              exit 1
+            fi
+            sleep 0.1
+          done
+          grep -q READY target/tcp-request-native-server.log
+          output="$(target/tcp-request-native)"
+          test "$output" = "hello over RamLang"
+          wait "$server_pid"
       - name: Compile and run C ABI header smoke test
         run: |
           clang -std=c11 -Wall -Wextra -Werror -Iruntime/include \
