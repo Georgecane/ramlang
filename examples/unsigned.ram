@@ -1,0 +1,20 @@
+fn main() -> i32 {
+    let byte_max: u8 = 255;
+    let half_max: u16 = 65535;
+    let word_max: u32 = 4294967295;
+    let wide_max: u64 = 18446744073709551615;
+    let unsigned_comparison: bool = byte_max > 1 as u8;
+    let quotient: u32 = word_max / 5;
+    let high_bit: u64 = wide_max >> 63;
+    let widened: u16 = byte_max as u16;
+
+    print(byte_max);
+    print(half_max);
+    print(word_max);
+    print(wide_max);
+    print(unsigned_comparison);
+    print(quotient);
+    print(high_bit);
+    print(widened);
+    return 0;
+}
