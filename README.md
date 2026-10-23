@@ -204,7 +204,7 @@ fn main() -> i32 {
 
 ## Static global variables
 
-Use `static name: Type = value;` for immutable global storage or `static mut name: Type = value;` for mutable global storage with process lifetime. Global variables can be read by any function and, when mutable, assigned or addressed with `&`. Static scalar, pointer/null, boolean, floating-point, and string initializers are supported.
+Use `static name: Type = value;` for immutable global storage or `static mut name: Type = value;` for mutable global storage with process lifetime. Global variables can be read by any function and, when mutable, assigned or addressed with `&`. Static scalar, boolean, floating-point, and string initializers are supported. Raw pointer statics can also use an explicit integer address cast, such as `static mut UART_BASE: ptr = 1073741824 as ptr;`, for target-specific MMIO mappings.
 
 ```rust
 static mut interrupt_count: i32 = 0;
@@ -219,6 +219,8 @@ fn main() -> i32 {
     return 0;
 }
 ```
+
+An integer-initialized raw pointer is target-specific and unsafe; do not run or dereference such a pointer unless the address is valid on the selected machine.
 
 Mutable statics are shared process-wide state. They are not automatically synchronized across threads or interrupt contexts, and taking a raw pointer bypasses assignment mutability checks. Complex initializers such as global struct literals and array literals are not supported yet.
 
