@@ -2182,6 +2182,17 @@ fn lower_global_constant(constant: &GlobalConst) -> Result<(String, Option<Strin
         return Ok(("null".to_owned(), None));
     }
 
+    if matches!(constant.ty, Type::Ptr | Type::Array(_, _) | Type::Struct(_)) {
+        if let Expr::Cast { value, target } = &constant.value {
+            if matches!(target, Type::Ptr | Type::Struct(_)) {
+                let Some(address) = constant_integer_value(value)? else {
+                    return Err(format!("global pointer constant '{name}' requires an integer address literal"));
+                };
+                return Ok((format!("inttoptr (i64 {address} to ptr)"), None));
+            }
+        }
+    }
+
     if constant.ty == Type::Str {
         if let Expr::String(value) = &constant.value {
             let encoded = value.as_bytes().iter()
