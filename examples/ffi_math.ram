@@ -1,0 +1,7 @@
+extern fn sqrt(value: f64) -> f64;
+
+fn main() -> i32 {
+    let value: f64 = sqrt(81.0);
+    print(value);
+    return 0;
+}
