@@ -3089,6 +3089,28 @@ mod tests {
     }
 
     #[test]
+    fn lowers_bulk_memory_copy_move_fill_and_compare() {
+        let source = "fn main() -> i32 { let src: ptr = alloc(8); let dst: ptr = alloc(8); memset(src, 0, 8); store_i32(src, 42); memcpy(dst, src, 8); print(load_i32(dst)); print(memcmp(src, dst, 8)); store_i32(dst, 7); let order: i32 = memcmp(src, dst, 4); if (order > 0) { print(1); } else { print(0); } memmove(dst, src, 4); print(load_i32(dst)); free(src); free(dst); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("declare ptr @memcpy(ptr, ptr, i64)"));
+        assert!(ir.contains("declare ptr @memmove(ptr, ptr, i64)"));
+        assert!(ir.contains("declare ptr @memset(ptr, i32, i64)"));
+        assert!(ir.contains("declare i32 @memcmp(ptr, ptr, i64)"));
+        assert!(ir.contains("call ptr @memcpy(ptr"));
+        assert!(ir.contains("call ptr @memmove(ptr"));
+        assert!(ir.contains("call ptr @memset(ptr"));
+        assert!(ir.contains("call i32 @memcmp(ptr"));
+    }
+
+    #[test]
+    fn rejects_invalid_bulk_memory_arguments() {
+        let count_error = compile("fn main() -> i32 { let p: ptr = alloc(8); memcpy(p, p); free(p); return 0; }").unwrap_err();
+        assert!(count_error.contains("expects destination, source, and byte count"));
+        let pointer_error = compile("fn main() -> i32 { memset(1, 0, 4); return 0; }").unwrap_err();
+        assert!(pointer_error.contains("memset destination requires a pointer-like value"));
+    }
+
+    #[test]
     fn lowers_volatile_loads_and_stores() {
         let source = "fn main() -> i32 { let mut value: i32 = 0; let address: ptr = &value; volatile_store_i32(address, 12); let result: i32 = volatile_load_i32(address); print(result); return 0; }";
         let ir = compile(source).unwrap();
