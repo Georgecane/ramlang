@@ -81,6 +81,12 @@ jobs:
           cargo run --release -- examples/unsigned.ram -o target/unsigned
           expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' '255' '65535' '4294967295' '18446744073709551615' '1' '858993459' '1' '255')"
           test "$(target/unsigned)" = "$expected"
+      - name: Link fixed-signature f32 C ABI example
+        run: |
+          cargo run --release -- examples/f32_ffi.ram --emit-obj -o target/f32-ffi.o
+          clang -c examples/f32_ffi.c -o target/f32-ffi-c.o
+          clang target/f32-ffi.o target/f32-ffi-c.o -o target/f32-ffi
+          test "$(target/f32-ffi)" = "2.5"
       - name: Compile and link native library FFI example
         run: |
           cargo run --release -- examples/ffi_math.ram -o target/ffi-math --target x86_64-unknown-linux-gnu --opt-level 0 --link-search /usr/lib/x86_64-linux-gnu --link-lib m
