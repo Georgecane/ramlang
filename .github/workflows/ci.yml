@@ -20,7 +20,10 @@ jobs:
       - name: Install LLVM toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang llvm
+          sudo apt-get install --yes clang-18 llvm-18-dev
+          echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> "$GITHUB_ENV"
+          echo "LLVM_CONFIG_PATH=/usr/lib/llvm-18/bin/llvm-config" >> "$GITHUB_ENV"
+          echo "RAMLANG_CLANG=clang-18" >> "$GITHUB_ENV"
       - name: Run unit tests
         run: cargo test --all-targets
       - name: Build compiler
