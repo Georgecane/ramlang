@@ -4085,6 +4085,34 @@ mod tests {
     }
 
     #[test]
+    fn lowers_exhaustive_enum_match_to_conditional_branches() {
+        let source = "enum Color { Red, Green, Blue } fn main() -> i32 { let color: Color = Color.Green; match (color) { Color.Red => { print(10); }, Color.Green => { print(20); }, Color.Blue => { print(30); } } return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("match.arm"));
+        assert!(ir.contains("match.next"));
+        assert!(ir.matches("icmp eq i32").count() >= 3);
+        assert!(ir.contains("call void @llvm.trap()"));
+    }
+
+    #[test]
+    fn supports_wildcard_match_fallback_for_integer_values() {
+        let source = "fn main() -> i32 { let value: i32 = 5; match (value) { 1 => { print(1); }, 2 => { print(2); }, _ => { print(9); } } return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("match.arm"));
+        assert!(ir.contains("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 9)"));
+    }
+
+    #[test]
+    fn rejects_non_exhaustive_and_duplicate_enum_match_arms() {
+        let missing = compile("enum Color { Red, Green, Blue } fn main() -> i32 { let color: Color = Color.Red; match (color) { Color.Red => { print(1); }, Color.Green => { print(2); } } return 0; }").unwrap_err();
+        assert!(missing.contains("non-exhaustive match on enum 'Color'"));
+        let duplicate = compile("enum Color { Red, Green } fn main() -> i32 { let color: Color = Color.Red; match (color) { Color.Red => { print(1); }, Color.Red => { print(2); } } return 0; }").unwrap_err();
+        assert!(duplicate.contains("duplicate discriminant 0 in match on enum 'Color'"));
+        let non_enum = compile("fn main() -> i32 { let value: i32 = 1; match (value) { 1 => { print(1); } } return 0; }").unwrap_err();
+        assert!(non_enum.contains("match on non-enum values requires a '_' fallback arm"));
+    }
+
+    #[test]
     fn lowers_enum_variants_in_global_constants_and_static_storage() {
         let source = "enum State { Idle, Running = 4, Halted } const START: State = State.Running; static mut CURRENT: State = State.Idle; fn main() -> i32 { print(START); print(CURRENT); CURRENT = State.Halted; print(CURRENT); return 0; }";
         let ir = compile(source).unwrap();
