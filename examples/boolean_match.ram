@@ -1,0 +1,22 @@
+fn main() -> i32 {
+    let ready: bool = true;
+    match (ready) {
+        true => {
+            print("ready");
+        },
+        false => {
+            print("not ready");
+        }
+    }
+
+    let connected: bool = false;
+    match (connected) {
+        true => {
+            print(1);
+        },
+        false => {
+            print(0);
+        }
+    }
+    return 0;
+}
