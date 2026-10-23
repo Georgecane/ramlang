@@ -1448,6 +1448,8 @@ struct Options {
     link_libs: Vec<String>,
     link_search_paths: Vec<PathBuf>,
     link_args: Vec<String>,
+    target: Option<String>,
+    opt_level: String,
 }
 
 fn parse_args() -> Result<Options, String> {
@@ -1460,10 +1462,10 @@ where
 {
     let mut args = arguments.into_iter().peekable();
     let Some(source) = args.next() else {
-        return Err("usage: ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
+        return Err("usage: ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
     };
     if source == "--help" || source == "-h" {
-        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
+        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --target <triple>       Select the Clang compilation target\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
         process::exit(0);
     }
 
@@ -1475,6 +1477,8 @@ where
         link_libs: Vec::new(),
         link_search_paths: Vec::new(),
         link_args: Vec::new(),
+        target: None,
+        opt_level: "2".to_owned(),
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -1488,6 +1492,20 @@ where
             "-o" => {
                 let Some(path) = args.next() else { return Err("expected a path after -o".to_owned()); };
                 options.output = Some(PathBuf::from(path));
+            }
+            "--target" => {
+                let Some(target) = args.next() else { return Err("expected a target triple after --target".to_owned()); };
+                if target.starts_with('-') || target.is_empty() {
+                    return Err(format!("invalid target triple '{target}'"));
+                }
+                options.target = Some(target);
+            }
+            "--opt-level" => {
+                let Some(level) = args.next() else { return Err("expected a level after --opt-level".to_owned()); };
+                if !matches!(level.as_str(), "0" | "1" | "2" | "3" | "s" | "z") {
+                    return Err(format!("invalid optimization level '{level}'; expected 0, 1, 2, 3, s, or z"));
+                }
+                options.opt_level = level;
             }
             "--link-lib" | "-l" => {
                 let Some(name) = args.next() else { return Err(format!("expected a library name after {arg}")); };
@@ -1511,9 +1529,13 @@ where
         return Err("--check cannot be combined with --emit-llvm".to_owned());
     }
     if (options.check_only || options.emit_llvm)
-        && (!options.link_libs.is_empty() || !options.link_search_paths.is_empty() || !options.link_args.is_empty())
+        && (!options.link_libs.is_empty()
+            || !options.link_search_paths.is_empty()
+            || !options.link_args.is_empty()
+            || options.target.is_some()
+            || options.opt_level != "2")
     {
-        return Err("linker options require native compilation and cannot be combined with --check or --emit-llvm".to_owned());
+        return Err("target, optimization, and linker options require native compilation and cannot be combined with --check or --emit-llvm".to_owned());
     }
     Ok(options)
 }
@@ -1544,7 +1566,11 @@ fn compile(options: Options) -> Result<(), String> {
         .map_err(|error| format!("cannot write temporary LLVM IR: {error}"))?;
     let clang = env::var_os("RAMLANG_CLANG").unwrap_or_else(|| "clang".into());
     let mut command = Command::new(&clang);
-    command.arg("-O2").arg("-Wno-override-module").arg(&ir_path);
+    command.arg(format!("-O{}", options.opt_level)).arg("-Wno-override-module");
+    if let Some(target) = &options.target {
+        command.arg("--target").arg(target);
+    }
+    command.arg(&ir_path);
     for path in &options.link_search_paths {
         command.arg("-L").arg(path);
     }
