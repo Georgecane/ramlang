@@ -159,6 +159,7 @@ enum Type {
     I64,
     F64,
     Bool,
+    Ptr,
     Void,
 }
 
@@ -169,6 +170,7 @@ impl Type {
             Self::I64 => "i64",
             Self::F64 => "double",
             Self::Bool => "i1",
+            Self::Ptr => "ptr",
             Self::Void => "void",
         }
     }
@@ -201,6 +203,7 @@ enum Stmt {
 enum Expr {
     Number(String),
     Bool(bool),
+    Null,
     Variable(String),
     Unary { op: String, right: Box<Expr> },
     Binary { left: Box<Expr>, op: String, right: Box<Expr> },
@@ -290,6 +293,7 @@ impl Parser {
             "i64" => Ok(Type::I64),
             "f64" => Ok(Type::F64),
             "bool" => Ok(Type::Bool),
+            "ptr" => Ok(Type::Ptr),
             "void" => Ok(Type::Void),
             _ => Err(self.error(format!("unknown type '{name}'; expected i32, i64, f64, bool, or void"))),
         }
@@ -465,6 +469,9 @@ impl Parser {
         if self.match_keyword("false") {
             return Ok(Expr::Bool(false));
         }
+        if self.match_keyword("null") {
+            return Ok(Expr::Null);
+        }
         if matches!(self.current().kind, TokenKind::Ident) {
             let name = self.current().text.clone();
             self.index += 1;
@@ -592,6 +599,7 @@ impl<'a> FunctionGenerator<'a> {
                 }
             }
             Expr::Bool(value) => Ok((if *value { "true" } else { "false" }.to_owned(), Type::Bool)),
+            Expr::Null => Ok(("null".to_owned(), Type::Ptr)),
             Expr::Variable(name) => {
                 let binding = self.lookup(name).ok_or_else(|| format!("unknown variable '{name}'"))?;
                 let result = self.fresh_value();
@@ -680,8 +688,69 @@ impl<'a> FunctionGenerator<'a> {
                             self.emit(format!("{promoted} = zext i1 {value} to i32"));
                             self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 {promoted})"));
                         }
+                        Type::Ptr => return Err("print does not accept raw pointers".to_owned()),
                         Type::Void => return Err("print cannot print a void expression".to_owned()),
                     }
+                    return Ok((String::new(), Type::Void));
+                }
+
+                if name == "alloc" {
+                    if args.len() != 1 {
+                        return Err("alloc expects one byte-count argument".to_owned());
+                    }
+                    let (size, size_type) = self.emit_expr_expected(&args[0], Some(Type::I64))?;
+                    self.require_same(Type::I64, size_type, "alloc byte count")?;
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = call ptr @malloc(i64 {size})"));
+                    return Ok((result, Type::Ptr));
+                }
+
+                if name == "free" {
+                    if args.len() != 1 {
+                        return Err("free expects exactly one ptr argument".to_owned());
+                    }
+                    let (pointer, pointer_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, pointer_type, "free argument")?;
+                    self.emit(format!("call void @free(ptr {pointer})"));
+                    return Ok((String::new(), Type::Void));
+                }
+
+                let loaded_type = match name.as_str() {
+                    "load_i32" => Some(Type::I32),
+                    "load_i64" => Some(Type::I64),
+                    "load_f64" => Some(Type::F64),
+                    "load_bool" => Some(Type::Bool),
+                    "load_ptr" => Some(Type::Ptr),
+                    _ => None,
+                };
+                if let Some(loaded_type) = loaded_type {
+                    if args.len() != 1 {
+                        return Err(format!("{name} expects exactly one ptr argument"));
+                    }
+                    let (pointer, pointer_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, pointer_type, &format!("{name} argument"))?;
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = load {}, ptr {pointer}", loaded_type.llvm()));
+                    return Ok((result, loaded_type));
+                }
+
+                let stored_type = match name.as_str() {
+                    "store_i32" => Some(Type::I32),
+                    "store_i64" => Some(Type::I64),
+                    "store_f64" => Some(Type::F64),
+                    "store_bool" => Some(Type::Bool),
+                    "store_ptr" => Some(Type::Ptr),
+                    _ => None,
+                };
+                if let Some(stored_type) = stored_type {
+                    if args.len() != 2 {
+                        return Err(format!("{name} expects a ptr and a value"));
+                    }
+                    let (pointer, pointer_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, pointer_type, &format!("{name} destination"))?;
+                    let (value, value_type) = self.emit_expr_expected(&args[1], Some(stored_type))?;
+                    self.require_same(stored_type, value_type, &format!("{name} value"))?;
+                    self.emit(format!("store {} {value}, ptr {pointer}", stored_type.llvm()));
                     return Ok((String::new(), Type::Void));
                 }
 
@@ -889,6 +958,8 @@ fn compile_to_llvm(functions: &[Function]) -> Result<String, String> {
     module.push_str("@.fmt.i64 = private unnamed_addr constant [6 x i8] [i8 37, i8 108, i8 108, i8 100, i8 10, i8 0], align 1\n");
     module.push_str("@.fmt.f64 = private unnamed_addr constant [4 x i8] [i8 37, i8 103, i8 10, i8 0], align 1\n");
     module.push_str("declare i32 @printf(ptr, ...)\n\n");
+    module.push_str("declare ptr @malloc(i64)\\n");
+    module.push_str("declare void @free(ptr)\\n\\n");
 
     for function in functions {
         let params = function.params.iter().enumerate()
