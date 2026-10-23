@@ -72,6 +72,11 @@ jobs:
           cargo run --release -- examples/casts.ram -o target/casts
           expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s' '258' '2' '2' '1' '1' '0' '1')"
           test "$(target/casts)" = "$expected"
+      - name: Compile and run unsigned integer example
+        run: |
+          cargo run --release -- examples/unsigned.ram -o target/unsigned
+          expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' '255' '65535' '4294967295' '18446744073709551615' '1' '858993459' '1' '255')"
+          test "$(target/unsigned)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
