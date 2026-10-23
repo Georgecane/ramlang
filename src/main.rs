@@ -232,6 +232,16 @@ impl Type {
     fn is_integer(self) -> bool {
         matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64)
     }
+
+    fn integer_width(self) -> Option<u32> {
+        match self {
+            Self::I8 => Some(8),
+            Self::I16 => Some(16),
+            Self::I32 => Some(32),
+            Self::I64 => Some(64),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -264,6 +274,7 @@ enum Expr {
     Null,
     Variable(String),
     Unary { op: String, right: Box<Expr> },
+    Cast { value: Box<Expr>, target: Type },
     Binary { left: Box<Expr>, op: String, right: Box<Expr> },
     Call { name: String, args: Vec<Expr> },
 }
@@ -580,7 +591,16 @@ impl Parser {
             self.index += 1;
             return Ok(Expr::Unary { op, right: Box::new(self.parse_unary()?) });
         }
-        self.parse_primary()
+        self.parse_cast()
+    }
+
+    fn parse_cast(&mut self) -> Result<Expr, String> {
+        let mut value = self.parse_primary()?;
+        while self.match_keyword("as") {
+            let target = self.parse_type()?;
+            value = Expr::Cast { value: Box::new(value), target };
+        }
+        Ok(value)
     }
 
     fn parse_primary(&mut self) -> Result<Expr, String> {
@@ -806,6 +826,64 @@ impl<'a> FunctionGenerator<'a> {
                 let result = self.fresh_value();
                 self.emit(format!("{result} = load {}, ptr {}", binding.ty.llvm(), binding.slot));
                 Ok((result, binding.ty))
+            }
+            Expr::Cast { value, target } => {
+                if *target == Type::Void {
+                    return Err("cannot cast a value to void".to_owned());
+                }
+                let (source, source_type) = self.emit_expr_expected(value, None)?;
+                if source_type == *target {
+                    return Ok((source, *target));
+                }
+                if matches!((source_type, *target), (Type::Str, Type::Ptr) | (Type::Ptr, Type::Str)) {
+                    return Ok((source, *target));
+                }
+
+                if source_type == Type::Bool && target.is_integer() {
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = zext i1 {source} to {}", target.llvm()));
+                    return Ok((result, *target));
+                }
+                if source_type.is_integer() && *target == Type::Bool {
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = icmp ne {} {source}, 0", source_type.llvm()));
+                    return Ok((result, Type::Bool));
+                }
+                if source_type == Type::Bool && *target == Type::F64 {
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = uitofp i1 {source} to double"));
+                    return Ok((result, Type::F64));
+                }
+                if source_type == Type::F64 && *target == Type::Bool {
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = fcmp une double {source}, 0.000000e+00"));
+                    return Ok((result, Type::Bool));
+                }
+
+                if let (Some(source_width), Some(target_width)) =
+                    (source_type.integer_width(), target.integer_width())
+                {
+                    let result = self.fresh_value();
+                    if source_width > target_width {
+                        self.emit(format!("{result} = trunc {} {source} to {}", source_type.llvm(), target.llvm()));
+                    } else {
+                        self.emit(format!("{result} = sext {} {source} to {}", source_type.llvm(), target.llvm()));
+                    }
+                    return Ok((result, *target));
+                }
+
+                if source_type.is_integer() && *target == Type::F64 {
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = sitofp {} {source} to double", source_type.llvm()));
+                    return Ok((result, Type::F64));
+                }
+                if source_type == Type::F64 && target.is_integer() {
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = fptosi double {source} to {}", target.llvm()));
+                    return Ok((result, *target));
+                }
+
+                Err(format!("cannot cast {} to {}", source_type.llvm(), target.llvm()))
             }
             Expr::Unary { op, right } => {
                 if op == "-" {
