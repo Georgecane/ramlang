@@ -129,6 +129,16 @@ jobs:
           cargo run --release -- examples/sizeof.ram -o target/sizeof
           expected="$(printf '%s\n%s\n%s\n%s\n%s' '4' '16' '8' '4' '42')"
           test "$(target/sizeof)" = "$expected"
+      - name: Compile and run global constants example
+        run: |
+          cargo run --release -- examples/constants.ram -o target/constants
+          expected="$(printf '%s\n%s\n%s' '42' 'Global constants work' '1')"
+          test "$(target/constants)" = "$expected"
+      - name: Compile constants shared across source files
+        run: |
+          cargo run --release -- examples/multi_file/constants_main.ram examples/multi_file/constants.ram -o target/constants-multi
+          expected="$(printf '%s\n%s' '42' 'Shared across source files')"
+          test "$(target/constants-multi)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
