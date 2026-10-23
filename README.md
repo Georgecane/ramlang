@@ -8,7 +8,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 
 - Rust-based lexer, parser, compiler driver, and LLVM IR backend
 - Native compilation through Clang (LLVM 15 or newer, using opaque pointers)
-- Static types: `i8`, `i16`, `i32`, `i64`, `f64`, `bool`, `str`, `ptr`, and `void`
+- Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Immutable local variables with `let` and mutable locals with `let mut`
 - Explicit casts with `as` between signed integer widths, integers and `f64`, integers and `bool`, `bool` and `f64`, and `str` / `ptr`
@@ -67,6 +67,24 @@ Expected output:
 49
 ```
 
+## Unsigned integers
+
+Unsigned integer types cover values from zero through their full bit-width maximum. Arithmetic uses the same LLVM integer representation as the matching signed type, but division, remainder, ordering comparisons, right shifts, integer-to-float conversions, and widening casts follow unsigned semantics.
+
+```rust
+fn main() -> i32 {
+    let word: u32 = 4294967295;
+    let wide: u64 = 18446744073709551615;
+    print(word);
+    print(wide);
+    print(word / 5);
+    print(wide >> 63);
+    return 0;
+}
+```
+
+A direct negative literal cannot initialize an unsigned variable; use an explicit cast when wrapping behavior is intentional. Arithmetic is low-level and does not insert overflow checks.
+
 ## Explicit casts
 
 RamLang requires explicit conversions between different numeric types. Casts lower to LLVM conversion instructions; narrowing integer casts truncate bits, while widening signed integers sign-extend. Floating-point to integer casts truncate toward zero for values representable by the destination type. As with other low-level languages, casts do not perform run-time range checks.
@@ -85,7 +103,7 @@ fn main() -> i32 {
 }
 ```
 
-`bool` converts to integers as 0 or 1; integer zero converts to `false` and any nonzero value converts to `true`. Casts to `void` and integer/pointer casts are currently rejected.
+`bool` converts to integers as 0 or 1; integer zero converts to `false` and any nonzero value converts to `true`. Casts to `void` and integer/pointer casts are currently rejected. Unsigned integer types `u8`, `u16`, `u32`, and `u64` use zero extension and unsigned comparisons/division/right-shift lowering; casts from unsigned integers to `f64` use unsigned conversion instructions.
 
 ## Strings
 
@@ -178,7 +196,7 @@ fn main() -> i32 {
 
 ## Current limitations
 
-This is an early, intentionally small compiler. Raw pointers and manual heap allocation are supported through `ptr`, `null`, `alloc`, `free`, `ptr_offset`, `load_i8`/`load_i16`/`load_i32`/`load_i64`/`load_f64`/`load_bool`/`load_ptr`, and matching `store_*` intrinsics. These operations are unsafe by design: the programmer is responsible for allocation size, alignment, bounds, lifetime, and avoiding use-after-free or double-free. Typed pointer safety, arrays, user-defined structs, strings, modules, imports, variadic foreign calls, generics, and a formal ownership model are not implemented yet. Integer division uses signed LLVM division. There is no stable language specification or cross-platform target configuration yet.
+This is an early, intentionally small compiler. Raw pointers and manual heap allocation are supported through `ptr`, `null`, `alloc`, `free`, `ptr_offset`, `load_i8`/`load_i16`/`load_i32`/`load_i64`, `load_u8`/`load_u16`/`load_u32`/`load_u64`, `load_f64`/`load_bool`/`load_ptr`, and matching `store_*` intrinsics. These operations are unsafe by design: the programmer is responsible for allocation size, alignment, bounds, lifetime, and avoiding use-after-free or double-free. Typed pointer safety, arrays, user-defined structs, strings, modules, imports, variadic foreign calls, generics, and a formal ownership model are not implemented yet. Integer division uses signed LLVM division. There is no stable language specification or cross-platform target configuration yet.
 
 The compiler emits opaque-pointer LLVM IR, so the current native path targets LLVM/Clang 15+. LLVM IR is an implementation boundary, not a promise that every future RamLang feature or target is already supported.
 
