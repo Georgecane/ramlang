@@ -360,6 +360,23 @@ fn main() -> i32 {
 
 Fences alone do not make non-atomic data-race access safe and do not replace atomic operations, locks, or target-specific device barriers. Pair the ordering primitives with a correct synchronization protocol; MMIO requirements are architecture and device specific.
 
+## Unaligned memory access
+
+The `load_unaligned_*` and `store_unaligned_*` built-ins access raw memory with LLVM alignment `1`, avoiding an implicit requirement that the pointer be naturally aligned for the selected scalar type. The matching `volatile_load_unaligned_*` and `volatile_store_unaligned_*` variants combine alignment `1` with volatile semantics.
+
+```rust
+fn main() -> i32 {
+    let memory: ptr = alloc(8);
+    let unaligned_address: ptr = ptr_offset(memory, 1);
+    store_unaligned_i32(unaligned_address, 42);
+    print(load_unaligned_i32(unaligned_address));
+    free(memory);
+    return 0;
+}
+```
+
+These operations still require a valid pointer to enough accessible bytes. They do not make invalid pointers safe or guarantee that an underlying device supports unaligned accesses. On architectures that fault or require special handling for unaligned MMIO, follow the hardware documentation instead.
+
 ## Volatile memory access
 
 Use `volatile_load_i32(ptr)`, `volatile_store_i32(ptr, value)`, and the matching built-ins for `i8/i16/i64`, `u8/u16/u32/u64`, `f64`, `bool`, and `ptr` when reads and writes must remain observable to LLVM. These lower to LLVM's `load volatile` and `store volatile` instructions and are intended for memory-mapped device registers, hardware status words, and similar externally changing memory.
