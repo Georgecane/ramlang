@@ -2721,6 +2721,22 @@ mod tests {
     }
 
     #[test]
+    fn emits_extern_static_global_declarations() {
+        let source = "extern static mut C_COUNTER: i32; extern static C_LIMIT: u32; fn main() -> i32 { C_COUNTER = C_COUNTER + 2; print(C_COUNTER); print(C_LIMIT); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("@C_COUNTER = external global i32"));
+        assert!(ir.contains("@C_LIMIT = external constant i32"));
+        assert!(ir.contains("load i32, ptr @C_COUNTER"));
+        assert!(ir.contains("store i32"));
+    }
+
+    #[test]
+    fn rejects_aggregate_extern_static_declarations() {
+        let error = parse_source("struct Point { x: i32 } extern static point: Point; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(error.contains("extern static currently supports scalar and raw-pointer types only"));
+    }
+
+    #[test]
     fn lowers_static_pointer_address_initializers() {
         let source = "static mut UART_BASE: ptr = 1073741824 as ptr; fn main() -> i32 { let address: ptr = UART_BASE; return 0; }";
         let ir = compile(source).unwrap();
