@@ -1,0 +1,6 @@
+extern fn abs(value: i32) -> i32;
+
+fn main() -> i32 {
+    print(abs(-42));
+    return 0;
+}
