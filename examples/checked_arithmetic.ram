@@ -1,0 +1,15 @@
+fn main() -> i32 {
+    let mut signed_result: i32 = 0;
+    let signed_output: ptr = &signed_result;
+    let signed_overflow: bool = sadd_overflow_i32(2147483647, 1, signed_output);
+    print(signed_result);
+    print(signed_overflow);
+
+    let mut unsigned_result: u16 = 0;
+    let unsigned_output: ptr = &unsigned_result;
+    let unsigned_overflow: bool = uadd_overflow_u16(65535, 1, unsigned_output);
+    print(unsigned_result);
+    print(unsigned_overflow);
+
+    return 0;
+}
