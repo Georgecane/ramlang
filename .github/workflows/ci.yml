@@ -26,7 +26,7 @@ jobs:
           echo "LLVM_CONFIG_PATH=$LLVM_CONFIG" >> "$GITHUB_ENV"
           echo "LLVM_SYS_231_PREFIX=$("$LLVM_CONFIG" --prefix)" >> "$GITHUB_ENV"
           echo "RAMLANG_CLANG=clang" >> "$GITHUB_ENV"
-          echo "$LLVM_VERSION" | grep -E '^23\\.'
+          test "${LLVM_VERSION%%.*}" = "23"
       - name: Run unit tests
         run: cargo test --all-targets
       - name: Build compiler
