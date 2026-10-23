@@ -403,6 +403,7 @@ enum Expr {
     Null,
     Variable(String),
     StructLiteral { type_id: u64, fields: Vec<(String, Expr)> },
+    Match { value: Box<Expr>, arms: Vec<(Expr, Expr)>, default: Option<Box<Expr>> },
     SizeOf(Type),
     AlignOf(Type),
     OffsetOf(Type, String),
@@ -1001,6 +1002,38 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Result<Expr, String> {
+        if self.match_keyword("match") {
+            self.expect_symbol("(")?;
+            let value = Box::new(self.parse_expression()?);
+            self.expect_symbol(")")?;
+            self.expect_symbol("{")?;
+            let mut arms = Vec::new();
+            let mut default = None;
+            while !self.check_symbol("}") && !self.at_end() {
+                if matches!(self.current().kind, TokenKind::Ident)
+                    && self.current().text == "_"
+                    && self.tokens.get(self.index + 1).is_some_and(|token| token.kind == TokenKind::Symbol("=>".to_owned()))
+                {
+                    self.index += 1;
+                    self.expect_symbol("=>")?;
+                    if default.is_some() {
+                        return Err(self.error("match expression contains more than one '_' fallback arm".to_owned()));
+                    }
+                    default = Some(Box::new(self.parse_expression()?));
+                } else {
+                    let pattern = self.parse_expression()?;
+                    self.expect_symbol("=>")?;
+                    let result = self.parse_expression()?;
+                    arms.push((pattern, result));
+                }
+                self.match_symbol(",");
+            }
+            self.expect_symbol("}")?;
+            if arms.is_empty() && default.is_none() {
+                return Err(self.error("match expression must contain at least one arm".to_owned()));
+            }
+            return Ok(Expr::Match { value, arms, default });
+        }
         if self.match_symbol("[") {
             let mut elements = Vec::new();
             if self.check_symbol("]") {
@@ -1353,8 +1386,145 @@ impl<'a> FunctionGenerator<'a> {
         Ok((result, Type::Bool))
     }
 
+    fn emit_match_expr(
+        &mut self,
+        value: &Expr,
+        arms: &[(Expr, Expr)],
+        default: Option<&Expr>,
+        expected: Option<Type>,
+    ) -> Result<(String, Type), String> {
+        let (scrutinee, scrutinee_type) = self.emit_expr(value)?;
+        if !scrutinee_type.is_integer() && scrutinee_type != Type::Bool {
+            return Err("match expression requires an integer, bool, or enum value".to_owned());
+        }
+
+        if default.is_none() {
+            if scrutinee_type == Type::Bool {
+                let mut covered = HashSet::<bool>::new();
+                for (pattern, _) in arms {
+                    let Expr::Bool(value) = pattern else {
+                        return Err("exhaustive bool match expression requires true and false literal patterns or a '_' fallback".to_owned());
+                    };
+                    if !covered.insert(*value) {
+                        return Err(format!("duplicate boolean pattern '{value}' in match expression"));
+                    }
+                }
+                if covered.len() != 2 {
+                    let missing = if !covered.contains(&true) { "true" } else { "false" };
+                    return Err(format!("non-exhaustive match expression on bool; missing pattern: {missing}"));
+                }
+            } else {
+                let Type::Enum(enum_id) = scrutinee_type else {
+                    return Err("match expressions on non-enum values require a '_' fallback arm".to_owned());
+                };
+                let enumeration = self.enums.get(&enum_id)
+                    .ok_or_else(|| format!("unknown enum type id {enum_id:016x}"))?;
+                let required = enumeration.variants.iter().map(|(_, value)| *value).collect::<HashSet<_>>();
+                let mut covered = HashSet::<i32>::new();
+                for (pattern, _) in arms {
+                    let Some((pattern_enum_id, discriminant)) = self.enum_variant_identity(pattern) else {
+                        return Err(format!("match on enum '{}' requires named enum variants or a '_' fallback", enumeration.name));
+                    };
+                    if pattern_enum_id != enum_id {
+                        return Err(format!("match arm belongs to a different enum than '{}'", enumeration.name));
+                    }
+                    if !covered.insert(discriminant) {
+                        return Err(format!("duplicate discriminant {discriminant} in match on enum '{}'", enumeration.name));
+                    }
+                }
+                if covered != required {
+                    let missing = enumeration.variants.iter()
+                        .filter(|(_, value)| !covered.contains(value))
+                        .map(|(name, _)| name.as_str())
+                        .collect::<Vec<_>>();
+                    return Err(format!(
+                        "non-exhaustive match expression on enum '{}'; missing variant(s): {}",
+                        enumeration.name,
+                        missing.join(", ")
+                    ));
+                }
+            }
+        }
+
+        let end_label = self.fresh_label("match.expr.end");
+        let mut result_type = expected;
+        let mut incoming = Vec::<(String, String)>::new();
+
+        for (pattern, result_expression) in arms {
+            let (pattern_value, pattern_type) =
+                self.emit_expr_expected(pattern, Some(scrutinee_type))?;
+            self.require_same(scrutinee_type, pattern_type, "match expression pattern")?;
+            let equal = self.fresh_value();
+            self.emit(format!(
+                "{equal} = icmp eq {} {scrutinee}, {pattern_value}",
+                scrutinee_type.llvm()
+            ));
+            let arm_label = self.fresh_label("match.expr.arm");
+            let next_label = self.fresh_label("match.expr.next");
+            self.emit(format!("br i1 {equal}, label %{arm_label}, label %{next_label}"));
+            self.terminated = true;
+
+            self.label(&arm_label);
+            let (result_value, arm_type) = self.emit_expr_expected(result_expression, result_type)?;
+            if arm_type == Type::Void {
+                return Err("match expression arms must produce a value".to_owned());
+            }
+            if let Some(required_type) = result_type {
+                self.require_same(required_type, arm_type, "match expression arm")?;
+            } else {
+                result_type = Some(arm_type);
+            }
+            if !self.terminated {
+                let predecessor = self.current_block.clone();
+                self.emit(format!("br label %{end_label}"));
+                self.terminated = true;
+                incoming.push((result_value, predecessor));
+            }
+
+            self.label(&next_label);
+        }
+
+        if let Some(default_expression) = default {
+            let (result_value, arm_type) = self.emit_expr_expected(default_expression, result_type)?;
+            if arm_type == Type::Void {
+                return Err("match expression fallback must produce a value".to_owned());
+            }
+            if let Some(required_type) = result_type {
+                self.require_same(required_type, arm_type, "match expression fallback")?;
+            } else {
+                result_type = Some(arm_type);
+            }
+            if !self.terminated {
+                let predecessor = self.current_block.clone();
+                self.emit(format!("br label %{end_label}"));
+                self.terminated = true;
+                incoming.push((result_value, predecessor));
+            }
+        } else {
+            self.emit("call void @llvm.trap()");
+            self.emit("unreachable");
+            self.terminated = true;
+        }
+
+        if incoming.is_empty() {
+            return Err("match expression has no value-producing path".to_owned());
+        }
+        let result_type = result_type.ok_or_else(|| "cannot infer match expression result type".to_owned())?;
+        self.label(&end_label);
+        let result = self.fresh_value();
+        let values = incoming.iter()
+            .map(|(value, predecessor)| format!("[ {value}, %{predecessor} ]"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.emit(format!("{result} = phi {} {values}", result_type.llvm()));
+        Ok((result, result_type))
+    }
+
     fn emit_expr_expected(&mut self, expression: &Expr, expected: Option<Type>) -> Result<(String, Type), String> {
         match expression {
+            Expr::Match { value, arms, default } => {
+                self.emit_match_expr(value, arms, default.as_deref(), expected)
+            }
             Expr::OffsetOf(ty, field) => {
                 let Type::Struct(type_id) = ty else {
                     return Err("offset_of requires a struct type".to_owned());
@@ -2954,6 +3124,16 @@ fn resolve_enum_expr(expression: &mut Expr, enum_ids: &HashSet<u64>) {
         Expr::Call { args, .. } => {
             for arg in args {
                 resolve_enum_expr(arg, enum_ids);
+            }
+        }
+        Expr::Match { value, arms, default } => {
+            resolve_enum_expr(value, enum_ids);
+            for (pattern, result) in arms {
+                resolve_enum_expr(pattern, enum_ids);
+                resolve_enum_expr(result, enum_ids);
+            }
+            if let Some(default) = default {
+                resolve_enum_expr(default, enum_ids);
             }
         }
         Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null | Expr::Variable(_) => {}
