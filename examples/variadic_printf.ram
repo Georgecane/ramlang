@@ -1,0 +1,8 @@
+extern fn printf(format: str, ...) -> i32;
+
+fn main() -> i32 {
+    let code: i8 = 65;
+    let enabled: bool = true;
+    printf("%d %d %.1f\n", code, enabled, 2.5);
+    return 0;
+}
