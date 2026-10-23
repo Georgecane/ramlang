@@ -3141,6 +3141,13 @@ fn statement_always_returns(statement: &Stmt) -> bool {
 }
 
 fn constant_integer_value(expression: &Expr) -> Result<Option<i128>, String> {
+    constant_integer_value_with_globals(expression, &HashMap::new())
+}
+
+fn constant_integer_value_with_globals(
+    expression: &Expr,
+    globals: &HashMap<String, (Type, String)>,
+) -> Result<Option<i128>, String> {
     match expression {
         Expr::Number(text) if !text.contains('.') => {
             let value: u128 = text.parse()
@@ -3151,7 +3158,7 @@ fn constant_integer_value(expression: &Expr) -> Result<Option<i128>, String> {
             Ok(Some(value as i128))
         }
         Expr::Unary { op, right } => {
-            let Some(value) = constant_integer_value(right)? else {
+            let Some(value) = constant_integer_value_with_globals(right, globals)? else {
                 return Ok(None);
             };
             let result = match op.as_str() {
@@ -3162,8 +3169,19 @@ fn constant_integer_value(expression: &Expr) -> Result<Option<i128>, String> {
             };
             result.map(Some).ok_or_else(|| "integer constant expression overflow".to_owned())
         }
+        Expr::Variable(name) => {
+            if let Some((ty, value)) = globals.get(name) {
+                if ty.is_integer() || matches!(ty, Type::Enum(_)) {
+                    return Ok(value.parse::<i128>().ok());
+                }
+            }
+            Ok(None)
+        }
         Expr::Binary { left, op, right } => {
-            let (Some(left), Some(right)) = (constant_integer_value(left)?, constant_integer_value(right)?) else {
+            let (Some(left), Some(right)) = (
+                constant_integer_value_with_globals(left, globals)?,
+                constant_integer_value_with_globals(right, globals)?,
+            ) else {
                 return Ok(None);
             };
             let result = match op.as_str() {
@@ -3199,19 +3217,43 @@ fn constant_integer_value(expression: &Expr) -> Result<Option<i128>, String> {
 }
 
 fn constant_bool_value(expression: &Expr) -> Result<Option<bool>, String> {
+    constant_bool_value_with_globals(expression, &HashMap::new())
+}
+
+fn constant_bool_value_with_globals(
+    expression: &Expr,
+    globals: &HashMap<String, (Type, String)>,
+) -> Result<Option<bool>, String> {
     match expression {
         Expr::Bool(value) => Ok(Some(*value)),
+        Expr::Variable(name) => {
+            if let Some((Type::Bool, value)) = globals.get(name) {
+                match value.as_str() {
+                    "true" => Ok(Some(true)),
+                    "false" => Ok(Some(false)),
+                    _ => Ok(None),
+                }
+            } else {
+                Ok(None)
+            }
+        }
         Expr::Unary { op, right } if op == "!" => {
-            Ok(constant_bool_value(right)?.map(|value| !value))
+            Ok(constant_bool_value_with_globals(right, globals)?.map(|value| !value))
         }
         Expr::Binary { left, op, right } if matches!(op.as_str(), "&&" | "||") => {
-            let (Some(left), Some(right)) = (constant_bool_value(left)?, constant_bool_value(right)?) else {
+            let (Some(left), Some(right)) = (
+                constant_bool_value_with_globals(left, globals)?,
+                constant_bool_value_with_globals(right, globals)?,
+            ) else {
                 return Ok(None);
             };
             Ok(Some(if op == "&&" { left && right } else { left || right }))
         }
         Expr::Binary { left, op, right } if matches!(op.as_str(), "==" | "!=" | "<" | ">" | "<=" | ">=") => {
-            if let (Some(left), Some(right)) = (constant_integer_value(left)?, constant_integer_value(right)?) {
+            if let (Some(left), Some(right)) = (
+                constant_integer_value_with_globals(left, globals)?,
+                constant_integer_value_with_globals(right, globals)?,
+            ) {
                 return Ok(Some(match op.as_str() {
                     "==" => left == right,
                     "!=" => left != right,
@@ -3222,7 +3264,10 @@ fn constant_bool_value(expression: &Expr) -> Result<Option<bool>, String> {
                     _ => unreachable!(),
                 }));
             }
-            if let (Some(left), Some(right)) = (constant_bool_value(left)?, constant_bool_value(right)?) {
+            if let (Some(left), Some(right)) = (
+                constant_bool_value_with_globals(left, globals)?,
+                constant_bool_value_with_globals(right, globals)?,
+            ) {
                 return Ok(Some(match op.as_str() {
                     "==" => left == right,
                     "!=" => left != right,
@@ -3240,7 +3285,21 @@ fn constant_bool_value(expression: &Expr) -> Result<Option<bool>, String> {
 }
 
 fn constant_float_value(expression: &Expr) -> Result<Option<f64>, String> {
+    constant_float_value_with_globals(expression, &HashMap::new())
+}
+
+fn constant_float_value_with_globals(
+    expression: &Expr,
+    globals: &HashMap<String, (Type, String)>,
+) -> Result<Option<f64>, String> {
     match expression {
+        Expr::Variable(name) => {
+            if let Some((Type::F64, value)) = globals.get(name) {
+                return value.parse::<f64>().map(Some)
+                    .map_err(|_| format!("floating-point constant '{name}' is invalid"));
+            }
+            Ok(None)
+        }
         Expr::Number(text) => {
             let value: f64 = text.parse()
                 .map_err(|_| format!("floating-point constant '{text}' is outside the supported range"))?;
@@ -3250,7 +3309,7 @@ fn constant_float_value(expression: &Expr) -> Result<Option<f64>, String> {
             Ok(Some(value))
         }
         Expr::Unary { op, right } => {
-            let Some(value) = constant_float_value(right)? else {
+            let Some(value) = constant_float_value_with_globals(right, globals)? else {
                 return Ok(None);
             };
             let result = match op.as_str() {
@@ -3264,7 +3323,10 @@ fn constant_float_value(expression: &Expr) -> Result<Option<f64>, String> {
             Ok(Some(result))
         }
         Expr::Binary { left, op, right } if matches!(op.as_str(), "+" | "-" | "*" | "/") => {
-            let (Some(left), Some(right)) = (constant_float_value(left)?, constant_float_value(right)?) else {
+            let (Some(left), Some(right)) = (
+                constant_float_value_with_globals(left, globals)?,
+                constant_float_value_with_globals(right, globals)?,
+            ) else {
                 return Ok(None);
             };
             let result = match op.as_str() {
@@ -3283,7 +3345,10 @@ fn constant_float_value(expression: &Expr) -> Result<Option<f64>, String> {
     }
 }
 
-fn lower_global_constant(constant: &GlobalConst) -> Result<(String, Option<String>), String> {
+fn lower_global_constant(
+    constant: &GlobalConst,
+    globals: &HashMap<String, (Type, String)>,
+) -> Result<(String, Option<String>), String> {
     let name = &constant.name;
     let mismatch = || format!(
         "global constant '{name}' requires a literal compatible with type {}",
@@ -3299,7 +3364,7 @@ fn lower_global_constant(constant: &GlobalConst) -> Result<(String, Option<Strin
     if matches!(constant.ty, Type::Ptr | Type::Array(_, _) | Type::Struct(_)) {
         if let Expr::Cast { value, target } = &constant.value {
             if matches!(target, Type::Ptr | Type::Struct(_)) {
-                let Some(address) = constant_integer_value(value)? else {
+                let Some(address) = constant_integer_value_with_globals(value, globals)? else {
                     return Err(format!("global pointer constant '{name}' requires an integer address literal"));
                 };
                 return Ok((format!("inttoptr (i64 {address} to ptr)"), None));
@@ -3325,21 +3390,21 @@ fn lower_global_constant(constant: &GlobalConst) -> Result<(String, Option<Strin
     }
 
     if constant.ty == Type::Bool {
-        if let Some(value) = constant_bool_value(&constant.value)? {
+        if let Some(value) = constant_bool_value_with_globals(&constant.value, globals)? {
             return Ok((if value { "true" } else { "false" }.to_owned(), None));
         }
         return Err(mismatch());
     }
 
     if constant.ty == Type::F64 {
-        if let Some(value) = constant_float_value(&constant.value)? {
+        if let Some(value) = constant_float_value_with_globals(&constant.value, globals)? {
             return Ok((format!("{value:.17e}"), None));
         }
         return Err(mismatch());
     }
 
     if constant.ty.is_integer() {
-        let Some(value) = constant_integer_value(&constant.value)? else {
+        let Some(value) = constant_integer_value_with_globals(&constant.value, globals)? else {
             return Err(mismatch());
         };
         let fits = match constant.ty {
@@ -3626,7 +3691,7 @@ fn compile_to_llvm_for_target(
         if global_values.contains_key(&constant.name) || global_bindings.contains_key(&constant.name) {
             return Err(format!("duplicate global constant '{}'", constant.name));
         }
-        let (value, declaration) = lower_global_constant(constant)?;
+        let (value, declaration) = lower_global_constant(constant, &global_values)?;
         if let Some(declaration) = declaration {
             global_declarations.push(declaration);
         } else {
@@ -3667,7 +3732,7 @@ fn compile_to_llvm_for_target(
                 ty: variable.ty,
                 value: initializer_value.clone(),
             };
-            let (value, declaration) = lower_global_constant(&initializer)?;
+            let (value, declaration) = lower_global_constant(&initializer, &global_values)?;
             if let Some(declaration) = declaration {
                 global_declarations.push(declaration);
             }
