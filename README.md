@@ -23,6 +23,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - `if` / `else`, `while`, C-style `for` loops, `break`, `continue`, nested loops and blocks, line and block comments
 - UTF-8 string literals with `\\n`, `\\r`, `\\t`, `\\0`, `\\\\`, and `\\\"` escapes
 - Built-in `print(value)` for integers, floating-point values, booleans, and strings
+- C-compatible string length/comparison and byte-search routines (`strlen`, `strcmp`, `strncmp`, `memchr`)
 - Unit tests for code generation and common semantic errors
 
 ## Requirements
@@ -112,6 +113,24 @@ fn main() -> i32 {
 ```
 
 `bool` converts to integers as 0 or 1; integer zero converts to `false` and any nonzero value converts to `true`. Casts to `void` and floating-point/pointer casts are rejected. Explicit integer/pointer casts lower to LLVM `inttoptr` and `ptrtoint`; they are inherently unsafe, target-dependent, and can create invalid or misaligned addresses. Unsigned integer types `u8`, `u16`, `u32`, and `u64` use zero extension and unsigned comparisons/division/right-shift lowering; casts from unsigned integers to `f64` use unsigned conversion instructions.
+
+## String and byte-search routines
+
+The compiler exposes `strlen(str)` for the byte length of a NUL-terminated string, `strcmp(left, right)` and `strncmp(left, right, byte_count)` for lexicographic comparison, and `memchr(buffer, byte, byte_count)` to find the first occurrence of a byte in a buffer.
+
+```rust
+fn main() -> i32 {
+    print(strlen("RamLang"));
+    print(strcmp("RamLang", "RamLang"));
+    print(strncmp("RamLang", "Ram", 3));
+
+    let found: ptr = memchr("RamLang", 76, 7);
+    print(load_u8(found));
+    return 0;
+}
+```
+
+`strlen` excludes the terminating NUL and returns a byte count, not a Unicode character count. The compare functions return negative, zero, or positive values; only the sign is portable. `memchr` returns `null` when the byte is not found, so check its result before dereferencing it. Buffer lengths and pointer validity remain the caller's responsibility.
 
 ## Strings
 
