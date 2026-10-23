@@ -368,6 +368,22 @@ jobs:
             echo "expected signed MIN / -1 to trap"
             exit 1
           fi
+      - name: Verify negative shift counts trap at runtime
+        run: |
+          cargo run --release -- examples/shift_negative.ram -o target/shift-negative
+          ulimit -c 0
+          if target/shift-negative >/dev/null 2>&1; then
+            echo "expected negative shift count to trap"
+            exit 1
+          fi
+      - name: Verify oversized shift counts trap at runtime
+        run: |
+          cargo run --release -- examples/shift_out_of_range.ram -o target/shift-out-of-range
+          ulimit -c 0
+          if target/shift-out-of-range >/dev/null 2>&1; then
+            echo "expected oversized shift count to trap"
+            exit 1
+          fi
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
