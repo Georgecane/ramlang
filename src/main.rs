@@ -2651,6 +2651,157 @@ fn lower_global_constant(constant: &GlobalConst) -> Result<(String, Option<Strin
     ))
 }
 
+fn resolve_enum_type(ty: &mut Type, enum_ids: &HashSet<u64>) {
+    if let Type::Struct(type_id) = ty {
+        if enum_ids.contains(type_id) {
+            *ty = Type::Enum(*type_id);
+        }
+    }
+}
+
+fn resolve_enum_expr(expression: &mut Expr, enum_ids: &HashSet<u64>) {
+    match expression {
+        Expr::ArrayLiteral(elements) => {
+            for element in elements {
+                resolve_enum_expr(element, enum_ids);
+            }
+        }
+        Expr::StructLiteral { fields, .. } => {
+            for (_, value) in fields {
+                resolve_enum_expr(value, enum_ids);
+            }
+        }
+        Expr::SizeOf(ty) | Expr::AlignOf(ty) => resolve_enum_type(ty, enum_ids),
+        Expr::OffsetOf(ty, _) => resolve_enum_type(ty, enum_ids),
+        Expr::Field { base, .. } => resolve_enum_expr(base, enum_ids),
+        Expr::Unary { right, .. } => resolve_enum_expr(right, enum_ids),
+        Expr::Cast { value, target } => {
+            resolve_enum_expr(value, enum_ids);
+            resolve_enum_type(target, enum_ids);
+        }
+        Expr::Index { array, index } => {
+            resolve_enum_expr(array, enum_ids);
+            resolve_enum_expr(index, enum_ids);
+        }
+        Expr::Binary { left, right, .. } => {
+            resolve_enum_expr(left, enum_ids);
+            resolve_enum_expr(right, enum_ids);
+        }
+        Expr::Call { args, .. } => {
+            for arg in args {
+                resolve_enum_expr(arg, enum_ids);
+            }
+        }
+        Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null | Expr::Variable(_) => {}
+    }
+}
+
+fn resolve_enum_stmt(statement: &mut Stmt, enum_ids: &HashSet<u64>) {
+    match statement {
+        Stmt::Block(statements) => {
+            for statement in statements {
+                resolve_enum_stmt(statement, enum_ids);
+            }
+        }
+        Stmt::Let { declared_type, value, .. } => {
+            if let Some(ty) = declared_type {
+                resolve_enum_type(ty, enum_ids);
+            }
+            resolve_enum_expr(value, enum_ids);
+        }
+        Stmt::Assign { value, .. } => resolve_enum_expr(value, enum_ids),
+        Stmt::FieldAssign { base, value, .. } => {
+            resolve_enum_expr(base, enum_ids);
+            resolve_enum_expr(value, enum_ids);
+        }
+        Stmt::IndexAssign { array, index, value } => {
+            resolve_enum_expr(array, enum_ids);
+            resolve_enum_expr(index, enum_ids);
+            resolve_enum_expr(value, enum_ids);
+        }
+        Stmt::Return(value) => {
+            if let Some(value) = value {
+                resolve_enum_expr(value, enum_ids);
+            }
+        }
+        Stmt::Expression(expression) => resolve_enum_expr(expression, enum_ids),
+        Stmt::If { condition, then_branch, else_branch } => {
+            resolve_enum_expr(condition, enum_ids);
+            resolve_enum_stmt(then_branch, enum_ids);
+            if let Some(else_branch) = else_branch {
+                resolve_enum_stmt(else_branch, enum_ids);
+            }
+        }
+        Stmt::While { condition, body } => {
+            resolve_enum_expr(condition, enum_ids);
+            resolve_enum_stmt(body, enum_ids);
+        }
+        Stmt::For { initializer, condition, increment, body } => {
+            resolve_enum_stmt(initializer, enum_ids);
+            resolve_enum_expr(condition, enum_ids);
+            resolve_enum_stmt(increment, enum_ids);
+            resolve_enum_stmt(body, enum_ids);
+        }
+        Stmt::Break | Stmt::Continue => {}
+    }
+}
+
+fn resolve_program_enum_types(source: &Program) -> Result<Program, String> {
+    let mut program = source.clone();
+    let structures = program.structs.iter().map(|item| (item.id, item)).collect::<HashMap<_, _>>();
+    let mut enums = HashMap::<u64, &EnumDef>::new();
+    let mut enum_names = HashMap::<String, u64>::new();
+    for enumeration in &program.enums {
+        if structures.contains_key(&enumeration.id) {
+            return Err(format!("type name '{}' conflicts with a struct declaration", enumeration.name));
+        }
+        if enums.insert(enumeration.id, enumeration).is_some()
+            || enum_names.insert(enumeration.name.clone(), enumeration.id).is_some()
+        {
+            return Err(format!("duplicate enum declaration '{}'", enumeration.name));
+        }
+    }
+    for (type_id, type_name) in &program.type_references {
+        if let Some(structure) = structures.get(type_id) {
+            if structure.name != *type_name {
+                return Err(format!("struct type identifier collision between '{}' and '{}'", structure.name, type_name));
+            }
+        } else if let Some(enumeration) = enums.get(type_id) {
+            if enumeration.name != *type_name {
+                return Err(format!("enum type identifier collision between '{}' and '{}'", enumeration.name, type_name));
+            }
+        } else {
+            return Err(format!("unknown type '{type_name}'"));
+        }
+    }
+    let enum_ids = enums.keys().copied().collect::<HashSet<_>>();
+    for structure in &mut program.structs {
+        for (_, ty) in &mut structure.fields {
+            resolve_enum_type(ty, &enum_ids);
+        }
+    }
+    for function in &mut program.functions {
+        for (_, ty) in &mut function.params {
+            resolve_enum_type(ty, &enum_ids);
+        }
+        resolve_enum_type(&mut function.return_type, &enum_ids);
+        if let Some(body) = &mut function.body {
+            resolve_enum_stmt(body, &enum_ids);
+        }
+    }
+    for constant in &mut program.constants {
+        resolve_enum_type(&mut constant.ty, &enum_ids);
+        resolve_enum_expr(&mut constant.value, &enum_ids);
+    }
+    for variable in &mut program.static_vars {
+        resolve_enum_type(&mut variable.ty, &enum_ids);
+        if let Some(value) = &mut variable.value {
+            resolve_enum_expr(value, &enum_ids);
+        }
+    }
+    Ok(program)
+}
+
 fn compile_to_llvm(program: &Program) -> Result<String, String> {
     compile_to_llvm_for_target(program, usize::BITS, None)
 }
@@ -2667,6 +2818,8 @@ fn compile_to_llvm_for_target(
     if !matches!(target_pointer_width, 32 | 64) {
         return Err(format!("unsupported target pointer width {target_pointer_width}; only 32-bit and 64-bit targets are supported"));
     }
+    let normalized_program = resolve_program_enum_types(program)?;
+    let program = &normalized_program;
     let functions = &program.functions;
     let mut structures = HashMap::<u64, StructDef>::new();
     for structure in &program.structs {
