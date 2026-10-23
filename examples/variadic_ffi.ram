@@ -1,0 +1,10 @@
+extern fn variadic_sum(base: i32, ...) -> i32;
+
+fn main() -> i32 {
+    let small: i8 = -5;
+    let medium: u16 = 250;
+    let enabled: bool = true;
+    let result: i32 = variadic_sum(10, small, medium, enabled, 2.0);
+    print(result);
+    return result - 258;
+}
