@@ -3306,6 +3306,17 @@ mod tests {
     }
 
     #[test]
+    fn lowers_compare_exchange_with_expected_value_writeback() {
+        let source = "fn main() -> i32 { let mut value: i32 = 10; let mut expected: i32 = 10; let address: ptr = &value; let expected_address: ptr = &expected; let success: bool = atomic_compare_exchange_i32_acq_rel(address, expected_address, 20); print(success); print(value); expected = 15; let failed: bool = atomic_compare_exchange_i32_release(address, expected_address, 30); print(failed); print(expected); print(value); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("cmpxchg ptr"));
+        assert!(ir.contains(" acq_rel acquire, align 4"));
+        assert!(ir.contains(" release monotonic, align 4"));
+        assert!(ir.contains("extractvalue { i32, i1 }"));
+        assert!(ir.contains("store i32"));
+    }
+
+    #[test]
     fn rejects_invalid_atomic_memory_orderings_and_types() {
         let load_order = compile("fn main() -> i32 { let mut value: i32 = 0; let p: ptr = &value; let x: i32 = atomic_load_i32_release(p); return x; }").unwrap_err();
         assert!(load_order.contains("atomic loads support relaxed, acquire, or seq_cst ordering"));
@@ -3313,6 +3324,8 @@ mod tests {
         assert!(store_order.contains("atomic stores support relaxed, release, or seq_cst ordering"));
         let type_error = compile("fn main() -> i32 { let mut value: i32 = 0; let p: ptr = &value; atomic_store_i32(p, true); return 0; }").unwrap_err();
         assert!(type_error.contains("atomic_store value"));
+        let count_error = compile("fn main() -> i32 { let mut value: i32 = 0; let p: ptr = &value; let ok: bool = atomic_compare_exchange_i32(p, p); return 0; }").unwrap_err();
+        assert!(count_error.contains("atomic_compare_exchange_* expects 3 argument(s)"));
     }
 
     #[test]
