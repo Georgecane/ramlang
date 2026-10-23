@@ -185,7 +185,8 @@ struct Function {
     name: String,
     params: Vec<(String, Type)>,
     return_type: Type,
-    body: Stmt,
+    body: Option<Stmt>,
+    external: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -275,10 +276,11 @@ impl Parser {
     fn parse_program(&mut self) -> Result<Vec<Function>, String> {
         let mut functions = Vec::new();
         while !self.at_end() {
+            let external = self.match_keyword("extern");
             if !self.match_keyword("fn") {
-                return Err(self.error("expected a function declaration beginning with 'fn'".to_owned()));
+                return Err(self.error("expected a function declaration beginning with 'fn' or 'extern fn'".to_owned()));
             }
-            functions.push(self.parse_function()?);
+            functions.push(self.parse_function(external)?);
         }
         if functions.is_empty() {
             return Err("source file does not contain any functions".to_owned());
@@ -299,7 +301,7 @@ impl Parser {
         }
     }
 
-    fn parse_function(&mut self) -> Result<Function, String> {
+    fn parse_function(&mut self, external: bool) -> Result<Function, String> {
         let name = self.expect_ident("function name")?;
         self.expect_symbol("(")?;
         let mut params = Vec::new();
@@ -319,8 +321,13 @@ impl Parser {
         }
         self.expect_symbol(")")?;
         let return_type = if self.match_symbol("->") { self.parse_type()? } else { Type::Void };
-        let body = self.parse_block()?;
-        Ok(Function { name, params, return_type, body })
+        let body = if external {
+            self.expect_symbol(";")?;
+            None
+        } else {
+            Some(self.parse_block()?)
+        };
+        Ok(Function { name, params, return_type, body, external })
     }
 
     fn parse_block(&mut self) -> Result<Stmt, String> {
@@ -911,7 +918,9 @@ impl<'a> FunctionGenerator<'a> {
             self.scopes[0].insert(name.clone(), Binding { ty: *ty, slot, mutable: false });
         }
 
-        self.emit_stmt(&function.body)?;
+        let body_statement = function.body.as_ref()
+            .ok_or_else(|| format!("external function '{}' has no body to generate", function.name))?;
+        self.emit_stmt(body_statement)?;
         if function.return_type != Type::Void && !self.terminated {
             return Err(format!("not every path in function '{}' returns {}", function.name, function.return_type.llvm()));
         }
@@ -957,12 +966,15 @@ fn compile_to_llvm(functions: &[Function]) -> Result<String, String> {
     }
 
     let main = signatures.get("main").ok_or_else(|| "program must define fn main() -> i32".to_owned())?;
-    if !main.params.is_empty() || main.return_type != Type::I32 {
-        return Err("entry point must have signature fn main() -> i32".to_owned());
+    let main_function = functions.iter().find(|function| function.name == "main").unwrap();
+    if main_function.external || !main.params.is_empty() || main.return_type != Type::I32 {
+        return Err("entry point must be a definition with signature fn main() -> i32".to_owned());
     }
     for function in functions {
-        if function.return_type != Type::Void && !statement_always_returns(&function.body) {
-            return Err(format!("function '{}' must return a value on every path", function.name));
+        if let Some(body) = &function.body {
+            if function.return_type != Type::Void && !statement_always_returns(body) {
+                return Err(format!("function '{}' must return a value on every path", function.name));
+            }
         }
     }
 
@@ -975,6 +987,15 @@ fn compile_to_llvm(functions: &[Function]) -> Result<String, String> {
     module.push_str("declare void @free(ptr)\n\n");
 
     for function in functions {
+        if function.external {
+            let params = function.params.iter()
+                .map(|(_, ty)| ty.llvm())
+                .collect::<Vec<_>>()
+                .join(", ");
+            module.push_str(&format!("declare {} @{}({params})\\n\\n", function.return_type.llvm(), function.name));
+            continue;
+        }
+
         let params = function.params.iter().enumerate()
             .map(|(index, (_, ty))| format!("{} %arg{index}", ty.llvm()))
             .collect::<Vec<_>>()
