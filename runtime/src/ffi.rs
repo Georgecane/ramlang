@@ -1423,6 +1423,239 @@ pub unsafe extern "C" fn ramlang_free(pointer: *mut c_void) {
     clear_last_error();
 }
 
+/// C-free RamLang allocator entry points used by generated LLVM modules.
+///
+/// These wrappers deliberately have project-specific names so the generated executable
+/// doesn't interpose the process-wide libc malloc/free symbols.
+#[unsafe(no_mangle)]
+pub extern "C" fn ramlang_malloc(size: usize) -> *mut c_void {
+    ramlang_alloc(size as u64)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ramlang_calloc(count: usize, size: usize) -> *mut c_void {
+    let Some(total) = count.checked_mul(size) else {
+        set_last_error("calloc size overflow");
+        return ptr::null_mut();
+    };
+    let pointer = ramlang_alloc(total as u64);
+    if !pointer.is_null() {
+        // ramlang_alloc returns at least one writable byte for a zero-size allocation.
+        // SAFETY: the allocation has max(total, 1) bytes available.
+        unsafe { ptr::write_bytes(pointer.cast::<u8>(), 0, total.max(1)) };
+    }
+    pointer
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_realloc(
+    pointer: *mut c_void,
+    new_size: usize,
+) -> *mut c_void {
+    if pointer.is_null() {
+        return ramlang_malloc(new_size);
+    }
+    if new_size == 0 {
+        // SAFETY: pointer validity is part of the realloc caller contract.
+        unsafe { ramlang_free(pointer) };
+        return ptr::null_mut();
+    }
+    // SAFETY: a non-null pointer must be a live ramlang allocator allocation.
+    let old_base = unsafe { pointer.cast::<u8>().sub(16) };
+    // SAFETY: ramlang_alloc stores its payload size at the start of the allocation header.
+    let old_size = unsafe { old_base.cast::<usize>().read() };
+    let replacement = ramlang_malloc(new_size);
+    if replacement.is_null() {
+        return ptr::null_mut();
+    }
+    // SAFETY: both allocations are live and copy length is bounded by both capacities.
+    unsafe {
+        ptr::copy_nonoverlapping(
+            pointer.cast::<u8>(),
+            replacement.cast::<u8>(),
+            old_size.min(new_size),
+        );
+        ramlang_free(pointer);
+    }
+    replacement
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_memcpy(
+    destination: *mut c_void,
+    source: *const c_void,
+    count: usize,
+) -> *mut c_void {
+    if count == 0 {
+        return destination;
+    }
+    if destination.is_null() || source.is_null() {
+        set_last_error("memcpy pointers must not be null when count is nonzero");
+        return ptr::null_mut();
+    }
+    // SAFETY: both pointer ranges must be valid and non-overlapping for count bytes.
+    unsafe {
+        ptr::copy_nonoverlapping(source.cast::<u8>(), destination.cast::<u8>(), count);
+    }
+    clear_last_error();
+    destination
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_memmove(
+    destination: *mut c_void,
+    source: *const c_void,
+    count: usize,
+) -> *mut c_void {
+    if count == 0 {
+        return destination;
+    }
+    if destination.is_null() || source.is_null() {
+        set_last_error("memmove pointers must not be null when count is nonzero");
+        return ptr::null_mut();
+    }
+    // SAFETY: both pointer ranges must be valid for count bytes; overlap is permitted.
+    unsafe { ptr::copy(source.cast::<u8>(), destination.cast::<u8>(), count) };
+    clear_last_error();
+    destination
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_memset(
+    destination: *mut c_void,
+    byte: i32,
+    count: usize,
+) -> *mut c_void {
+    if count == 0 {
+        return destination;
+    }
+    if destination.is_null() {
+        set_last_error("memset destination must not be null when count is nonzero");
+        return ptr::null_mut();
+    }
+    // SAFETY: destination points to count writable bytes.
+    unsafe { ptr::write_bytes(destination.cast::<u8>(), byte as u8, count) };
+    clear_last_error();
+    destination
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_memcmp(
+    left: *const c_void,
+    right: *const c_void,
+    count: usize,
+) -> i32 {
+    if count == 0 {
+        return 0;
+    }
+    if left.is_null() || right.is_null() {
+        set_last_error("memcmp pointers must not be null when count is nonzero");
+        return 0;
+    }
+    // SAFETY: both pointer ranges must be readable for count bytes.
+    let left = unsafe { slice::from_raw_parts(left.cast::<u8>(), count) };
+    // SAFETY: both pointer ranges must be readable for count bytes.
+    let right = unsafe { slice::from_raw_parts(right.cast::<u8>(), count) };
+    clear_last_error();
+    for (a, b) in left.iter().zip(right) {
+        if a != b {
+            return i32::from(*a) - i32::from(*b);
+        }
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_strlen(value: *const c_char) -> usize {
+    if value.is_null() {
+        set_last_error("strlen argument must not be null");
+        return 0;
+    }
+    // SAFETY: the caller guarantees a readable NUL-terminated string.
+    let length = unsafe { CStr::from_ptr(value) }.to_bytes().len();
+    clear_last_error();
+    length
+}
+
+fn compare_terminated_bytes(left: &[u8], right: &[u8], limit: usize) -> i32 {
+    for index in 0..limit {
+        let a = left.get(index).copied().unwrap_or(0);
+        let b = right.get(index).copied().unwrap_or(0);
+        if a != b {
+            return i32::from(a) - i32::from(b);
+        }
+        if a == 0 {
+            return 0;
+        }
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_strcmp(
+    left: *const c_char,
+    right: *const c_char,
+) -> i32 {
+    if left.is_null() || right.is_null() {
+        set_last_error("strcmp arguments must not be null");
+        return 0;
+    }
+    // SAFETY: both arguments must be readable NUL-terminated strings.
+    let left = unsafe { CStr::from_ptr(left) }.to_bytes();
+    // SAFETY: both arguments must be readable NUL-terminated strings.
+    let right = unsafe { CStr::from_ptr(right) }.to_bytes();
+    clear_last_error();
+    compare_terminated_bytes(left, right, usize::MAX)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_strncmp(
+    left: *const c_char,
+    right: *const c_char,
+    count: usize,
+) -> i32 {
+    if count == 0 {
+        return 0;
+    }
+    if left.is_null() || right.is_null() {
+        set_last_error("strncmp arguments must not be null when count is nonzero");
+        return 0;
+    }
+    // SAFETY: both arguments must be readable NUL-terminated strings.
+    let left = unsafe { CStr::from_ptr(left) }.to_bytes();
+    // SAFETY: both arguments must be readable NUL-terminated strings.
+    let right = unsafe { CStr::from_ptr(right) }.to_bytes();
+    clear_last_error();
+    compare_terminated_bytes(left, right, count)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_memchr(
+    value: *const c_void,
+    byte: i32,
+    count: usize,
+) -> *mut c_void {
+    if count == 0 {
+        return ptr::null_mut();
+    }
+    if value.is_null() {
+        set_last_error("memchr buffer must not be null when count is nonzero");
+        return ptr::null_mut();
+    }
+    // SAFETY: value points to count readable bytes.
+    let bytes = unsafe { slice::from_raw_parts(value.cast::<u8>(), count) };
+    let result = bytes
+        .iter()
+        .position(|candidate| *candidate == byte as u8)
+        .map(|offset| {
+            // SAFETY: offset is within the readable range and the pointer originated from value.
+            unsafe { value.cast::<u8>().add(offset).cast::<c_void>() }
+        })
+        .unwrap_or(ptr::null_mut());
+    clear_last_error();
+    result
+}
+
 /// Result slot shared with a generated RamLang async-function wrapper.
 struct FutureState {
     result: Mutex<Option<i64>>,
