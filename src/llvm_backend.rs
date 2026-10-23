@@ -123,12 +123,12 @@ mod tests {
 
     #[test]
     fn accepts_valid_llvm_ir_without_external_processes() {
-        verify_ir("define i32 @main() { entry: ret i32 0 }").unwrap();
+        verify_ir("define i32 @main() {\nentry:\n  ret i32 0\n}\n").unwrap();
     }
 
     #[test]
     fn rejects_invalid_llvm_ir_with_diagnostic() {
-        let error = verify_ir("define i32 @main() { entry: ret void }").unwrap_err();
+        let error = verify_ir("define i32 @main() {\nentry:\n  ret void\n}\n").unwrap_err();
         assert!(
             error.contains("parse") || error.contains("verifier"),
             "unexpected diagnostic: {error}"
