@@ -383,6 +383,16 @@ fn main() -> i32 {
 
 Fences alone do not make non-atomic data-race access safe and do not replace atomic operations, locks, or target-specific device barriers. Pair the ordering primitives with a correct synchronization protocol; MMIO requirements are architecture and device specific.
 
+## Memory-mapped I/O example
+
+`examples/mmio_registers.ram` demonstrates a static raw-pointer base, `volatile_load_u32`, and `volatile_store_u32`. CI compiles it to LLVM IR only and checks the emitted pointer constant and volatile instructions; it does not execute the register accessors.
+
+```sh
+cargo run --release -- examples/mmio_registers.ram --emit-llvm mmio.ll
+```
+
+The example address is only a placeholder. Replace it with the address and access widths documented for your specific board/device, and add any platform-required barriers. Running a program that dereferences an invalid MMIO address may crash or damage hardware.
+
 ## Unaligned memory access
 
 The `load_unaligned_*` and `store_unaligned_*` built-ins access raw memory with LLVM alignment `1`, avoiding an implicit requirement that the pointer be naturally aligned for the selected scalar type. The matching `volatile_load_unaligned_*` and `volatile_store_unaligned_*` variants combine alignment `1` with volatile semantics.
