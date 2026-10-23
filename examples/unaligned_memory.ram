@@ -1,0 +1,15 @@
+fn main() -> i32 {
+    let memory: ptr = alloc(8);
+    let unaligned_address: ptr = ptr_offset(memory, 1);
+
+    store_unaligned_i32(unaligned_address, 42);
+    let integer_value: i32 = load_unaligned_i32(unaligned_address);
+    print(integer_value);
+
+    volatile_store_unaligned_i16(unaligned_address, 7);
+    let short_value: i16 = volatile_load_unaligned_i16(unaligned_address);
+    print(short_value);
+
+    free(memory);
+    return 0;
+}
