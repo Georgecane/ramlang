@@ -3150,18 +3150,134 @@ fn constant_integer_value(expression: &Expr) -> Result<Option<i128>, String> {
             }
             Ok(Some(value as i128))
         }
-        Expr::Unary { op, right } if op == "-" => {
-            if let Expr::Number(text) = right.as_ref() {
-                if !text.contains('.') {
-                    let magnitude: u128 = text.parse()
-                        .map_err(|_| format!("integer constant '-{text}' is outside the supported range"))?;
-                    if magnitude > i128::MAX as u128 {
-                        return Err(format!("integer constant '-{text}' is outside the supported range"));
+        Expr::Unary { op, right } => {
+            let Some(value) = constant_integer_value(right)? else {
+                return Ok(None);
+            };
+            let result = match op.as_str() {
+                "-" => value.checked_neg(),
+                "~" => Some(!value),
+                "+" => Some(value),
+                _ => return Ok(None),
+            };
+            result.map(Some).ok_or_else(|| "integer constant expression overflow".to_owned())
+        }
+        Expr::Binary { left, op, right } => {
+            let (Some(left), Some(right)) = (constant_integer_value(left)?, constant_integer_value(right)?) else {
+                return Ok(None);
+            };
+            let result = match op.as_str() {
+                "+" => left.checked_add(right),
+                "-" => left.checked_sub(right),
+                "*" => left.checked_mul(right),
+                "/" => left.checked_div(right),
+                "%" => left.checked_rem(right),
+                "&" => Some(left & right),
+                "|" => Some(left | right),
+                "^" => Some(left ^ right),
+                "<<" if (0..128).contains(&right) => {
+                    if right == 127 {
+                        if left == 0 { Some(0) } else { None }
+                    } else {
+                        left.checked_mul(1_i128 << (right as u32))
                     }
-                    return Ok(Some(-(magnitude as i128)));
                 }
+                ">>" if (0..128).contains(&right) => Some(left >> (right as u32)),
+                "<<" | ">>" => return Err("integer constant shift count must be between 0 and 127".to_owned()),
+                _ => return Ok(None),
+            };
+            result.map(Some).ok_or_else(|| {
+                if matches!(op.as_str(), "/" | "%") && right == 0 {
+                    "division by zero in integer constant expression".to_owned()
+                } else {
+                    "integer constant expression overflow".to_owned()
+                }
+            })
+        }
+        _ => Ok(None),
+    }
+}
+
+fn constant_bool_value(expression: &Expr) -> Result<Option<bool>, String> {
+    match expression {
+        Expr::Bool(value) => Ok(Some(*value)),
+        Expr::Unary { op, right } if op == "!" => {
+            Ok(constant_bool_value(right)?.map(|value| !value))
+        }
+        Expr::Binary { left, op, right } if matches!(op.as_str(), "&&" | "||") => {
+            let (Some(left), Some(right)) = (constant_bool_value(left)?, constant_bool_value(right)?) else {
+                return Ok(None);
+            };
+            Ok(Some(if op == "&&" { left && right } else { left || right }))
+        }
+        Expr::Binary { left, op, right } if matches!(op.as_str(), "==" | "!=" | "<" | ">" | "<=" | ">=") => {
+            if let (Some(left), Some(right)) = (constant_integer_value(left)?, constant_integer_value(right)?) {
+                return Ok(Some(match op.as_str() {
+                    "==" => left == right,
+                    "!=" => left != right,
+                    "<" => left < right,
+                    ">" => left > right,
+                    "<=" => left <= right,
+                    ">=" => left >= right,
+                    _ => unreachable!(),
+                }));
+            }
+            if let (Some(left), Some(right)) = (constant_bool_value(left)?, constant_bool_value(right)?) {
+                return Ok(Some(match op.as_str() {
+                    "==" => left == right,
+                    "!=" => left != right,
+                    "<" => left < right,
+                    ">" => left > right,
+                    "<=" => left <= right,
+                    ">=" => left >= right,
+                    _ => unreachable!(),
+                }));
             }
             Ok(None)
+        }
+        _ => Ok(None),
+    }
+}
+
+fn constant_float_value(expression: &Expr) -> Result<Option<f64>, String> {
+    match expression {
+        Expr::Number(text) => {
+            let value: f64 = text.parse()
+                .map_err(|_| format!("floating-point constant '{text}' is outside the supported range"))?;
+            if !value.is_finite() {
+                return Err(format!("floating-point constant '{text}' must be finite"));
+            }
+            Ok(Some(value))
+        }
+        Expr::Unary { op, right } => {
+            let Some(value) = constant_float_value(right)? else {
+                return Ok(None);
+            };
+            let result = match op.as_str() {
+                "-" => -value,
+                "+" => value,
+                _ => return Ok(None),
+            };
+            if !result.is_finite() {
+                return Err("floating-point constant expression is outside the finite range".to_owned());
+            }
+            Ok(Some(result))
+        }
+        Expr::Binary { left, op, right } if matches!(op.as_str(), "+" | "-" | "*" | "/") => {
+            let (Some(left), Some(right)) = (constant_float_value(left)?, constant_float_value(right)?) else {
+                return Ok(None);
+            };
+            let result = match op.as_str() {
+                "+" => left + right,
+                "-" => left - right,
+                "*" => left * right,
+                "/" => left / right,
+                _ => unreachable!(),
+            };
+            if !result.is_finite() {
+                return Err("floating-point constant expression is outside the finite range".to_owned());
+            }
+            Ok(Some(result))
         }
         _ => Ok(None),
     }
@@ -3209,29 +3325,14 @@ fn lower_global_constant(constant: &GlobalConst) -> Result<(String, Option<Strin
     }
 
     if constant.ty == Type::Bool {
-        if let Expr::Bool(value) = &constant.value {
-            return Ok((if *value { "true" } else { "false" }.to_owned(), None));
+        if let Some(value) = constant_bool_value(&constant.value)? {
+            return Ok((if value { "true" } else { "false" }.to_owned(), None));
         }
         return Err(mismatch());
     }
 
     if constant.ty == Type::F64 {
-        let text = match &constant.value {
-            Expr::Number(text) if text.contains('.') => Some(text.clone()),
-            Expr::Unary { op, right } if op == "-" => {
-                if let Expr::Number(text) = right.as_ref() {
-                    if text.contains('.') { Some(format!("-{text}")) } else { None }
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-        if let Some(text) = text {
-            let value: f64 = text.parse().map_err(|_| mismatch())?;
-            if !value.is_finite() {
-                return Err(format!("floating-point constant '{name}' must be finite"));
-            }
+        if let Some(value) = constant_float_value(&constant.value)? {
             return Ok((format!("{value:.17e}"), None));
         }
         return Err(mismatch());
