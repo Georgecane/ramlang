@@ -1711,6 +1711,24 @@ mod tests {
     }
 
     #[test]
+    fn lowers_unsigned_types_and_operations() {
+        let source = "fn main() -> i32 { let a: u8 = 255; let b: u16 = 65535; let c: u32 = 4294967295; let d: u64 = 18446744073709551615; let gt: bool = a > 1 as u8; let quotient: u32 = c / 5; let shifted: u64 = d >> 63; let widened: u16 = a as u16; print(a); print(b); print(c); print(d); print(gt); print(quotient); print(shifted); print(widened); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("icmp ugt i8"));
+        assert!(ir.contains("udiv i32"));
+        assert!(ir.contains("lshr i64"));
+        assert!(ir.contains("zext i8"));
+        assert!(ir.contains("uitofp i64"));
+        assert!(ir.contains("@.fmt.u64"));
+    }
+
+    #[test]
+    fn rejects_negative_literal_for_unsigned_initializer() {
+        let error = compile("fn main() -> i32 { let x: u8 = -1; return 0; }").unwrap_err();
+        assert!(error.contains("negative integer literals cannot initialize unsigned types"));
+    }
+
+    #[test]
     fn rejects_casts_to_void_and_pointer_integer_casts() {
         let void_cast = compile("fn main() -> i32 { let x: i32 = 1 as void; return 0; }").unwrap_err();
         assert!(void_cast.contains("cast a value to void"));
