@@ -1,0 +1,18 @@
+packed struct Packet {
+    tag: u8,
+    value: i32,
+    tail: u16,
+}
+
+fn main() -> i32 {
+    let mut packet: Packet = Packet { tag: 1, value: 42, tail: 7 };
+
+    print(offset_of(Packet, value));
+    print(size_of(Packet));
+    print(align_of(Packet));
+    print(packet.value);
+
+    packet.value = 43;
+    print(packet.value);
+    return 0;
+}
