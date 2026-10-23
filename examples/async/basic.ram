@@ -1,0 +1,10 @@
+async fn double(value: i32) -> i32 {
+    return value * 2;
+}
+
+fn main() -> i32 {
+    let future: Future<i32> = double(21);
+    let result: i32 = await future;
+    print(result);
+    return 0;
+}
