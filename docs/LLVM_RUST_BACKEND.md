@@ -12,7 +12,7 @@ The backend lives in `src/llvm_backend.rs`:
 4. Emit native object files and assembly directly through LLVM. Emit bitcode directly from the verified module.
 5. For an executable, send the resulting object file to a platform linker driver. The driver no longer parses RamLang's generated IR or performs LLVM code generation.
 
-The supported build currently pins LLVM 18.1.x through Inkwell 0.6.0. This gives the compiler an explicit, reproducible LLVM binding rather than accepting an arbitrary Clang version for every compilation.
+The build uses Inkwell 0.11.x and supports LLVM 18.1.x through 23.1.x behind explicit Cargo features. CI pins LLVM 23.1.x; developers with another supported release can build with `--no-default-features --features llvm22` (substitute their installed major). This keeps the Rust binding matched to the installed LLVM library instead of accepting an arbitrary Clang version for every compilation.
 
 ## What has and has not been removed
 
