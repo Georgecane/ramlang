@@ -118,6 +118,10 @@ jobs:
         run: |
           cargo run --release -- examples/hello.ram --target x86_64-unknown-linux-gnu --target-cpu x86-64 --target-feature +sse2 -o target/hello-target-cpu
           test "$(target/hello-target-cpu)" = "49"
+      - name: Compile and run LLVM inline assembly example
+        run: |
+          cargo run --release -- examples/inline_asm.ram --target x86_64-unknown-linux-gnu -o target/inline-asm
+          test "$(target/inline-asm)" = "42"
       - name: Emit, assemble, and run target assembly output
         run: |
           cargo run --release -- examples/hello.ram --emit-asm -o target/hello.s
