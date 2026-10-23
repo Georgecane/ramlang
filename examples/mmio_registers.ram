@@ -1,0 +1,17 @@
+// Example only: replace this address with the documented base address
+// for the actual board/device before using these accessors.
+static mut MMIO_BASE: ptr = 1073741824 as ptr;
+
+fn read_status() -> u32 {
+    return volatile_load_u32(MMIO_BASE);
+}
+
+fn write_control(value: u32) -> void {
+    volatile_store_u32(MMIO_BASE, value);
+    return;
+}
+
+fn main() -> i32 {
+    // The example deliberately does not touch the device at runtime.
+    return 0;
+}
