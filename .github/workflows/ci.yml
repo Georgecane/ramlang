@@ -48,6 +48,10 @@ jobs:
         run: |
           cargo run --release -- examples/logical.ram -o target/logical
           test "$(target/logical)" = "0"
+      - name: Compile and run for-loop example
+        run: |
+          cargo run --release -- examples/for_loop.ram -o target/for-loop
+          test "$(target/for-loop)" = "18"
       - name: Compile and run loop-control example
         run: |
           cargo run --release -- examples/loop_control.ram -o target/loop-control
