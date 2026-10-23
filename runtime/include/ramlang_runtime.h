@@ -15,7 +15,8 @@ typedef struct RamlangUdpEndpoint RamlangUdpEndpoint;
  * Blocking C ABI for the current RamLang compiler.
  *
  * Frames use a four-byte big-endian unsigned length followed by exactly that many
- * bytes. The per-operation timeout is configured at connect time.
+ * bytes. The C ABI limits each TCP frame to 16 MiB. The per-operation timeout is
+ * configured at connect time.
  *
  * Error convention:
  *   connect returns NULL on failure;
