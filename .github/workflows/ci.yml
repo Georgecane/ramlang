@@ -108,7 +108,7 @@ jobs:
           test "$(target/hello-from-bitcode)" = "49"
       - name: Verify 32-bit target-aware LLVM bitcode
         run: |
-          cargo run --release -- examples/sizeof.ram --target i386-unknown-linux-gnu --emit-bc -o target/sizeof-i386.bc
+          cargo run --release -- examples/sizeof.ram --target i386-unknown-linux-gnu --opt-level 0 --emit-bc -o target/sizeof-i386.bc
           test -s target/sizeof-i386.bc
           clang -target i386-unknown-linux-gnu -S -emit-llvm target/sizeof-i386.bc -o target/sizeof-i386.ll
           grep -Fq 'target triple = "i386-unknown-linux-gnu"' target/sizeof-i386.ll
