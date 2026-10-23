@@ -5067,9 +5067,18 @@ mod tests {
     }
 
     #[test]
-    fn rejects_immutable_static_array_literal_initializers() {
-        let error = compile("static VALUES: [i32; 2] = [10, 20]; fn main() -> i32 { return 0; }").unwrap_err();
-        assert!(error.contains("static array literal 'VALUES' currently requires 'static mut'"));
+    fn lowers_immutable_static_array_literals_to_read_only_global_storage() {
+        let source = "static TABLE: [i32; 3] = [10, 20, 30]; fn main() -> i32 { print(TABLE[1]); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("@.ramlang.static.storage.TABLE = constant [3 x i32] [i32 10, i32 20, i32 30]"));
+        assert!(ir.contains("@TABLE = constant ptr getelementptr inbounds ([3 x i32], ptr @.ramlang.static.storage.TABLE, i64 0, i64 0)"));
+        assert!(ir.contains("load i32, ptr"));
+    }
+
+    #[test]
+    fn rejects_direct_mutation_of_immutable_static_array_elements() {
+        let error = compile("static TABLE: [i32; 2] = [10, 20]; fn main() -> i32 { TABLE[0] = 7; return 0; }").unwrap_err();
+        assert!(error.contains("cannot assign to an element of immutable static array 'TABLE'"));
     }
 
     #[test]
