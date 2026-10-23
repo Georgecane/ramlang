@@ -258,7 +258,9 @@ jobs:
         run: |
           cargo run --release -- examples/f32_ffi.ram --emit-obj -o target/f32-ffi.o
           clang -c examples/f32_ffi.c -o target/f32-ffi-c.o
-          clang target/f32-ffi.o target/f32-ffi-c.o -o target/f32-ffi
+          clang target/f32-ffi.o target/f32-ffi-c.o \
+            -L target/release -Wl,-rpath,"$PWD/target/release" \
+            -lramlang_runtime -o target/f32-ffi
           test "$(target/f32-ffi)" = "2.5"
       - name: Compile and link native library FFI example
         run: |
