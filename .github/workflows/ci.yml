@@ -57,6 +57,11 @@ jobs:
           cargo run --release -- examples/strings.ram -o target/strings
           expected="$(printf 'Hello, LLVM!\nUTF-8 strings work.')"
           test "$(target/strings)" = "$expected"
+      - name: Compile and run bitwise example
+        run: |
+          cargo run --release -- examples/bitwise.ram -o target/bitwise
+          expected="$(printf '%s\n%s' '-1' '10')"
+          test "$(target/bitwise)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
