@@ -11,6 +11,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Global scalar, boolean, null-pointer, and UTF-8 string constants, available across source files
+- Static global storage with immutable `static` and mutable `static mut` variables
 - Target-aware `size_of(Type)`, `align_of(Type)`, and `offset_of(Type, field)` layout queries
 - LLVM bit intrinsics for population count, leading/trailing zero counts, byte swap, and bit reversal
 - Runtime `assert(bool)` with a trap on failure, `panic(str)` for non-returning errors, `assume(bool)` lowered to `llvm.assume`, volatile memory access built-ins, and LLVM memory-order fences
@@ -200,6 +201,26 @@ fn main() -> i32 {
     return 0;
 }
 ```
+
+## Static global variables
+
+Use `static name: Type = value;` for immutable global storage or `static mut name: Type = value;` for mutable global storage with process lifetime. Global variables can be read by any function and, when mutable, assigned or addressed with `&`. Static scalar, pointer/null, boolean, floating-point, and string initializers are supported.
+
+```rust
+static mut interrupt_count: i32 = 0;
+static status_mask: u32 = 15;
+static device_name: str = "device-ready";
+
+fn main() -> i32 {
+    interrupt_count = interrupt_count + 1;
+    print(interrupt_count);
+    print(status_mask);
+    print(device_name);
+    return 0;
+}
+```
+
+Mutable statics are shared process-wide state. They are not automatically synchronized across threads or interrupt contexts, and taking a raw pointer bypasses assignment mutability checks. Complex initializers such as global struct literals and array literals are not supported yet.
 
 ## Global constants
 
