@@ -28,6 +28,14 @@ jobs:
         run: cargo test --all-targets
       - name: Build compiler
         run: cargo build --release
+      - name: Verify Rust-owned LLVM artifact emission
+        run: |
+          cargo run --release -- examples/hello.ram --emit-obj -o target/hello-rust-llvm.o
+          test -s target/hello-rust-llvm.o
+          cargo run --release -- examples/hello.ram --emit-asm -o target/hello-rust-llvm.s
+          test -s target/hello-rust-llvm.s
+          cargo run --release -- examples/hello.ram --emit-bc -o target/hello-rust-llvm.bc
+          llvm-dis-23 target/hello-rust-llvm.bc -o /dev/null
       - name: Build TCP runtime shared library
         run: cargo build --release -p ramlang-runtime
       - name: Compile and run C ABI header smoke test
