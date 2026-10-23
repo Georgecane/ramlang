@@ -9,6 +9,12 @@ fn is_float_literal(text: &str) -> bool {
     text.contains('.') || text.contains('e') || text.contains('E')
 }
 
+// LLVM's hexadecimal float literal spelling uses the 64-bit IEEE representation
+// of the exactly widened value, so f32 constants round-trip without decimal loss.
+fn llvm_f32_constant(value: f32) -> String {
+    format!("0x{:016X}", (value as f64).to_bits())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TokenKind {
     Ident,
@@ -1941,7 +1947,7 @@ impl<'a> FunctionGenerator<'a> {
                         if !single.is_finite() {
                             return Err(format!("floating-point literal '{text}' is outside the f32 finite range"));
                         }
-                        Ok((format!("{single:.8e}"), Type::F32))
+                        Ok((llvm_f32_constant(single), Type::F32))
                     } else {
                         Ok((format!("{value:.17e}"), Type::F64))
                     }
@@ -1955,7 +1961,7 @@ impl<'a> FunctionGenerator<'a> {
                             if !single.is_finite() {
                                 return Err(format!("integer literal '{text}' is outside the f32 finite range"));
                             }
-                            return Ok((format!("{single:.8e}"), Type::F32));
+                            return Ok((llvm_f32_constant(single), Type::F32));
                         }
                         return Ok((format!("{value:.17e}"), Type::F64));
                     }
@@ -3681,7 +3687,7 @@ fn lower_global_constant(
             if !single.is_finite() {
                 return Err(format!("floating-point constant '{name}' is outside the f32 finite range"));
             }
-            return Ok((format!("{single:.8e}"), None));
+            return Ok((llvm_f32_constant(single), None));
         }
         return Err(mismatch());
     }
