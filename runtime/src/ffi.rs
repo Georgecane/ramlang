@@ -1448,10 +1448,7 @@ pub extern "C" fn ramlang_calloc(count: usize, size: usize) -> *mut c_void {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ramlang_realloc(
-    pointer: *mut c_void,
-    new_size: usize,
-) -> *mut c_void {
+pub unsafe extern "C" fn ramlang_realloc(pointer: *mut c_void, new_size: usize) -> *mut c_void {
     if pointer.is_null() {
         return ramlang_malloc(new_size);
     }
@@ -1592,10 +1589,7 @@ fn compare_terminated_bytes(left: &[u8], right: &[u8], limit: usize) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ramlang_strcmp(
-    left: *const c_char,
-    right: *const c_char,
-) -> i32 {
+pub unsafe extern "C" fn ramlang_strcmp(left: *const c_char, right: *const c_char) -> i32 {
     if left.is_null() || right.is_null() {
         set_last_error("strcmp arguments must not be null");
         return 0;
