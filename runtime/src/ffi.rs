@@ -1859,13 +1859,11 @@ pub unsafe extern "C" fn ramlang_udp_request_future(
     let operation_timeout = Duration::from_millis(timeout_ms as u64);
     runtime.spawn(async move {
         let result: Result<i64, String> = async {
-            let mut addresses = tokio::time::timeout(
-                operation_timeout,
-                tokio::net::lookup_host(address.as_str()),
-            )
-            .await
-            .map_err(|_| "UDP DNS lookup timed out".to_owned())?
-            .map_err(|error| error.to_string())?;
+            let mut addresses =
+                tokio::time::timeout(operation_timeout, tokio::net::lookup_host(address.as_str()))
+                    .await
+                    .map_err(|_| "UDP DNS lookup timed out".to_owned())?
+                    .map_err(|error| error.to_string())?;
             let target = addresses
                 .next()
                 .ok_or_else(|| "UDP destination resolved to no addresses".to_owned())?;
