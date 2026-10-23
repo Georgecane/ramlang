@@ -2061,6 +2061,32 @@ pub unsafe extern "C" fn ramlang_udp_request_future(
     Box::into_raw(Box::new(RamlangFuture { state }))
 }
 
+/// Create a future that completes after the requested number of milliseconds.
+///
+/// The timer runs on the shared Tokio runtime and is cancelled if its Future handle is closed
+/// before completion. Delay uses an unsigned type, so negative timeouts are rejected by the
+/// RamLang type checker before reaching this function.
+#[unsafe(no_mangle)]
+pub extern "C" fn ramlang_sleep_future(delay_ms: u64) -> *mut RamlangFuture {
+    let runtime = match async_request_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    let state = Arc::new(FutureState::new(false));
+    let task_state = Arc::clone(&state);
+    let task = runtime.spawn(async move {
+        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        task_state.complete(0);
+    });
+    state.set_abort_handle(task.abort_handle());
+    drop(task);
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangFuture { state }))
+}
+
 /// Block until a future produces its i64 payload.
 ///
 /// # Safety
@@ -2154,6 +2180,15 @@ mod tests {
 
     unsafe extern "C" fn return_context_address(context: *mut c_void) -> i64 {
         context as usize as i64
+    }
+
+    #[test]
+    fn native_sleep_future_completes_after_timer() {
+        let future = ramlang_sleep_future(1);
+        assert!(!future.is_null());
+        assert_eq!(unsafe { ramlang_future_await_i64(future) }, 0);
+        assert_eq!(unsafe { ramlang_future_is_ready(future) }, 1);
+        unsafe { ramlang_future_close(future) };
     }
 
     #[test]
