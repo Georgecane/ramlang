@@ -3942,6 +3942,16 @@ mod tests {
     }
 
     #[test]
+    fn lowers_enum_variants_in_global_constants_and_static_storage() {
+        let source = "enum State { Idle, Running = 4, Halted } const START: State = State.Running; static mut CURRENT: State = State.Idle; fn main() -> i32 { print(START); print(CURRENT); CURRENT = State.Halted; print(CURRENT); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("@START = constant i32 4"));
+        assert!(ir.contains("@CURRENT = global i32 0"));
+        assert!(ir.contains("store i32 5, ptr @CURRENT"));
+        assert!(ir.contains("load i32, ptr @CURRENT"));
+    }
+
+    #[test]
     fn resolves_enum_types_across_source_files() {
         let mut main = parse_source("fn read_color(color: Color) -> i32 { return color as i32; } fn main() -> i32 { let color: Color = Color.Blue; return read_color(color) - 2; }").unwrap();
         let colors = parse_source("enum Color { Red, Green, Blue }").unwrap();
