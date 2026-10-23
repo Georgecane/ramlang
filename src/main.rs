@@ -1637,6 +1637,19 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((String::new(), Type::Void));
                 }
 
+                if name == "panic" {
+                    if args.len() != 1 {
+                        return Err("panic expects exactly one str argument".to_owned());
+                    }
+                    let (message, message_type) = self.emit_expr_expected(&args[0], Some(Type::Str))?;
+                    self.require_same(Type::Str, message_type, "panic message")?;
+                    self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.str, ptr {message})"));
+                    self.emit("call void @llvm.trap()");
+                    self.emit("unreachable");
+                    self.terminated = true;
+                    return Ok((String::new(), Type::Void));
+                }
+
                 if name == "alloc" {
                     if args.len() != 1 {
                         return Err("alloc expects one byte-count argument".to_owned());
