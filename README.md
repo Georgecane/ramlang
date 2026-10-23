@@ -10,6 +10,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Native compilation through Clang (LLVM 15 or newer, using opaque pointers), with LLVM IR, object, assembly, bitcode, and generated C-header output modes
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
+- Optional Tokio-backed TCP runtime exposed as a C-compatible shared library for current RamLang programs; calls through this bridge are blocking
 - Type aliases for scalar, array, struct, and enum types, including chained aliases
 - Simple enums with automatic or explicit integer discriminants, including cross-file type resolution
 - `extern static` declarations for C-defined scalar and raw-pointer globals
@@ -34,6 +35,10 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Built-in `print(value)` for integers, floating-point values, booleans, and strings
 - C-compatible string length/comparison and byte-search routines (`strlen`, `strcmp`, `strncmp`, `memchr`)
 - Unit tests for code generation and common semantic errors
+
+## TCP networking runtime
+
+Build the optional networking runtime with `cargo build --release -p ramlang-runtime`. Current RamLang programs can call its TCP framing API through `extern fn`; this compatibility bridge is blocking and does not implement language-native `async fn` or `await`. See [docs/NETWORKING_FROM_RAMLANG.md](docs/NETWORKING_FROM_RAMLANG.md) for the ABI, frame format, and a runnable client example.
 
 ## Requirements
 
