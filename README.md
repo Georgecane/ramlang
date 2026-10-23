@@ -13,7 +13,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Immutable local variables with `let` and mutable locals with `let mut`
 - Explicit casts with `as` between signed integer widths, integers and `f64`, integers and `bool`, `bool` and `f64`, and `str` / `ptr`
 - Arithmetic (`+`, `-`, `*`, `/`, `%`), signed comparisons, bitwise (`&`, `|`, `^`, `~`) and shift (`<<`, `>>`) operations, unary `-` and `!`, and short-circuit `&&` / `||`
-- `if` / `else`, `while`, `break`, `continue`, nested loops and blocks, line and block comments
+- `if` / `else`, `while`, C-style `for` loops, `break`, `continue`, nested loops and blocks, line and block comments
 - UTF-8 string literals with `\\n`, `\\r`, `\\t`, `\\0`, `\\\\`, and `\\\"` escapes\n- Built-in `print(value)` for integers, floating-point values, booleans, and strings
 - Unit tests for code generation and common semantic errors
 
