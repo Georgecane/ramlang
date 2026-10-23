@@ -30,6 +30,14 @@ typedef struct RamlangTaskScope RamlangTaskScope;
  * A connection must not be closed while another thread is using that handle.
  */
 const char *ramlang_last_error(void);
+/* Native printing builtins used by generated RamLang programs. */
+void ramlang_print_i32(int32_t value);
+void ramlang_print_i64(int64_t value);
+void ramlang_print_u32(uint32_t value);
+void ramlang_print_u64(uint64_t value);
+void ramlang_print_f64(double value);
+void ramlang_print_str(const char *value);
+
 /* Rust-owned allocator used by compiler-generated async argument frames. */
 void *ramlang_alloc(uint64_t size);
 void ramlang_free(void *pointer);
