@@ -1944,6 +1944,118 @@ fn statement_always_returns(statement: &Stmt) -> bool {
     }
 }
 
+fn constant_integer_value(expression: &Expr) -> Result<Option<i128>, String> {
+    match expression {
+        Expr::Number(text) if !text.contains('.') => {
+            let value: u128 = text.parse()
+                .map_err(|_| format!("integer constant '{text}' is outside the supported range"))?;
+            if value > i128::MAX as u128 {
+                return Err(format!("integer constant '{text}' is outside the supported range"));
+            }
+            Ok(Some(value as i128))
+        }
+        Expr::Unary { op, right } if op == "-" => {
+            if let Expr::Number(text) = right.as_ref() {
+                if !text.contains('.') {
+                    let magnitude: u128 = text.parse()
+                        .map_err(|_| format!("integer constant '-{text}' is outside the supported range"))?;
+                    if magnitude > i128::MAX as u128 {
+                        return Err(format!("integer constant '-{text}' is outside the supported range"));
+                    }
+                    return Ok(Some(-(magnitude as i128)));
+                }
+            }
+            Ok(None)
+        }
+        _ => Ok(None),
+    }
+}
+
+fn lower_global_constant(constant: &GlobalConst) -> Result<(String, Option<String>), String> {
+    let name = &constant.name;
+    let mismatch = || format!(
+        "global constant '{name}' requires a literal compatible with type {}",
+        constant.ty.llvm()
+    );
+
+    if matches!(constant.ty, Type::Ptr | Type::Str | Type::Array(_, _) | Type::Struct(_))
+        && matches!(constant.value, Expr::Null)
+    {
+        return Ok(("null".to_owned(), None));
+    }
+
+    if constant.ty == Type::Str {
+        if let Expr::String(value) = &constant.value {
+            let encoded = value.as_bytes().iter()
+                .map(|byte| format!("\\{:02X}", byte))
+                .collect::<String>();
+            let length = value.as_bytes().len() + 1;
+            let declaration = format!(
+                "@{name} = private unnamed_addr constant [{length} x i8] c\"{encoded}\\00\", align 1"
+            );
+            let operand = format!(
+                "getelementptr inbounds ([{length} x i8], ptr @{name}, i64 0, i64 0)"
+            );
+            return Ok((operand, Some(declaration)));
+        }
+        return Err(mismatch());
+    }
+
+    if constant.ty == Type::Bool {
+        if let Expr::Bool(value) = constant.value {
+            return Ok((if value { "true" } else { "false" }.to_owned(), None));
+        }
+        return Err(mismatch());
+    }
+
+    if constant.ty == Type::F64 {
+        let text = match &constant.value {
+            Expr::Number(text) if text.contains('.') => Some(text.clone()),
+            Expr::Unary { op, right } if op == "-" => {
+                if let Expr::Number(text) = right.as_ref() {
+                    if text.contains('.') { Some(format!("-{text}")) } else { None }
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(text) = text {
+            let value: f64 = text.parse().map_err(|_| mismatch())?;
+            if !value.is_finite() {
+                return Err(format!("floating-point constant '{name}' must be finite"));
+            }
+            return Ok((format!("{value:.17e}"), None));
+        }
+        return Err(mismatch());
+    }
+
+    if constant.ty.is_integer() {
+        let Some(value) = constant_integer_value(&constant.value)? else {
+            return Err(mismatch());
+        };
+        let fits = match constant.ty {
+            Type::I8 => (i8::MIN as i128..=i8::MAX as i128).contains(&value),
+            Type::I16 => (i16::MIN as i128..=i16::MAX as i128).contains(&value),
+            Type::I32 => (i32::MIN as i128..=i32::MAX as i128).contains(&value),
+            Type::I64 => (i64::MIN as i128..=i64::MAX as i128).contains(&value),
+            Type::U8 => (0..=u8::MAX as i128).contains(&value),
+            Type::U16 => (0..=u16::MAX as i128).contains(&value),
+            Type::U32 => (0..=u32::MAX as i128).contains(&value),
+            Type::U64 => (0..=u64::MAX as i128).contains(&value),
+            _ => false,
+        };
+        if !fits {
+            return Err(mismatch());
+        }
+        return Ok((value.to_string(), None));
+    }
+
+    Err(format!(
+        "global constant '{name}' has unsupported initializer; use a scalar, bool, string, or null literal"
+    ))
+}
+
 fn compile_to_llvm(program: &Program) -> Result<String, String> {
     let functions = &program.functions;
     let mut structures = HashMap::<u64, StructDef>::new();
