@@ -1,0 +1,2 @@
+const BASE: i32 = 40;
+const GREETING: str = "Shared across source files";
