@@ -2390,6 +2390,29 @@ mod tests {
     }
 
     #[test]
+    fn lowers_named_struct_declarations_and_fields() {
+        let source = "struct Point { x: i32, y: i32 } fn main() -> i32 { let mut point: Point = Point { x: 20, y: 22 }; print(point.x + point.y); point.x = 30; print(point.x); return 0; }";
+        let ir = compile(source).unwrap();
+        let type_id = struct_type_id("Point");
+        assert!(ir.contains(&format!("%struct.{type_id:016x} = type {{ i32, i32 }}")));
+        assert!(ir.contains(&format!("getelementptr inbounds %struct.{type_id:016x}")));
+        assert!(ir.contains("store i32 30"));
+        assert!(ir.contains("add i32"));
+    }
+
+    #[test]
+    fn rejects_invalid_struct_literals_and_fields() {
+        let missing = compile("struct Point { x: i32, y: i32 } fn main() -> i32 { let p: Point = Point { x: 1 }; return 0; }").unwrap_err();
+        assert!(missing.contains("missing field 'y'"));
+
+        let unknown = compile("struct Point { x: i32 } fn main() -> i32 { let p: Point = Point { z: 1 }; return 0; }").unwrap_err();
+        assert!(unknown.contains("has no field 'z'"));
+
+        let immutable = compile("struct Point { x: i32 } fn main() -> i32 { let p: Point = Point { x: 1 }; p.x = 2; return 0; }").unwrap_err();
+        assert!(immutable.contains("cannot assign to field 'x' of immutable variable 'p'"));
+    }
+
+    #[test]
     fn rejects_array_literal_length_and_element_type_mismatches() {
         let length_error = compile("fn main() -> i32 { let values: [i32; 2] = [1, 2, 3]; return 0; }").unwrap_err();
         assert!(length_error.contains("type requires 2"));
