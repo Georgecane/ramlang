@@ -882,6 +882,45 @@ impl<'a> FunctionGenerator<'a> {
         }
     }
 
+    fn emit_array_element_ptr(&mut self, array: &Expr, index: &Expr) -> Result<(String, ArrayElement), String> {
+        let (base, array_type) = self.emit_expr(array)?;
+        let Type::Array(element, length) = array_type else {
+            return Err(format!("indexing requires a fixed-length array, found {}", array_type.llvm()));
+        };
+        let (index_value, index_type) = self.emit_expr(index)?;
+        let Some(width) = index_type.integer_width() else {
+            return Err("array index must be an integer".to_owned());
+        };
+        let index_i64 = if width == 64 {
+            index_value
+        } else {
+            let extended = self.fresh_value();
+            let extension = if index_type.is_unsigned() { "zext" } else { "sext" };
+            self.emit(format!("{extended} = {extension} {} {index_value} to i64", index_type.llvm()));
+            extended
+        };
+
+        let in_bounds = self.fresh_value();
+        self.emit(format!("{in_bounds} = icmp ult i64 {index_i64}, {length}"));
+        let ok_label = self.fresh_label("array.bounds.ok");
+        let trap_label = self.fresh_label("array.bounds.trap");
+        self.emit(format!("br i1 {in_bounds}, label %{ok_label}, label %{trap_label}"));
+        self.terminated = true;
+
+        self.label(&trap_label);
+        self.emit("call void @llvm.trap()");
+        self.emit("unreachable");
+        self.terminated = true;
+
+        self.label(&ok_label);
+        let element_ptr = self.fresh_value();
+        self.emit(format!(
+            "{element_ptr} = getelementptr inbounds {}, ptr {base}, i64 {index_i64}",
+            element.llvm()
+        ));
+        Ok((element_ptr, element))
+    }
+
     fn emit_expr(&mut self, expression: &Expr) -> Result<(String, Type), String> {
         self.emit_expr_expected(expression, None)
     }
@@ -989,6 +1028,12 @@ impl<'a> FunctionGenerator<'a> {
                 self.emit(format!("{result} = load {}, ptr {}", binding.ty.llvm(), binding.slot));
                 Ok((result, binding.ty))
             }
+            Expr::Index { array, index } => {
+                let (element_ptr, element) = self.emit_array_element_ptr(array, index)?;
+                let result = self.fresh_value();
+                self.emit(format!("{result} = load {}, ptr {element_ptr}", element.llvm()));
+                Ok((result, element.ty()))
+            }
             Expr::Cast { value, target } => {
                 if *target == Type::Void {
                     return Err("cannot cast a value to void".to_owned());
@@ -997,7 +1042,9 @@ impl<'a> FunctionGenerator<'a> {
                 if source_type == *target {
                     return Ok((source, *target));
                 }
-                if matches!((source_type, *target), (Type::Str, Type::Ptr) | (Type::Ptr, Type::Str)) {
+                if matches!((source_type, *target), (Type::Str, Type::Ptr) | (Type::Ptr, Type::Str))
+                    || matches!((source_type, *target), (Type::Ptr, Type::Array(_, _)) | (Type::Array(_, _), Type::Ptr))
+                {
                     return Ok((source, *target));
                 }
                 if source_type.is_integer() && *target == Type::Ptr {
@@ -1005,7 +1052,7 @@ impl<'a> FunctionGenerator<'a> {
                     self.emit(format!("{result} = inttoptr {} {source} to ptr", source_type.llvm()));
                     return Ok((result, Type::Ptr));
                 }
-                if matches!(source_type, Type::Ptr | Type::Str) && target.is_integer() {
+                if matches!(source_type, Type::Ptr | Type::Str | Type::Array(_, _)) && target.is_integer() {
                     let result = self.fresh_value();
                     self.emit(format!("{result} = ptrtoint ptr {source} to {}", target.llvm()));
                     return Ok((result, *target));
@@ -1232,6 +1279,7 @@ impl<'a> FunctionGenerator<'a> {
                         }
                         Type::Str => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.str, ptr {value})")),
                         Type::Ptr => return Err("print does not accept raw pointers".to_owned()),
+                        Type::Array(_, _) => return Err("print does not accept arrays directly".to_owned()),
                         Type::Void => return Err("print cannot print a void expression".to_owned()),
                     }
                     return Ok((String::new(), Type::Void));
