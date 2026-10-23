@@ -3501,10 +3501,6 @@ fn constant_integer_value_with_globals(
     }
 }
 
-fn constant_bool_value(expression: &Expr) -> Result<Option<bool>, String> {
-    constant_bool_value_with_globals(expression, &HashMap::new())
-}
-
 fn constant_bool_value_with_globals(
     expression: &Expr,
     globals: &HashMap<String, (Type, String)>,
@@ -3567,10 +3563,6 @@ fn constant_bool_value_with_globals(
         }
         _ => Ok(None),
     }
-}
-
-fn constant_float_value(expression: &Expr) -> Result<Option<f64>, String> {
-    constant_float_value_with_globals(expression, &HashMap::new())
 }
 
 fn constant_float_value_with_globals(
