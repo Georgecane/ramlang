@@ -2341,25 +2341,35 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
         if global_values.contains_key(&variable.name) || global_bindings.contains_key(&variable.name) {
             return Err(format!("duplicate global symbol '{}'", variable.name));
         }
-        let initializer_name = if variable.ty == Type::Str && matches!(&variable.value, Expr::String(_)) {
-            format!(".ramlang.static.{}", variable.name)
+        if variable.external {
+            let storage = if variable.mutable { "global" } else { "constant" };
+            global_declarations.push(format!(
+                "@{} = external {storage} {}",
+                variable.name, variable.ty.llvm()
+            ));
         } else {
-            variable.name.clone()
-        };
-        let initializer = GlobalConst {
-            name: initializer_name,
-            ty: variable.ty,
-            value: variable.value.clone(),
-        };
-        let (value, declaration) = lower_global_constant(&initializer)?;
-        if let Some(declaration) = declaration {
-            global_declarations.push(declaration);
+            let initializer_value = variable.value.as_ref()
+                .ok_or_else(|| format!("static variable '{}' is missing an initializer", variable.name))?;
+            let initializer_name = if variable.ty == Type::Str && matches!(initializer_value, Expr::String(_)) {
+                format!(".ramlang.static.{}", variable.name)
+            } else {
+                variable.name.clone()
+            };
+            let initializer = GlobalConst {
+                name: initializer_name,
+                ty: variable.ty,
+                value: initializer_value.clone(),
+            };
+            let (value, declaration) = lower_global_constant(&initializer)?;
+            if let Some(declaration) = declaration {
+                global_declarations.push(declaration);
+            }
+            let storage = if variable.mutable { "global" } else { "constant" };
+            global_declarations.push(format!(
+                "@{} = {storage} {} {}",
+                variable.name, variable.ty.llvm(), value
+            ));
         }
-        let storage = if variable.mutable { "global" } else { "constant" };
-        global_declarations.push(format!(
-            "@{} = {storage} {} {}",
-            variable.name, variable.ty.llvm(), value
-        ));
         global_bindings.insert(variable.name.clone(), Binding {
             ty: variable.ty,
             slot: format!("@{}", variable.name),
