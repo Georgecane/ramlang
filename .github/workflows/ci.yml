@@ -89,6 +89,10 @@ jobs:
         run: |
           cargo run --release -- examples/pointer_casts.ram -o target/pointer-casts
           test "$(target/pointer-casts)" = "42"
+      - name: Compile imports without listing module files
+        run: |
+          cargo run --release -- examples/imports/main.ram -o target/imports
+          test "$(target/imports)" = "42"
       - name: Compile multiple source files together
         run: |
           cargo run --release -- examples/multi_file/main.ram examples/multi_file/math.ram -o target/multi-file
