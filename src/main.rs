@@ -1712,7 +1712,7 @@ mod tests {
 
     #[test]
     fn lowers_unsigned_types_and_operations() {
-        let source = "fn main() -> i32 { let a: u8 = 255; let b: u16 = 65535; let c: u32 = 4294967295; let d: u64 = 18446744073709551615; let gt: bool = a > 1 as u8; let quotient: u32 = c / 5; let shifted: u64 = d >> 63; let widened: u16 = a as u16; print(a); print(b); print(c); print(d); print(gt); print(quotient); print(shifted); print(widened); return 0; }";
+        let source = "fn main() -> i32 { let a: u8 = 255; let b: u16 = 65535; let c: u32 = 4294967295; let d: u64 = 18446744073709551615; let gt: bool = a > 1 as u8; let quotient: u32 = c / 5; let shifted: u64 = d >> 63; let widened: u16 = a as u16; let as_float: f64 = d as f64; print(a); print(b); print(c); print(d); print(gt); print(quotient); print(shifted); print(widened); print(as_float); return 0; }";
         let ir = compile(source).unwrap();
         assert!(ir.contains("icmp ugt i8"));
         assert!(ir.contains("udiv i32"));
