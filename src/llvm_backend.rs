@@ -68,7 +68,7 @@ pub fn emit_file(
     opt_level: &str,
 ) -> Result<(), String> {
     let context = Context::create();
-    let mut module = parse_module(&context, ir)?;
+    let module = parse_module(&context, ir)?;
 
     if kind == OutputKind::Bitcode {
         module
