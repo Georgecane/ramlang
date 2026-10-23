@@ -326,7 +326,7 @@ fn main() -> i32 {
 }
 ```
 
-Global numeric and boolean constants support compile-time arithmetic, bitwise operations, shifts, unary operators, and comparisons. Integer expressions are overflow-checked against the declared type, division by zero is rejected, and floating-point constant results must remain finite. Strings and null pointers still require literal initializers; references from one global constant to another and global array/struct initializers are not implemented yet.
+Global numeric and boolean constants support compile-time arithmetic, bitwise operations, shifts, unary operators, comparisons, and references to earlier constants. Integer expressions are overflow-checked against the declared type, division by zero is rejected, and floating-point constant results must remain finite. Forward references, string concatenation, and global array/struct initializers are not implemented yet.
 
 ## Enums
 
