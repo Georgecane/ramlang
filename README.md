@@ -205,6 +205,28 @@ fn main() -> i32 {
 
 Array types support scalar and pointer elements, including explicit-length literals such as `let values: [i32; 4] = [10, 20, 30, 40];`. Array literals use stack storage and must not outlive the function call. An array type is a pointer plus a declared length, so the bounds check protects the declared index range; it cannot prove that the underlying allocation actually contains that much memory. The programmer must keep the allocation size and array type consistent.
 
+## Type sizes
+
+Use `size_of(Type)` (or `sizeof(Type)`) to obtain the size in bytes as an `i64`. LLVM determines struct and pointer sizes for the selected compilation target, and fixed-length arrays use the element size multiplied by the declared length.
+
+```rust
+struct Cell {
+    value: i32,
+}
+
+fn main() -> i32 {
+    let bytes: i64 = size_of(Cell);
+    let memory: ptr = alloc(bytes);
+    let mut cell: Cell = memory as Cell;
+    cell.value = 42;
+    print(cell.value);
+    free(memory);
+    return 0;
+}
+```
+
+`size_of(void)` is invalid. Cross-compiling may change pointer and struct sizes; use this intrinsic instead of hardcoding ABI-dependent byte counts. The current allocator interface uses an `i64` size and targets a 64-bit host ABI in the provided examples.
+
 ## Address-of
 
 The unary `&` operator yields a raw pointer to a local variable, an array element, or a struct field. This allows the existing `load_*` and `store_*` operations and C ABI calls to work with stack storage without allocating separate heap memory.
