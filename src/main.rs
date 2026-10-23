@@ -158,6 +158,14 @@ impl<'a> Lexer<'a> {
                 continue;
             }
 
+            if byte == b'.' && self.peek(1) == Some(b'.') && self.peek(2) == Some(b'.') {
+                self.advance();
+                self.advance();
+                self.advance();
+                tokens.push(self.token(TokenKind::Symbol("...".to_owned()), "...".to_owned(), line, column));
+                continue;
+            }
+
             let pair = match (byte, self.peek(1)) {
                 (b'&', Some(b'&')) => Some("&&"),
                 (b'|', Some(b'|')) => Some("||"),
@@ -328,6 +336,7 @@ struct Function {
     return_type: Type,
     body: Option<Stmt>,
     external: bool,
+    variadic: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -706,8 +715,13 @@ impl Parser {
         let name = self.expect_ident("function name")?;
         self.expect_symbol("(")?;
         let mut params = Vec::new();
+        let mut variadic = false;
         if !self.check_symbol(")") {
             loop {
+                if self.match_symbol("...") {
+                    variadic = true;
+                    break;
+                }
                 let param_name = self.expect_ident("parameter name")?;
                 self.expect_symbol(":")?;
                 let param_type = self.parse_type()?;
@@ -721,6 +735,9 @@ impl Parser {
             }
         }
         self.expect_symbol(")")?;
+        if variadic && !external {
+            return Err(self.error("variadic functions must be declared with 'extern fn'".to_owned()));
+        }
         let return_type = if self.match_symbol("->") { self.parse_type()? } else { Type::Void };
         let body = if external {
             self.expect_symbol(";")?;
@@ -728,7 +745,7 @@ impl Parser {
         } else {
             Some(self.parse_block()?)
         };
-        Ok(Function { name, params, return_type, body, external })
+        Ok(Function { name, params, return_type, body, external, variadic })
     }
 
     fn parse_block(&mut self) -> Result<Stmt, String> {
@@ -1173,6 +1190,7 @@ impl Parser {
 struct Signature {
     params: Vec<Type>,
     return_type: Type,
+    variadic: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -2703,22 +2721,81 @@ impl<'a> FunctionGenerator<'a> {
 
                 let signature = self.signatures.get(name).cloned()
                     .ok_or_else(|| format!("unknown function '{name}'"))?;
-                if signature.params.len() != args.len() {
-                    return Err(format!("function '{name}' expects {} argument(s), got {}", signature.params.len(), args.len()));
+                if (!signature.variadic && signature.params.len() != args.len())
+                    || (signature.variadic && args.len() < signature.params.len())
+                {
+                    return Err(if signature.variadic {
+                        format!("variadic function '{name}' expects at least {} argument(s), got {}", signature.params.len(), args.len())
+                    } else {
+                        format!("function '{name}' expects {} argument(s), got {}", signature.params.len(), args.len())
+                    });
                 }
                 let mut lowered = Vec::new();
-                for (arg, expected) in args.iter().zip(signature.params.iter()) {
+                for (arg, expected) in args.iter().take(signature.params.len()).zip(signature.params.iter()) {
                     let (value, actual) = self.emit_expr_expected(arg, Some(*expected))?;
                     self.require_same(*expected, actual, &format!("argument to '{name}'"))?;
                     lowered.push(format!("{} {value}", actual.llvm()));
                 }
+                if signature.variadic {
+                    for arg in args.iter().skip(signature.params.len()) {
+                        let (mut value, mut actual) = self.emit_expr(arg)?;
+                        match actual {
+                            Type::Bool => {
+                                let promoted = self.fresh_value();
+                                self.emit(format!("{promoted} = zext i1 {value} to i32"));
+                                value = promoted;
+                                actual = Type::I32;
+                            }
+                            Type::I8 => {
+                                let promoted = self.fresh_value();
+                                self.emit(format!("{promoted} = sext i8 {value} to i32"));
+                                value = promoted;
+                                actual = Type::I32;
+                            }
+                            Type::U8 => {
+                                let promoted = self.fresh_value();
+                                self.emit(format!("{promoted} = zext i8 {value} to i32"));
+                                value = promoted;
+                                actual = Type::I32;
+                            }
+                            Type::I16 => {
+                                let promoted = self.fresh_value();
+                                self.emit(format!("{promoted} = sext i16 {value} to i32"));
+                                value = promoted;
+                                actual = Type::I32;
+                            }
+                            Type::U16 => {
+                                let promoted = self.fresh_value();
+                                self.emit(format!("{promoted} = zext i16 {value} to i32"));
+                                value = promoted;
+                                actual = Type::I32;
+                            }
+                            Type::Array(_, _) | Type::Struct(_) => {
+                                return Err(format!("variadic argument to '{name}' cannot pass arrays or structs by value"));
+                            }
+                            Type::Void => return Err(format!("variadic argument to '{name}' cannot have type void")),
+                            _ => {}
+                        }
+                        lowered.push(format!("{} {value}", actual.llvm()));
+                    }
+                }
                 let arguments = lowered.join(", ");
                 if signature.return_type == Type::Void {
-                    self.emit(format!("call void @{name}({arguments})"));
+                    if signature.variadic {
+                        let fixed = signature.params.iter().map(|ty| ty.llvm()).collect::<Vec<_>>().join(", ");
+                        self.emit(format!("call void ({fixed}, ...) @{name}({arguments})"));
+                    } else {
+                        self.emit(format!("call void @{name}({arguments})"));
+                    }
                     Ok((String::new(), Type::Void))
                 } else {
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call {} @{name}({arguments})", signature.return_type.llvm()));
+                    if signature.variadic {
+                        let fixed = signature.params.iter().map(|ty| ty.llvm()).collect::<Vec<_>>().join(", ");
+                        self.emit(format!("{result} = call {} ({fixed}, ...) @{name}({arguments})", signature.return_type.llvm()));
+                    } else {
+                        self.emit(format!("{result} = call {} @{name}({arguments})", signature.return_type.llvm()));
+                    }
                     Ok((result, signature.return_type))
                 }
             }
@@ -3788,6 +3865,7 @@ fn compile_to_llvm_for_target(
         let signature = Signature {
             params: function.params.iter().map(|(_, ty)| *ty).collect(),
             return_type: function.return_type,
+            variadic: function.variadic,
         };
         if signatures.insert(function.name.clone(), signature).is_some() {
             return Err(format!("duplicate function '{}'", function.name));
@@ -3940,11 +4018,13 @@ fn compile_to_llvm_for_target(
 
     for function in functions {
         if function.external {
-            let params = function.params.iter()
+            let mut params = function.params.iter()
                 .map(|(_, ty)| ty.llvm())
-                .collect::<Vec<_>>()
-                .join(", ");
-            module.push_str(&format!("declare {} @{}({params})\n\n", function.return_type.llvm(), function.name));
+                .collect::<Vec<_>>();
+            if function.variadic {
+                params.push("...".to_owned());
+            }
+            module.push_str(&format!("declare {} @{}({})\n\n", function.return_type.llvm(), function.name, params.join(", ")));
             continue;
         }
 
