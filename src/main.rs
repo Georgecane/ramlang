@@ -382,6 +382,7 @@ enum Expr {
     StructLiteral { type_id: u64, fields: Vec<(String, Expr)> },
     SizeOf(Type),
     AlignOf(Type),
+    OffsetOf(Type, String),
     Field { base: Box<Expr>, field: String },
     Unary { op: String, right: Box<Expr> },
     Cast { value: Box<Expr>, target: Type },
@@ -937,6 +938,13 @@ impl Parser {
                         Expr::SizeOf(target_type)
                     });
                 }
+                if matches!(name.as_str(), "offset_of" | "offsetof") {
+                    let target_type = self.parse_type()?;
+                    self.expect_symbol(",")?;
+                    let field = self.expect_ident("field name for offset_of")?;
+                    self.expect_symbol(")")?;
+                    return Ok(Expr::OffsetOf(target_type, field));
+                }
                 let mut args = Vec::new();
                 if !self.check_symbol(")") {
                     loop {
@@ -1152,6 +1160,25 @@ impl<'a> FunctionGenerator<'a> {
 
     fn emit_expr_expected(&mut self, expression: &Expr, expected: Option<Type>) -> Result<(String, Type), String> {
         match expression {
+            Expr::OffsetOf(ty, field) => {
+                let Type::Struct(type_id) = ty else {
+                    return Err("offset_of requires a struct type".to_owned());
+                };
+                let structure = self.structs.get(type_id)
+                    .ok_or_else(|| format!("unknown struct type id {type_id:016x}"))?;
+                let Some((field_index, _)) = structure.fields.iter().enumerate()
+                    .find(|(_, (field_name, _))| field_name == field)
+                else {
+                    return Err(format!("struct '{}' has no field '{field}'", structure.name));
+                };
+                let address = self.fresh_value();
+                self.emit(format!(
+                    "{address} = getelementptr %struct.{type_id:016x}, ptr null, i32 0, i32 {field_index}"
+                ));
+                let offset = self.fresh_value();
+                self.emit(format!("{offset} = ptrtoint ptr {address} to i64"));
+                Ok((offset, Type::I64))
+            }
             Expr::AlignOf(ty) => {
                 if *ty == Type::Void {
                     return Err("align_of(void) is invalid".to_owned());
