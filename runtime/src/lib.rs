@@ -225,7 +225,6 @@ mod tests {
     use super::*;
     use tokio::net::TcpListener;
 
-
     #[tokio::test]
     async fn task_group_joins_child_tasks() {
         let mut tasks = TaskGroup::new();
