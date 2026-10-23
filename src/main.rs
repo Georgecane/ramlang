@@ -4684,7 +4684,8 @@ fn compile_to_llvm_for_target(
     module.push_str(&format!("declare ptr @ramlang_memchr(ptr, i32, {size_t})\n"));
     module.push_str("declare ptr @ramlang_alloc(i64)\n");
     module.push_str("declare ptr @ramlang_future_spawn_i64(ptr, ptr)\n");
-    module.push_str("declare i64 @ramlang_future_await_i64(ptr)\n");\n    module.push_str("declare ptr @ramlang_sleep_future(i64)\\n");
+    module.push_str("declare i64 @ramlang_future_await_i64(ptr)\n");
+    module.push_str("declare ptr @ramlang_sleep_future(i64)\n");
     module.push_str("declare void @ramlang_future_close(ptr)\n");
     module.push_str("declare ptr @ramlang_tcp_request_future(ptr, ptr, i64)\n");
     module.push_str("declare ptr @ramlang_udp_request_future(ptr, ptr, i64)\n");
