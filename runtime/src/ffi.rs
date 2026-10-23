@@ -5,6 +5,7 @@
 //! async fn / await integration remains a separate compiler milestone.
 
 use std::{
+    alloc::{Layout, alloc as alloc_bytes, dealloc as dealloc_bytes},
     ffi::{CStr, CString, c_char, c_void},
     io, ptr, slice,
     sync::{Arc, Condvar, Mutex, OnceLock},
@@ -1294,6 +1295,67 @@ pub unsafe extern "C" fn ramlang_udp_close(endpoint: *mut RamlangUdpEndpoint) {
     clear_last_error();
 }
 
+
+/// Allocate runtime-owned memory for generated RamLang data frames.
+///
+/// The allocation is aligned to 16 bytes and must be released with ramlang_free.
+/// Returns null and sets ramlang_last_error on allocation/layout failure.
+#[unsafe(no_mangle)]
+pub extern "C" fn ramlang_alloc(size: u64) -> *mut c_void {
+    let Ok(payload_size) = usize::try_from(size) else {
+        set_last_error("allocation size does not fit this platform");
+        return ptr::null_mut();
+    };
+    let payload_size = payload_size.max(1);
+    let Some(total_size) = payload_size.checked_add(16) else {
+        set_last_error("allocation size overflow");
+        return ptr::null_mut();
+    };
+    let Ok(layout) = Layout::from_size_align(total_size, 16) else {
+        set_last_error("invalid runtime allocation layout");
+        return ptr::null_mut();
+    };
+    // SAFETY: the layout is valid and the pointer is checked before being written.
+    let base = unsafe { alloc_bytes(layout) };
+    if base.is_null() {
+        set_last_error("runtime allocation failed");
+        return ptr::null_mut();
+    }
+    // Store the actual allocation payload size in the 16-byte header.
+    // SAFETY: the allocation is at least 16 bytes, so a usize write is in bounds.
+    unsafe { base.cast::<usize>().write(payload_size) };
+    clear_last_error();
+    // SAFETY: total_size includes this header.
+    unsafe { base.add(16).cast::<c_void>() }
+}
+
+/// Release memory returned by ramlang_alloc. Null is a no-op.
+///
+/// # Safety
+/// A non-null pointer must be a live allocation returned by ramlang_alloc and must not
+/// be used again after this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_free(pointer: *mut c_void) {
+    if pointer.is_null() {
+        clear_last_error();
+        return;
+    }
+    // SAFETY: pointer validity and provenance are part of this function's contract.
+    let base = unsafe { pointer.cast::<u8>().sub(16) };
+    // SAFETY: ramlang_alloc initialized the size word in this allocation header.
+    let payload_size = unsafe { base.cast::<usize>().read() };
+    let Some(total_size) = payload_size.checked_add(16) else {
+        set_last_error("runtime allocation header is invalid");
+        return;
+    };
+    let Ok(layout) = Layout::from_size_align(total_size, 16) else {
+        set_last_error("runtime allocation header is invalid");
+        return;
+    };
+    // SAFETY: base and layout match the allocation created by ramlang_alloc.
+    unsafe { dealloc_bytes(base, layout) };
+    clear_last_error();
+}
 
 /// Result slot shared with a generated RamLang async-function wrapper.
 struct FutureState {
