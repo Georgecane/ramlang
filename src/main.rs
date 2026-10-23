@@ -1860,13 +1860,22 @@ impl<'a> FunctionGenerator<'a> {
                 let atomic_ops = [
                     ("load", "load"), ("store", "store"), ("exchange", "xchg"),
                     ("fetch_add", "add"), ("fetch_sub", "sub"), ("fetch_and", "and"),
-                    ("fetch_or", "or"), ("fetch_xor", "xor"), ("compare_exchange", "cmpxchg"),
+                    ("fetch_or", "or"), ("fetch_xor", "xor"), ("fetch_nand", "nand"),
+                    ("fetch_max", "max"), ("fetch_min", "min"),
+                    ("fetch_umax", "umax"), ("fetch_umin", "umin"),
+                    ("compare_exchange", "cmpxchg"),
                 ];
                 'atomic_parse: for (operation, _) in atomic_ops {
                     let Some(rest) = name.strip_prefix(&format!("atomic_{operation}_")) else {
                         continue;
                     };
                     for (type_name, atomic_type) in atomic_types {
+                        if matches!(operation, "fetch_max" | "fetch_min") && !type_name.starts_with("i") {
+                            continue;
+                        }
+                        if matches!(operation, "fetch_umax" | "fetch_umin") && !type_name.starts_with("u") {
+                            continue;
+                        }
                         if rest == type_name {
                             atomic_builtin = Some((operation, atomic_type, "seq_cst"));
                             break 'atomic_parse;
