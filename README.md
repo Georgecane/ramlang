@@ -39,7 +39,7 @@ RamLang is a statically typed systems-language experiment written in Rust. Its R
 
 ## TCP networking runtime
 
-Build the compiler and runtime with `cargo build --release`. RamLang has an initial native `Future<T>` / `async fn` / `await` path, a cancellable `sleep_ms` timer, and UTF-8 TCP/UDP request built-ins that return `Future<str>`. The current `await` bridge still blocks the calling OS thread; state-machine lowering that suspends and resumes without blocking remains in progress. Legacy handle APIs are available for binary protocols and explicit cancellation. See [docs/NETWORKING_FROM_RAMLANG.md](docs/NETWORKING_FROM_RAMLANG.md) for examples and limitations.
+Build the compiler and runtime with `cargo build --release`. RamLang has an initial native `Future<T>` / `async fn` / `await` path, a cancellable `sleep_ms` timer, UTF-8 TCP/UDP request built-ins that return `Future<str>`, and a `last_error()` built-in to inspect runtime diagnostics. The current `await` bridge still blocks the calling OS thread; state-machine lowering that suspends and resumes without blocking remains in progress. Legacy handle APIs are available for binary protocols and explicit cancellation. See [docs/NETWORKING_FROM_RAMLANG.md](docs/NETWORKING_FROM_RAMLANG.md) for examples and limitations.
 
 ## Requirements
 
