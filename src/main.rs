@@ -1466,35 +1466,39 @@ impl<'a> FunctionGenerator<'a> {
 
             self.label(&arm_label);
             let (result_value, arm_type) = self.emit_expr_expected(result_expression, result_type)?;
+            if self.terminated {
+                // A diverging expression such as panic() contributes no incoming
+                // edge to the result phi, but it must not make the other arms fail.
+                self.label(&next_label);
+                continue;
+            }
             if arm_type == Type::Void {
-                return Err("match expression arms must produce a value".to_owned());
+                return Err("match expression arms must produce a value unless they diverge".to_owned());
             }
             if let Some(required_type) = result_type {
                 self.require_same(required_type, arm_type, "match expression arm")?;
             } else {
                 result_type = Some(arm_type);
             }
-            if !self.terminated {
-                let predecessor = self.current_block.clone();
-                self.emit(format!("br label %{end_label}"));
-                self.terminated = true;
-                incoming.push((result_value, predecessor));
-            }
+            let predecessor = self.current_block.clone();
+            self.emit(format!("br label %{end_label}"));
+            self.terminated = true;
+            incoming.push((result_value, predecessor));
 
             self.label(&next_label);
         }
 
         if let Some(default_expression) = default {
             let (result_value, arm_type) = self.emit_expr_expected(default_expression, result_type)?;
-            if arm_type == Type::Void {
-                return Err("match expression fallback must produce a value".to_owned());
-            }
-            if let Some(required_type) = result_type {
-                self.require_same(required_type, arm_type, "match expression fallback")?;
-            } else {
-                result_type = Some(arm_type);
-            }
             if !self.terminated {
+                if arm_type == Type::Void {
+                    return Err("match expression fallback must produce a value unless it diverges".to_owned());
+                }
+                if let Some(required_type) = result_type {
+                    self.require_same(required_type, arm_type, "match expression fallback")?;
+                } else {
+                    result_type = Some(arm_type);
+                }
                 let predecessor = self.current_block.clone();
                 self.emit(format!("br label %{end_label}"));
                 self.terminated = true;
