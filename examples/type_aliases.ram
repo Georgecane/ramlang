@@ -1,0 +1,23 @@
+type Scalar = i32;
+type Number = Scalar;
+type Samples = [i32; 3];
+
+struct Vec2 {
+    x: Number,
+    y: Scalar,
+}
+
+type Position = Vec2;
+
+fn sum(left: Number, right: Scalar) -> Number {
+    return left + right;
+}
+
+fn main() -> i32 {
+    let samples: Samples = [10, 20, 12];
+    let point: Position = Position { x: 5, y: 7 };
+
+    print(sum(samples[2], point.x));
+    print(point.y);
+    return 0;
+}
