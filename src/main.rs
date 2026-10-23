@@ -2775,6 +2775,22 @@ mod tests {
     }
 
     #[test]
+    fn lowers_memory_order_fences() {
+        let source = "fn main() -> i32 { fence_acquire(); fence_release(); fence_acq_rel(); fence_seq_cst(); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("fence acquire"));
+        assert!(ir.contains("fence release"));
+        assert!(ir.contains("fence acq_rel"));
+        assert!(ir.contains("fence seq_cst"));
+    }
+
+    #[test]
+    fn rejects_arguments_to_memory_order_fences() {
+        let error = compile("fn main() -> i32 { fence_seq_cst(true); return 0; }").unwrap_err();
+        assert!(error.contains("fence_seq_cst expects no arguments"));
+    }
+
+    #[test]
     fn supports_volatile_access_for_each_scalar_width() {
         let source = "fn main() -> i32 { let p: ptr = alloc(8); volatile_store_u8(p, 1); volatile_store_i16(ptr_offset(p, 2), 2); volatile_store_u32(ptr_offset(p, 4), 4); print(volatile_load_u8(p)); print(volatile_load_i16(ptr_offset(p, 2))); print(volatile_load_u32(ptr_offset(p, 4))); free(p); return 0; }";
         let ir = compile(source).unwrap();
