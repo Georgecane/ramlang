@@ -1,0 +1,7 @@
+fn main() -> i32 {
+    let p: ptr = alloc(4);
+    store_i32(p, 42);
+    print(load_i32(p));
+    free(p);
+    return 0;
+}
