@@ -2868,6 +2868,15 @@ mod tests {
     }
 
     #[test]
+    fn accepts_panic_as_a_non_returning_path_in_nonvoid_functions() {
+        let source = r#"fn fail() -> i32 { panic("cannot continue"); } fn main() -> i32 { fail(); return 0; }"#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("define i32 @fail()"));
+        assert!(ir.contains("call void @llvm.trap()"));
+        assert!(ir.contains("unreachable"));
+    }
+
+    #[test]
     fn rejects_invalid_assert_and_assume_arguments() {
         let assert_error = compile("fn main() -> i32 { assert(1); return 0; }").unwrap_err();
         assert!(assert_error.contains("assert condition"));
