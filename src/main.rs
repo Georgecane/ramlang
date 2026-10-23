@@ -1672,6 +1672,21 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((String::new(), Type::Void));
                 }
 
+                let fence_order = match name.as_str() {
+                    "fence_acquire" => Some("acquire"),
+                    "fence_release" => Some("release"),
+                    "fence_acq_rel" => Some("acq_rel"),
+                    "fence_seq_cst" => Some("seq_cst"),
+                    _ => None,
+                };
+                if let Some(order) = fence_order {
+                    if !args.is_empty() {
+                        return Err(format!("{name} expects no arguments"));
+                    }
+                    self.emit(format!("fence {order}"));
+                    return Ok((String::new(), Type::Void));
+                }
+
                 if name == "alloc" {
                     if args.len() != 1 {
                         return Err("alloc expects one byte-count argument".to_owned());
