@@ -271,6 +271,14 @@ jobs:
           cargo run --release -- examples/enum_globals.ram -o target/enum-globals
           expected="$(printf '%s\n%s\n%s' '4' '0' '5')"
           test "$(target/enum-globals)" = "$expected"
+      - name: Compile and run exhaustive enum match example
+        run: |
+          cargo run --release -- examples/match_enum.ram -o target/match-enum
+          test "$(target/match-enum)" = "20"
+      - name: Compile and run wildcard match example
+        run: |
+          cargo run --release -- examples/match_default.ram -o target/match-default
+          test "$(target/match-default)" = "9"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
