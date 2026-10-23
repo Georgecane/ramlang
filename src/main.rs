@@ -2864,6 +2864,25 @@ mod tests {
     }
 
     #[test]
+    fn lowers_integer_bit_manipulation_intrinsics() {
+        let source = "fn main() -> i32 { print(ctpop_32(255)); print(ctlz_32(1)); print(cttz_32(8)); print(bswap_32(16909060)); print(bitreverse_32(1)); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("call i32 @llvm.ctpop.i32(i32 255)"));
+        assert!(ir.contains("call i32 @llvm.ctlz.i32(i32 1, i1 false)"));
+        assert!(ir.contains("call i32 @llvm.cttz.i32(i32 8, i1 false)"));
+        assert!(ir.contains("call i32 @llvm.bswap.i32(i32 16909060)"));
+        assert!(ir.contains("call i32 @llvm.bitreverse.i32(i32 1)"));
+    }
+
+    #[test]
+    fn rejects_wrong_widths_and_invalid_bit_intrinsic_arguments() {
+        let width_error = compile("fn main() -> i32 { let x: i32 = ctpop_8(1); return x; }").unwrap_err();
+        assert!(width_error.contains("expects an integer with width 8"));
+        let count_error = compile("fn main() -> i32 { let x: i32 = ctlz_32(1, false); return x; }").unwrap_err();
+        assert!(count_error.contains("expects exactly one integer argument"));
+    }
+
+    #[test]
     fn rejects_arguments_to_memory_order_fences() {
         let error = compile("fn main() -> i32 { fence_seq_cst(true); return 0; }").unwrap_err();
         assert!(error.contains("fence_seq_cst expects no arguments"));
