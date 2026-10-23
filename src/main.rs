@@ -1347,6 +1347,22 @@ mod tests {
     }
 
     #[test]
+    fn emits_utf8_string_literals_and_escapes() {
+        let source = r#"fn main() -> i32 { print("café\n\"ok\""); return 0; }"#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("@.str.main.0"));
+        assert!(ir.contains("\\C3\\A9"));
+        assert!(ir.contains("\\0A"));
+        assert!(ir.contains("@.fmt.str"));
+    }
+
+    #[test]
+    fn rejects_unknown_string_escapes() {
+        let error = parse_source(r#"fn main() -> i32 { print("bad\\q"); return 0; }"#).unwrap_err();
+        assert!(error.contains("unsupported string escape"));
+    }
+
+    #[test]
     fn emits_explicit_memory_operations() {
         let source = "fn main() -> i32 { let p: ptr = alloc(8); store_i32(p, 7); let q: ptr = ptr_offset(p, 4); store_i32(q, 42); print(load_i32(q)); free(p); return 0; }";
         let ir = compile(source).unwrap();
