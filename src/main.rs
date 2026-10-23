@@ -9,6 +9,7 @@ use std::{
 enum TokenKind {
     Ident,
     Number,
+    String,
     Symbol(String),
     Eof,
 }
@@ -91,6 +92,44 @@ impl<'a> Lexer<'a> {
                 continue;
             }
 
+            if byte == b'"' {
+                self.advance();
+                let mut bytes = Vec::new();
+                let mut closed = false;
+                while let Some(next) = self.peek(0) {
+                    match next {
+                        b'"' => {
+                            self.advance();
+                            closed = true;
+                            break;
+                        }
+                        b'\n' => return Err(format!("unescaped newline in string at {line}:{column}")),
+                        b'\\' => {
+                            self.advance();
+                            let escaped = self.peek(0).ok_or_else(|| format!("unterminated escape sequence at {line}:{column}"))?;
+                            self.advance();
+                            match escaped {
+                                b'n' => bytes.push(b'\n'),
+                                b'r' => bytes.push(b'\r'),
+                                b't' => bytes.push(b'\t'),
+                                b'0' => bytes.push(0),
+                                b'\\' => bytes.push(b'\\'),
+                                b'"' => bytes.push(b'"'),
+                                _ => return Err(format!("unsupported string escape at {line}:{column}")),
+                            }
+                        }
+                        _ => bytes.push(self.advance().unwrap()),
+                    }
+                }
+                if !closed {
+                    return Err(format!("unterminated string at {line}:{column}"));
+                }
+                let value = String::from_utf8(bytes)
+                    .map_err(|_| format!("string literal is not valid UTF-8 at {line}:{column}"))?;
+                tokens.push(self.token(TokenKind::String, value, line, column));
+                continue;
+            }
+
             if byte == b'/' && self.peek(1) == Some(b'/') {
                 self.advance();
                 self.advance();
@@ -162,6 +201,7 @@ enum Type {
     I64,
     F64,
     Bool,
+    Str,
     Ptr,
     Void,
 }
@@ -174,6 +214,7 @@ impl Type {
             Self::I64 => "i64",
             Self::F64 => "double",
             Self::Bool => "i1",
+            Self::Str => "ptr",
             Self::Ptr => "ptr",
             Self::Void => "void",
         }
@@ -211,6 +252,7 @@ enum Stmt {
 #[derive(Debug, Clone)]
 enum Expr {
     Number(String),
+    String(String),
     Bool(bool),
     Null,
     Variable(String),
@@ -304,9 +346,10 @@ impl Parser {
             "i64" => Ok(Type::I64),
             "f64" => Ok(Type::F64),
             "bool" => Ok(Type::Bool),
+            "str" => Ok(Type::Str),
             "ptr" => Ok(Type::Ptr),
             "void" => Ok(Type::Void),
-            _ => Err(self.error(format!("unknown type '{name}'; expected i8, i32, i64, f64, bool, ptr, or void"))),
+            _ => Err(self.error(format!("unknown type '{name}'; expected i8, i32, i64, f64, bool, str, ptr, or void"))),
         }
     }
 
@@ -497,6 +540,11 @@ impl Parser {
             self.index += 1;
             return Ok(Expr::Number(text));
         }
+        if matches!(self.current().kind, TokenKind::String) {
+            let text = self.current().text.clone();
+            self.index += 1;
+            return Ok(Expr::String(text));
+        }
         if self.match_keyword("true") {
             return Ok(Expr::Bool(true));
         }
@@ -548,6 +596,9 @@ struct FunctionGenerator<'a> {
     lines: Vec<String>,
     scopes: Vec<HashMap<String, Binding>>,
     current_block: String,
+    function_name: String,
+    string_counter: usize,
+    string_globals: Vec<String>,
     next_value: usize,
     next_label: usize,
     terminated: bool,
@@ -555,11 +606,13 @@ struct FunctionGenerator<'a> {
 }
 
 impl<'a> FunctionGenerator<'a> {
-    fn new(signatures: &'a HashMap<String, Signature>, return_type: Type) -> Self {
+    fn new(signatures: &'a HashMap<String, Signature>, return_type: Type, function_name: &str) -> Self {
         Self {
             signatures, return_type, allocas: Vec::new(), lines: Vec::new(),
             scopes: vec![HashMap::new()], current_block: "entry".to_owned(),
-            next_value: 0, next_label: 0, terminated: false, uses_printf: false,
+            function_name: function_name.to_owned(), string_counter: 0,
+            string_globals: Vec::new(), next_value: 0, next_label: 0,
+            terminated: false, uses_printf: false,
         }
     }
 
@@ -638,6 +691,23 @@ impl<'a> FunctionGenerator<'a> {
 
     fn emit_expr_expected(&mut self, expression: &Expr, expected: Option<Type>) -> Result<(String, Type), String> {
         match expression {
+            Expr::String(value) => {
+                let index = self.string_counter;
+                self.string_counter += 1;
+                let global = format!(".str.{}.{}", self.function_name, index);
+                let encoded = value.as_bytes().iter()
+                    .map(|byte| format!("\\{:02X}", byte))
+                    .collect::<String>();
+                let length = value.as_bytes().len() + 1;
+                self.string_globals.push(format!(
+                    "@{global} = private unnamed_addr constant [{length} x i8] c\"{encoded}\\00\", align 1"
+                ));
+                let result = self.fresh_value();
+                self.emit(format!(
+                    "{result} = getelementptr inbounds [{length} x i8], ptr @{global}, i64 0, i64 0"
+                ));
+                Ok((result, Type::Str))
+            }
             Expr::Number(text) => {
                 if text.contains('.') {
                     let value: f64 = text.parse().map_err(|_| format!("invalid floating-point literal '{text}'"))?;
@@ -768,6 +838,7 @@ impl<'a> FunctionGenerator<'a> {
                             self.emit(format!("{promoted} = zext i1 {value} to i32"));
                             self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 {promoted})"));
                         }
+                        Type::Str => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.str, ptr {value})")),
                         Type::Ptr => return Err("print does not accept raw pointers".to_owned()),
                         Type::Void => return Err("print cannot print a void expression".to_owned()),
                     }
@@ -983,7 +1054,7 @@ impl<'a> FunctionGenerator<'a> {
         Ok(())
     }
 
-    fn generate(mut self, function: &Function) -> Result<(String, bool), String> {
+    fn generate(mut self, function: &Function) -> Result<(String, Vec<String>, bool), String> {
         for (index, (name, ty)) in function.params.iter().enumerate() {
             if self.scopes[0].contains_key(name) {
                 return Err(format!("duplicate parameter '{name}'"));
@@ -1013,7 +1084,7 @@ impl<'a> FunctionGenerator<'a> {
             body.push_str(&line);
             body.push('\n');
         }
-        Ok((body, self.uses_printf))
+        Ok((body, self.string_globals, self.uses_printf))
     }
 }
 
