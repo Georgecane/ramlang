@@ -409,6 +409,11 @@ jobs:
           }
           EOF
           clang -std=c11 -Wall -Werror -fsyntax-only -I target target/c-header-smoke.c
+      - name: Compile and run mutable static arrays example
+        run: |
+          cargo run --release -- examples/static_arrays.ram -o target/static-arrays
+          expected="$(printf '%s\n%s' '20' '42')"
+          test "$(target/static-arrays)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
