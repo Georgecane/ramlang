@@ -1,0 +1,14 @@
+fn main() -> i32 {
+    let mut index: i32 = 0;
+    while (true) {
+        index = index + 1;
+        if (index == 2) {
+            continue;
+        }
+        if (index == 3) {
+            break;
+        }
+    }
+    print(index);
+    return 0;
+}
