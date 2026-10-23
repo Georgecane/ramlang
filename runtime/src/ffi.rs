@@ -51,10 +51,12 @@ impl AsyncTcpRequestState {
 
     fn cancel(&self) {
         self.complete(Err("TCP request cancelled".to_owned()));
-        if let Ok(handle) = self.abort_handle.lock() {
-            if let Some(handle) = handle.as_ref() {
-                handle.abort();
-            }
+        let handle = self
+            .abort_handle
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(handle) = handle.as_ref() {
+            handle.abort();
         }
     }
 }
@@ -394,8 +396,9 @@ pub unsafe extern "C" fn ramlang_tcp_request_is_ready(
     let request = unsafe { &*request };
     match request.state.result.lock() {
         Ok(result) => {
+            let ready = result.is_some();
             clear_last_error();
-            i32::from(result.is_some())
+            if ready { 1 } else { 0 }
         }
         Err(_) => {
             set_last_error("TCP request result lock is poisoned");
