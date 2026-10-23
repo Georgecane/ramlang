@@ -205,6 +205,22 @@ fn main() -> i32 {
 
 Array types support scalar and pointer elements, including explicit-length literals such as `let values: [i32; 4] = [10, 20, 30, 40];`. Array literals use stack storage and must not outlive the function call. An array type is a pointer plus a declared length, so the bounds check protects the declared index range; it cannot prove that the underlying allocation actually contains that much memory. The programmer must keep the allocation size and array type consistent.
 
+## Address-of
+
+The unary `&` operator yields a raw pointer to a local variable, an array element, or a struct field. This allows the existing `load_*` and `store_*` operations and C ABI calls to work with stack storage without allocating separate heap memory.
+
+```rust
+fn main() -> i32 {
+    let mut value: i32 = 41;
+    let address: ptr = &value;
+    store_i32(address, value + 1);
+    print(value);
+    return 0;
+}
+```
+
+The pointer is non-owning and follows the lifetime of its underlying storage. Do not return or retain a pointer to a local after its stack frame ends. Taking the address of a temporary expression is rejected.
+
 ## Explicit memory management
 
 Raw memory operations are intentionally explicit. This example allocates four bytes, stores an integer, reads it back, and frees the allocation:
