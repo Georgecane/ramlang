@@ -126,11 +126,11 @@ String values currently follow C-string behavior: embedded NUL bytes terminate o
 Use `--link-lib` (or `-l`) to link a library, `--link-search` (or `-L`) to add a library search directory, and `--link-arg` to pass an additional Clang argument:
 
 ```sh
-ramcomp examples/ffi_math.ram -o math-demo --link-search /usr/lib/x86_64-linux-gnu --link-lib m
+ramcomp examples/ffi_math.ram -o math-demo --target x86_64-unknown-linux-gnu --opt-level 2 --link-search /usr/lib/x86_64-linux-gnu --link-lib m
 ./math-demo
 ```
 
-The example calls `sqrt` from the system math library. Link options apply only to native compilation and are rejected with `--check` and `--emit-llvm`.
+The example calls `sqrt` from the system math library. `--target` forwards a target triple to Clang, and `--opt-level` accepts `0`, `1`, `2`, `3`, `s`, or `z` (default `2`). Cross-compiling may require a matching linker, sysroot, and target libraries. Target, optimization, and linker options apply only to native compilation and are rejected with `--check` and `--emit-llvm`.
 
 
 External functions can be declared using `extern fn`. Calls use the platform's default C ABI, and the final native link must be able to resolve the referenced symbol.
