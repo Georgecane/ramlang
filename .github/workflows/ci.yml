@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install LLVM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang llvm
+      - name: Run unit tests
+        run: cargo test --all-targets
+      - name: Build compiler
+        run: cargo build --release
+      - name: Compile and run hello example
+        run: |
+          cargo run --release -- examples/hello.ram -o target/hello
+          test "$(target/hello)" = "49"
+      - name: Compile and run Fibonacci example
+        run: |
+          cargo run --release -- examples/fibonacci.ram -o target/fibonacci
+          expected="$(printf '0\n1\n1\n2\n3\n5\n8\n13\n21\n34')"
+          test "$(target/fibonacci)" = "$expected"
+      - name: Verify LLVM IR output path
+        run: |
+          cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
+          clang target/hello.ll -o target/hello-from-ir
+          test "$(target/hello-from-ir)" = "49"
