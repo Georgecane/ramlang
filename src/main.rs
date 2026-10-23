@@ -799,6 +799,36 @@ impl<'a> FunctionGenerator<'a> {
                 Ok((result, binding.ty))
             }
             Expr::Unary { op, right } => {
+                if op == "-" {
+                    if let Expr::Number(text) = right.as_ref() {
+                        if !text.contains('.') {
+                            let magnitude: i128 = text.parse()
+                                .map_err(|_| format!("integer literal '-{text}' is outside the supported range"))?;
+                            let signed = magnitude.checked_neg()
+                                .ok_or_else(|| format!("integer literal '-{text}' is outside the supported range"))?;
+                            let ty = match expected {
+                                Some(Type::I8) if (i8::MIN as i128..=i8::MAX as i128).contains(&signed) => Type::I8,
+                                Some(Type::I32) if (i32::MIN as i128..=i32::MAX as i128).contains(&signed) => Type::I32,
+                                Some(Type::I64) if (i64::MIN as i128..=i64::MAX as i128).contains(&signed) => Type::I64,
+                                Some(Type::I8) => return Err(format!("integer literal '-{text}' does not fit i8")),
+                                Some(Type::I32) => return Err(format!("integer literal '-{text}' does not fit i32")),
+                                Some(Type::I64) if !(i64::MIN as i128..=i64::MAX as i128).contains(&signed) =>
+                                    return Err(format!("integer literal '-{text}' does not fit i64")),
+                                Some(_) => {
+                                    if (i32::MIN as i128..=i32::MAX as i128).contains(&signed) { Type::I32 }
+                                    else if (i64::MIN as i128..=i64::MAX as i128).contains(&signed) { Type::I64 }
+                                    else { return Err(format!("integer literal '-{text}' is outside the supported range")); }
+                                }
+                                None => {
+                                    if (i32::MIN as i128..=i32::MAX as i128).contains(&signed) { Type::I32 }
+                                    else if (i64::MIN as i128..=i64::MAX as i128).contains(&signed) { Type::I64 }
+                                    else { return Err(format!("integer literal '-{text}' is outside the supported range")); }
+                                }
+                            };
+                            return Ok((signed.to_string(), ty));
+                        }
+                    }
+                }
                 let expected_operand = if op == "!" { Some(Type::Bool) } else { expected };
                 let (value, ty) = self.emit_expr_expected(right, expected_operand)?;
                 match op.as_str() {
