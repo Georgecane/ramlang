@@ -3136,6 +3136,18 @@ mod tests {
     }
 
     #[test]
+    fn lowers_packed_struct_layout_and_unaligned_field_access() {
+        let source = "packed struct Packet { tag: u8, value: i32, tail: u16 } fn main() -> i32 { let mut packet: Packet = Packet { tag: 1, value: 42, tail: 7 }; print(offset_of(Packet, value)); print(size_of(Packet)); print(align_of(Packet)); packet.value = 43; print(packet.value); return 0; }";
+        let ir = compile(source).unwrap();
+        let type_id = struct_type_id("Packet");
+        assert!(ir.contains(&format!("%struct.{type_id:016x} = type <{{ i8, i32, i16 }}>")));
+        assert!(ir.contains("store i32 42, ptr"));
+        assert!(ir.contains("store i32 42, ptr") && ir.contains(", align 1"));
+        assert!(ir.contains("load i32, ptr") && ir.contains(", align 1"));
+        assert!(ir.contains("store i32 43, ptr") && ir.contains(", align 1"));
+    }
+
+    #[test]
     fn lowers_address_of_for_variables_and_fields() {
         let source = "struct Point { x: i32 } fn main() -> i32 { let mut value: i32 = 7; let p: ptr = &value; store_i32(p, 42); let mut point: Point = Point { x: 1 }; let field: ptr = &point.x; store_i32(field, value); print(point.x); return 0; }";
         let ir = compile(source).unwrap();
