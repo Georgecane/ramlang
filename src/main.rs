@@ -3344,6 +3344,30 @@ mod tests {
     }
 
     #[test]
+    fn lowers_c_string_and_byte_search_builtins() {
+        let source = "fn main() -> i32 { print(strlen(\"RamLang\")); print(strcmp(\"RamLang\", \"RamLang\")); print(strncmp(\"RamLang\", \"Ram\", 3)); let found: ptr = memchr(\"RamLang\", 76, 7); print(load_u8(found)); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("declare i64 @strlen(ptr)"));
+        assert!(ir.contains("declare i32 @strcmp(ptr, ptr)"));
+        assert!(ir.contains("declare i32 @strncmp(ptr, ptr, i64)"));
+        assert!(ir.contains("declare ptr @memchr(ptr, i32, i64)"));
+        assert!(ir.contains("call i64 @strlen(ptr"));
+        assert!(ir.contains("call i32 @strcmp(ptr"));
+        assert!(ir.contains("call i32 @strncmp(ptr"));
+        assert!(ir.contains("call ptr @memchr(ptr"));
+    }
+
+    #[test]
+    fn rejects_invalid_string_and_memchr_arguments() {
+        let length_error = compile("fn main() -> i32 { let n: i64 = strlen(1); return 0; }").unwrap_err();
+        assert!(length_error.contains("strlen argument requires a pointer-like value"));
+        let compare_error = compile("fn main() -> i32 { let n: i32 = strcmp(\"x\"); return 0; }").unwrap_err();
+        assert!(compare_error.contains("strcmp expects 2 arguments"));
+        let search_error = compile("fn main() -> i32 { let p: ptr = memchr(\"x\", 256.0, 1); return 0; }").unwrap_err();
+        assert!(search_error.contains("memchr byte value"));
+    }
+
+    #[test]
     fn rejects_invalid_calloc_and_realloc_arguments() {
         let calloc_error = compile("fn main() -> i32 { let p: ptr = calloc(4); return 0; }").unwrap_err();
         assert!(calloc_error.contains("calloc expects an element count and element size"));
