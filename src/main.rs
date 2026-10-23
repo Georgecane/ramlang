@@ -2527,6 +2527,7 @@ impl<'a> FunctionGenerator<'a> {
                         }
                         Type::Str => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.str, ptr {value})")),
                         Type::Ptr => return Err("print does not accept raw pointers".to_owned()),
+                        Type::Future(_) => return Err("print does not accept Future values directly".to_owned()),
                         Type::Array(_, _) => return Err("print does not accept arrays directly".to_owned()),
                         Type::Struct(_) => return Err("print does not accept structs directly".to_owned()),
                         Type::Void => return Err("print cannot print a void expression".to_owned()),
