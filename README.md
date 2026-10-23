@@ -182,6 +182,15 @@ fn main() -> i32 {
 
 The caller must allocate enough correctly aligned memory for each load/store operation and must not use a pointer after freeing it. The first implementation targets host platforms with a 64-bit `size_t` for the current `alloc(byte_count: i64)` ABI.
 
+## Multiple source files
+
+Pass multiple `.ram` files to one compiler invocation. All functions from the inputs are combined into one LLVM module, so a function in one file can call a function declared in another input file. Every input file must contain at least one function; modules, namespaces, and import declarations are not yet implemented.
+
+```sh
+ramcomp examples/multi_file/main.ram examples/multi_file/math.ram -o program
+./program
+```
+
 ## Compiler options
 
 ```sh
