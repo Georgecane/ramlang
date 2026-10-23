@@ -281,7 +281,7 @@ jobs:
       - name: Emit, link, and run native object output
         run: |
           cargo run --release -- examples/hello.ram --emit-obj -o target/hello.o
-          clang target/hello.o -o target/hello-from-object
+          clang target/hello.o -L target/release -Wl,-rpath,"$PWD/target/release" -lramlang_runtime -o target/hello-from-object
           test "$(target/hello-from-object)" = "49"
       - name: Emit, inspect, link, and run LLVM bitcode
         run: |
@@ -289,7 +289,7 @@ jobs:
           test -s target/hello.bc
           clang -S -emit-llvm target/hello.bc -o target/hello-bitcode.ll
           grep -Fq '@main(' target/hello-bitcode.ll
-          clang target/hello.bc -o target/hello-from-bitcode
+          clang target/hello.bc -L target/release -Wl,-rpath,"$PWD/target/release" -lramlang_runtime -o target/hello-from-bitcode
           test "$(target/hello-from-bitcode)" = "49"
       - name: Verify 32-bit target-aware LLVM bitcode
         run: |
@@ -310,7 +310,7 @@ jobs:
       - name: Emit, assemble, and run target assembly output
         run: |
           cargo run --release -- examples/hello.ram --emit-asm -o target/hello.s
-          clang target/hello.s -o target/hello-from-assembly
+          clang target/hello.s -L target/release -Wl,-rpath,"$PWD/target/release" -lramlang_runtime -o target/hello-from-assembly
           test "$(target/hello-from-assembly)" = "49"
       - name: Compile and run bounds-checked arrays example
         run: |
@@ -409,7 +409,7 @@ jobs:
         run: |
           cargo run --release -- examples/extern_globals.ram --emit-obj -o target/extern-globals.o
           clang -c examples/extern_globals.c -o target/extern-globals-c.o
-          clang target/extern-globals.o target/extern-globals-c.o -o target/extern-globals
+          clang target/extern-globals.o target/extern-globals-c.o -L target/release -Wl,-rpath,"$PWD/target/release" -lramlang_runtime -o target/extern-globals
           expected="$(printf '%s\n%s' '42' '100')"
           test "$(target/extern-globals)" = "$expected"
       - name: Compile and run packed struct layout example
@@ -439,7 +439,7 @@ jobs:
         run: |
           cargo run --release -- examples/hello.ram --emit-bc -o target/hello.bc
           test -s target/hello.bc
-          clang target/hello.bc -o target/hello-from-bitcode
+          clang target/hello.bc -L target/release -Wl,-rpath,"$PWD/target/release" -lramlang_runtime -o target/hello-from-bitcode
           test "$(target/hello-from-bitcode)" = "49"
       - name: Compile and run atomic compare-exchange example
         run: |
@@ -507,7 +507,7 @@ jobs:
         run: |
           cargo run --release -- examples/variadic_ffi.ram --emit-obj -o target/variadic-ffi.o
           clang -c examples/variadic_ffi.c -o target/variadic-ffi-c.o
-          clang target/variadic-ffi.o target/variadic-ffi-c.o -o target/variadic-ffi
+          clang target/variadic-ffi.o target/variadic-ffi-c.o -L target/release -Wl,-rpath,"$PWD/target/release" -lramlang_runtime -o target/variadic-ffi
           test "$(target/variadic-ffi)" = "258"
       - name: Compile and run direct variadic printf example
         run: |
@@ -597,5 +597,5 @@ jobs:
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
-          clang target/hello.ll -o target/hello-from-ir
+          clang target/hello.ll -L target/release -Wl,-rpath,"$PWD/target/release" -lramlang_runtime -o target/hello-from-ir
           test "$(target/hello-from-ir)" = "49"
