@@ -2472,6 +2472,46 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((overflow, Type::Bool));
                 }
 
+                let saturating_ops = [
+                    ("sadd_sat", "sadd.sat", false),
+                    ("ssub_sat", "ssub.sat", false),
+                    ("uadd_sat", "uadd.sat", true),
+                    ("usub_sat", "usub.sat", true),
+                ];
+                let saturating_builtin = saturating_ops.iter().find_map(|(public_name, llvm_name, unsigned)| {
+                    let type_name = name.strip_prefix(&format!("{public_name}_"))?;
+                    let ty = match type_name {
+                        "i8" => Type::I8,
+                        "i16" => Type::I16,
+                        "i32" => Type::I32,
+                        "i64" => Type::I64,
+                        "u8" => Type::U8,
+                        "u16" => Type::U16,
+                        "u32" => Type::U32,
+                        "u64" => Type::U64,
+                        _ => return None,
+                    };
+                    if ty.is_unsigned() != *unsigned {
+                        return None;
+                    }
+                    Some((*llvm_name, ty))
+                });
+                if let Some((llvm_name, ty)) = saturating_builtin {
+                    if args.len() != 2 {
+                        return Err(format!("{name} expects exactly two integer arguments"));
+                    }
+                    let (left, left_type) = self.emit_expr_expected(&args[0], Some(ty))?;
+                    self.require_same(ty, left_type, &format!("{name} left operand"))?;
+                    let (right, right_type) = self.emit_expr_expected(&args[1], Some(ty))?;
+                    self.require_same(ty, right_type, &format!("{name} right operand"))?;
+                    let llvm_type = ty.llvm();
+                    let result = self.fresh_value();
+                    self.emit(format!(
+                        "{result} = call {llvm_type} @llvm.{llvm_name}.{llvm_type}({llvm_type} {left}, {llvm_type} {right})"
+                    ));
+                    return Ok((result, ty));
+                }
+
                 let bit_intrinsic = ["ctpop", "ctlz", "cttz", "bswap", "bitreverse"]
                     .iter()
                     .find_map(|intrinsic| {
@@ -4176,6 +4216,11 @@ fn compile_to_llvm_for_target(
                 "declare {{ {llvm_type}, i1 }} @llvm.{intrinsic}.with.overflow.{llvm_type}({llvm_type}, {llvm_type})\n"
             ));
         }
+        for intrinsic in ["sadd.sat", "ssub.sat", "uadd.sat", "usub.sat"] {
+            module.push_str(&format!(
+                "declare {llvm_type} @llvm.{intrinsic}.{llvm_type}({llvm_type}, {llvm_type})\n"
+            ));
+        }
         module.push_str(&format!("declare {llvm_type} @llvm.ctpop.{llvm_type}({llvm_type})\n"));
         module.push_str(&format!("declare {llvm_type} @llvm.ctlz.{llvm_type}({llvm_type}, i1 immarg)\n"));
         module.push_str(&format!("declare {llvm_type} @llvm.cttz.{llvm_type}({llvm_type}, i1 immarg)\n"));
@@ -5339,6 +5384,24 @@ mod tests {
         assert!(ir.contains("extractvalue { i16, i1 }"));
         assert!(ir.contains("store i32"));
         assert!(ir.contains("store i16"));
+    }
+
+    #[test]
+    fn lowers_signed_and_unsigned_saturating_add_sub() {
+        let source = "fn main() -> i32 { let a: i32 = sadd_sat_i32(2147483647, 1); let b: i32 = ssub_sat_i32(-2147483648, 1); let c: u16 = uadd_sat_u16(65535, 1); let d: u16 = usub_sat_u16(0, 1); print(a); print(b); print(c); print(d); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("call i32 @llvm.sadd.sat.i32(i32 2147483647, i32 1)"));
+        assert!(ir.contains("call i32 @llvm.ssub.sat.i32(i32 -2147483648, i32 1)"));
+        assert!(ir.contains("call i16 @llvm.uadd.sat.i16(i16 65535, i16 1)"));
+        assert!(ir.contains("call i16 @llvm.usub.sat.i16(i16 0, i16 1)"));
+    }
+
+    #[test]
+    fn rejects_invalid_saturating_arithmetic_arguments() {
+        let count = compile("fn main() -> i32 { let x: i32 = sadd_sat_i32(1); return x; }").unwrap_err();
+        assert!(count.contains("expects exactly two integer arguments"));
+        let signedness = compile("fn main() -> i32 { let x: u32 = sadd_sat_u32(1 as u32, 2 as u32); return 0; }").unwrap_err();
+        assert!(signedness.contains("unknown function 'sadd_sat_u32'"));
     }
 
     #[test]
