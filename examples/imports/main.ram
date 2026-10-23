@@ -1,0 +1,7 @@
+import "math/add.ram";
+import "constants.ram";
+
+fn main() -> i32 {
+    print(add(BASE, 2));
+    return 0;
+}
