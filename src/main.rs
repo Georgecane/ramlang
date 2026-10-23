@@ -1740,6 +1740,23 @@ mod tests {
     }
 
     #[test]
+    fn parses_multiple_source_files() {
+        let options = parse_args_from([
+            "main.ram".to_owned(),
+            "math.ram".to_owned(),
+            "runtime.ram".to_owned(),
+            "-o".to_owned(),
+            "program".to_owned(),
+        ]).unwrap();
+        assert_eq!(options.sources, vec![
+            PathBuf::from("main.ram"),
+            PathBuf::from("math.ram"),
+            PathBuf::from("runtime.ram"),
+        ]);
+        assert_eq!(options.output, Some(PathBuf::from("program")));
+    }
+
+    #[test]
     fn rejects_linker_options_for_ir_only_modes() {
         let error = parse_args_from([
             "example.ram".to_owned(),
