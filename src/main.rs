@@ -346,6 +346,13 @@ struct EnumDef {
 }
 
 #[derive(Debug, Clone)]
+struct TypeAlias {
+    id: u64,
+    name: String,
+    target: Type,
+}
+
+#[derive(Debug, Clone)]
 struct GlobalConst {
     name: String,
     ty: Type,
@@ -366,6 +373,7 @@ struct Program {
     functions: Vec<Function>,
     structs: Vec<StructDef>,
     enums: Vec<EnumDef>,
+    type_aliases: Vec<TypeAlias>,
     constants: Vec<GlobalConst>,
     static_vars: Vec<GlobalVar>,
     imports: Vec<String>,
@@ -510,6 +518,10 @@ impl Parser {
                 program.enums.push(self.parse_enum()?);
                 continue;
             }
+            if self.match_keyword("type") {
+                program.type_aliases.push(self.parse_type_alias()?);
+                continue;
+            }
             if self.match_keyword("const") {
                 program.constants.push(self.parse_global_const()?);
                 continue;
@@ -524,12 +536,13 @@ impl Parser {
                 continue;
             }
             if !self.match_keyword("fn") {
-                return Err(self.error("expected an import, struct, enum, const, static, function declaration, 'extern static', or 'extern fn'".to_owned()));
+                return Err(self.error("expected an import, struct, enum, type alias, const, static, function declaration, 'extern static', or 'extern fn'".to_owned()));
             }
             program.functions.push(self.parse_function(external)?);
         }
         if program.functions.is_empty() && program.structs.is_empty() && program.enums.is_empty()
-            && program.constants.is_empty() && program.static_vars.is_empty() && program.imports.is_empty()
+            && program.type_aliases.is_empty() && program.constants.is_empty()
+            && program.static_vars.is_empty() && program.imports.is_empty()
         {
             return Err("source file does not contain any declarations".to_owned());
         }
@@ -556,6 +569,14 @@ impl Parser {
         };
         self.expect_symbol(";")?;
         Ok(GlobalVar { name, ty, mutable, value, external })
+    }
+
+    fn parse_type_alias(&mut self) -> Result<TypeAlias, String> {
+        let name = self.expect_ident("type alias name")?;
+        self.expect_symbol("=")?;
+        let target = self.parse_type()?;
+        self.expect_symbol(";")?;
+        Ok(TypeAlias { id: struct_type_id(&name), name, target })
     }
 
     fn parse_global_const(&mut self) -> Result<GlobalConst, String> {
