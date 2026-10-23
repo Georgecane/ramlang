@@ -5,37 +5,79 @@ extern fn ramlang_tcp_request_wait(request: ptr, wait_timeout_ms: u64) -> i32;
 extern fn ramlang_tcp_request_read_result(request: ptr, output: ptr, capacity: u64) -> i64;
 extern fn ramlang_tcp_request_cancel(request: ptr) -> i32;
 extern fn ramlang_tcp_request_close(request: ptr);
+extern fn ramlang_task_scope_new() -> ptr;
+extern fn ramlang_task_scope_track_tcp(scope: ptr, request: ptr) -> i32;
+extern fn ramlang_task_scope_cancel(scope: ptr) -> i32;
+extern fn ramlang_task_scope_len(scope: ptr) -> i64;
+extern fn ramlang_task_scope_close(scope: ptr);
 
 fn main() -> i32 {
+    let scope: ptr = ramlang_task_scope_new();
+    if (scope == null) {
+        print(ramlang_last_error());
+        return 1;
+    }
+
     let first: ptr = ramlang_tcp_request_start("127.0.0.1:39873", "first" as ptr, 5, 2000);
     if (first == null) {
         print(ramlang_last_error());
-        return 1;
+        ramlang_task_scope_close(scope);
+        return 2;
+    }
+
+    if (ramlang_task_scope_track_tcp(scope, first) != 0) {
+        print(ramlang_last_error());
+        ramlang_task_scope_cancel(scope);
+        ramlang_task_scope_close(scope);
+        ramlang_tcp_request_close(first);
+        return 3;
     }
 
     let second: ptr = ramlang_tcp_request_start("127.0.0.1:39873", "second" as ptr, 6, 2000);
     if (second == null) {
         print(ramlang_last_error());
+        ramlang_task_scope_cancel(scope);
+        ramlang_task_scope_close(scope);
         ramlang_tcp_request_close(first);
-        return 2;
+        return 4;
+    }
+
+    if (ramlang_task_scope_track_tcp(scope, second) != 0) {
+        print(ramlang_last_error());
+        ramlang_task_scope_cancel(scope);
+        ramlang_task_scope_close(scope);
+        ramlang_tcp_request_close(first);
+        ramlang_tcp_request_close(second);
+        return 5;
+    }
+
+    if (ramlang_task_scope_len(scope) != 2) {
+        print("TCP task scope did not track both requests");
+        ramlang_task_scope_cancel(scope);
+        ramlang_task_scope_close(scope);
+        ramlang_tcp_request_close(first);
+        ramlang_tcp_request_close(second);
+        return 6;
     }
 
     let first_wait: i32 = ramlang_tcp_request_wait(first, 3000);
     if (first_wait != 1) {
         print("first TCP request did not complete");
-        ramlang_tcp_request_cancel(first);
+        ramlang_task_scope_cancel(scope);
+        ramlang_task_scope_close(scope);
         ramlang_tcp_request_close(first);
         ramlang_tcp_request_close(second);
-        return 3;
+        return 7;
     }
 
     let second_wait: i32 = ramlang_tcp_request_wait(second, 3000);
     if (second_wait != 1) {
         print("second TCP request did not complete");
-        ramlang_tcp_request_cancel(second);
+        ramlang_task_scope_cancel(scope);
+        ramlang_task_scope_close(scope);
         ramlang_tcp_request_close(first);
         ramlang_tcp_request_close(second);
-        return 4;
+        return 8;
     }
 
     let first_buffer: ptr = alloc(64);
@@ -45,9 +87,10 @@ fn main() -> i32 {
         print(ramlang_last_error());
         free(first_buffer);
         free(second_buffer);
+        ramlang_task_scope_close(scope);
         ramlang_tcp_request_close(first);
         ramlang_tcp_request_close(second);
-        return 5;
+        return 9;
     }
 
     let second_length: i64 = ramlang_tcp_request_read_result(second, second_buffer, 64);
@@ -55,9 +98,10 @@ fn main() -> i32 {
         print(ramlang_last_error());
         free(first_buffer);
         free(second_buffer);
+        ramlang_task_scope_close(scope);
         ramlang_tcp_request_close(first);
         ramlang_tcp_request_close(second);
-        return 6;
+        return 10;
     }
 
     print(first_length);
@@ -67,6 +111,7 @@ fn main() -> i32 {
 
     free(first_buffer);
     free(second_buffer);
+    ramlang_task_scope_close(scope);
     ramlang_tcp_request_close(first);
     ramlang_tcp_request_close(second);
     return 0;
