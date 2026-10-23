@@ -3451,10 +3451,12 @@ fn resolve_program_enum_types(source: &Program) -> Result<Program, String> {
     Ok(program)
 }
 
+#[cfg(test)]
 fn compile_to_llvm(program: &Program) -> Result<String, String> {
     compile_to_llvm_for_target(program, usize::BITS, None)
 }
 
+#[cfg(test)]
 fn compile_to_llvm_for_pointer_width(program: &Program, target_pointer_width: u32) -> Result<String, String> {
     compile_to_llvm_for_target(program, target_pointer_width, None)
 }
