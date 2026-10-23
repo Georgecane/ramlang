@@ -295,8 +295,7 @@ mod tests {
         for payload in [b"first".to_vec(), b"second".to_vec()] {
             let address = address.to_string();
             clients.spawn(async move {
-                let mut client =
-                    TcpConnection::connect(&address, Duration::from_secs(2)).await?;
+                let mut client = TcpConnection::connect(&address, Duration::from_secs(2)).await?;
                 client.write_frame(&payload).await?;
                 client.read_frame(1024).await
             });
