@@ -459,7 +459,7 @@ impl Parser {
         if program.functions.is_empty() && program.structs.is_empty() {
             return Err("source file does not contain any declarations".to_owned());
         }
-        program.type_references = self.type_references;
+        program.type_references = std::mem::take(&mut self.type_references);
         Ok(program)
     }
 
