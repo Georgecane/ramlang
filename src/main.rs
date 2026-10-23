@@ -519,7 +519,7 @@ impl Parser {
             "str" => Ok(Type::Str),
             "ptr" => Ok(Type::Ptr),
             "void" => Ok(Type::Void),
-            _ => Ok(Type::Struct(struct_type_id(&name)),
+            _ => Ok(Type::Struct(struct_type_id(&name))),
         }
     }
 
@@ -635,6 +635,20 @@ impl Parser {
                 increment: Box::new(increment),
                 body,
             });
+        }
+        if matches!(self.current().kind, TokenKind::Ident)
+            && self.tokens.get(self.index + 1).is_some_and(|t| t.kind == TokenKind::Symbol(".".to_owned()))
+        {
+            let saved_index = self.index;
+            let name = self.current().text.clone();
+            self.index += 2;
+            let field = self.expect_ident("field name after '.'")?;
+            if self.match_symbol("=") {
+                let value = self.parse_expression()?;
+                self.expect_symbol(";")?;
+                return Ok(Stmt::FieldAssign { base: Expr::Variable(name), field, value });
+            }
+            self.index = saved_index;
         }
         if matches!(self.current().kind, TokenKind::Ident)
             && self.tokens.get(self.index + 1).is_some_and(|t| t.kind == TokenKind::Symbol("[".to_owned()))
@@ -798,6 +812,9 @@ impl Parser {
                 let index = self.parse_expression()?;
                 self.expect_symbol("]")?;
                 value = Expr::Index { array: Box::new(value), index: Box::new(index) };
+            } else if self.match_symbol(".") {
+                let field = self.expect_ident("field name after '.'")?;
+                value = Expr::Field { base: Box::new(value), field };
             } else if self.match_keyword("as") {
                 let target = self.parse_type()?;
                 value = Expr::Cast { value: Box::new(value), target };
@@ -853,6 +870,25 @@ impl Parser {
         if matches!(self.current().kind, TokenKind::Ident) {
             let name = self.current().text.clone();
             self.index += 1;
+            if self.match_symbol("{") {
+                let mut fields = Vec::new();
+                if !self.check_symbol("}") {
+                    loop {
+                        let field_name = self.expect_ident("field name in struct literal")?;
+                        self.expect_symbol(":")?;
+                        let value = self.parse_expression()?;
+                        fields.push((field_name, value));
+                        if !self.match_symbol(",") {
+                            break;
+                        }
+                        if self.check_symbol("}") {
+                            break;
+                        }
+                    }
+                }
+                self.expect_symbol("}")?;
+                return Ok(Expr::StructLiteral { type_id: struct_type_id(&name), fields });
+            }
             if self.match_symbol("(") {
                 let mut args = Vec::new();
                 if !self.check_symbol(")") {
