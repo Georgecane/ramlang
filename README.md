@@ -420,6 +420,7 @@ RamLang exposes typed atomic operations for integer widths 8, 16, 32, and 64:
 - `atomic_store_i32(ptr, value)` and `atomic_store_i32_release(ptr, value)`
 - `atomic_exchange_i32(ptr, value)`
 - `atomic_fetch_add_i32(ptr, value)`, `atomic_fetch_sub_i32`, `atomic_fetch_and_i32`, `atomic_fetch_or_i32`, and `atomic_fetch_xor_i32`
+- `atomic_compare_exchange_i32(ptr, expected_ptr, desired)`, which returns a boolean and writes the observed value back through `expected_ptr`
 
 All operations default to sequentially consistent ordering when no ordering suffix is supplied. Supported explicit suffixes are `relaxed`, `acquire`, `release`, `acq_rel`, and `seq_cst`, subject to LLVM's ordering rules: loads do not accept release semantics, and stores do not accept acquire semantics. `relaxed` maps to LLVM's `monotonic` ordering. Read-modify-write operations return the previous value.
 
@@ -434,6 +435,8 @@ fn main() -> i32 {
     return 0;
 }
 ```
+
+For compare-exchange, `expected_ptr` must point to writable, correctly aligned storage for the same integer type and must not alias the atomic object's address. On failure, the observed value is written to `*expected_ptr`; on success, it remains equal to the previous expected value.
 
 Atomic addresses must be valid and aligned for the selected integer type. These operations do not make arbitrary surrounding non-atomic accesses race-free. Use a complete synchronization protocol and appropriate ownership of shared state; atomic operations are currently provided for integer types, not floats or aggregate values.
 
