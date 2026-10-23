@@ -19,13 +19,13 @@ const MAX_FFI_TCP_FRAME_SIZE: usize = 16 * 1024 * 1024;
 static ASYNC_REQUEST_RUNTIME: OnceLock<Result<Runtime, String>> = OnceLock::new();
 
 /// State shared by the caller's request handle and its background Tokio task.
-struct AsyncTcpRequestState {
+struct AsyncRequestState {
     result: Mutex<Option<Result<Vec<u8>, String>>>,
     ready: Condvar,
     abort_handle: Mutex<Option<tokio::task::AbortHandle>>,
 }
 
-impl AsyncTcpRequestState {
+impl AsyncRequestState {
     fn new() -> Self {
         Self {
             result: Mutex::new(None),
@@ -52,8 +52,8 @@ impl AsyncTcpRequestState {
             .unwrap_or_else(|error| error.into_inner()) = Some(handle);
     }
 
-    fn cancel(&self) {
-        self.complete(Err("TCP request cancelled".to_owned()));
+    fn cancel(&self, protocol: &str) {
+        self.complete(Err(format!("{protocol} request cancelled")));
         let handle = self
             .abort_handle
             .lock()
@@ -69,7 +69,7 @@ impl AsyncTcpRequestState {
 /// Requests run on a shared multithread Tokio runtime. Dropping the handle through
 /// ramlang_tcp_request_close cancels an unfinished request.
 pub struct RamlangTcpRequest {
-    state: Arc<AsyncTcpRequestState>,
+    state: Arc<AsyncRequestState>,
 }
 
 fn async_request_runtime() -> Result<&'static Runtime, String> {
@@ -354,7 +354,7 @@ pub unsafe extern "C" fn ramlang_tcp_request_start(
         }
     };
 
-    let state = Arc::new(AsyncTcpRequestState::new());
+    let state = Arc::new(AsyncRequestState::new());
     let worker_state = Arc::clone(&state);
     let task = runtime.spawn(async move {
         let result = async {
@@ -525,7 +525,7 @@ pub unsafe extern "C" fn ramlang_tcp_request_cancel(request: *mut RamlangTcpRequ
         return -1;
     }
     // SAFETY: pointer validity is part of this function's documented contract.
-    unsafe { &*request }.state.cancel();
+    unsafe { &*request }.state.cancel("TCP");
     clear_last_error();
     0
 }
@@ -541,7 +541,7 @@ pub unsafe extern "C" fn ramlang_tcp_request_close(request: *mut RamlangTcpReque
     if !request.is_null() {
         // SAFETY: pointer validity is part of this function's documented contract.
         let request = unsafe { Box::from_raw(request) };
-        request.state.cancel();
+        request.state.cancel("TCP");
         drop(request);
     }
     clear_last_error();
@@ -553,7 +553,7 @@ pub unsafe extern "C" fn ramlang_tcp_request_close(request: *mut RamlangTcpReque
 /// datagram, and receives one reply from the resolved destination. Work runs on the shared
 /// multithread Tokio runtime and can be cancelled through the handle.
 pub struct RamlangUdpRequest {
-    state: Arc<AsyncTcpRequestState>,
+    state: Arc<AsyncRequestState>,
 }
 
 /// Start a UDP request in the background without waiting for its response.
@@ -629,7 +629,7 @@ pub unsafe extern "C" fn ramlang_udp_request_start(
         }
     };
 
-    let state = Arc::new(AsyncTcpRequestState::new());
+    let state = Arc::new(AsyncRequestState::new());
     let worker_state = Arc::clone(&state);
     let task = runtime.spawn(async move {
         let result = async {
@@ -815,7 +815,7 @@ pub unsafe extern "C" fn ramlang_udp_request_cancel(request: *mut RamlangUdpRequ
         return -1;
     }
     // SAFETY: pointer validity is part of the documented caller contract.
-    unsafe { &*request }.state.cancel();
+    unsafe { &*request }.state.cancel("UDP");
     clear_last_error();
     0
 }
@@ -831,7 +831,7 @@ pub unsafe extern "C" fn ramlang_udp_request_close(request: *mut RamlangUdpReque
     if !request.is_null() {
         // SAFETY: pointer validity is part of the documented caller contract.
         let request = unsafe { Box::from_raw(request) };
-        request.state.cancel();
+        request.state.cancel("UDP");
         drop(request);
     }
     clear_last_error();
