@@ -1295,7 +1295,6 @@ pub unsafe extern "C" fn ramlang_udp_close(endpoint: *mut RamlangUdpEndpoint) {
     clear_last_error();
 }
 
-
 /// Allocate runtime-owned memory for generated RamLang data frames.
 ///
 /// The allocation is aligned to 16 bytes and must be released with ramlang_free.
