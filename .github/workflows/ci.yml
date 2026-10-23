@@ -221,6 +221,12 @@ jobs:
           cargo run --release -- examples/atomics.ram -o target/atomics
           expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' '10' '10' '15' '14' '20' '4' '12' '13')"
           test "$(target/atomics)" = "$expected"
+      - name: Emit LLVM bitcode, link it, and run the result
+        run: |
+          cargo run --release -- examples/hello.ram --emit-bc -o target/hello.bc
+          test -s target/hello.bc
+          clang target/hello.bc -o target/hello-from-bitcode
+          test "$(target/hello-from-bitcode)" = "49"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
