@@ -4151,6 +4151,29 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_integer_float_and_boolean_global_constant_expressions() {
+        let source = "const PAGE_SIZE: i32 = 4096; const PAGE_SHIFT: i32 = 1 << 12; const PAGE_MASK: u32 = 65535 & 4095; const WIDTH: i32 = 1 + 1 * 3; const NEGATIVE: i32 = -(2 + 3); const HALF: f64 = 10.0 / 2.0; const VALID: bool = (4 & 1) == 0 && !false; fn main() -> i32 { print(PAGE_SIZE); print(PAGE_SHIFT); print(PAGE_MASK); print(WIDTH); print(NEGATIVE); print(HALF); print(VALID); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("@PAGE_SIZE = constant i32 4096"));
+        assert!(ir.contains("@PAGE_SHIFT = constant i32 4096"));
+        assert!(ir.contains("@PAGE_MASK = constant i32 4095"));
+        assert!(ir.contains("@WIDTH = constant i32 4"));
+        assert!(ir.contains("@NEGATIVE = constant i32 -5"));
+        assert!(ir.contains("@HALF = constant double 5.00000000000000000e0"));
+        assert!(ir.contains("@VALID = constant i1 true"));
+    }
+
+    #[test]
+    fn rejects_overflowing_and_invalid_constant_expressions() {
+        let overflow = compile("const VALUE: i8 = 127 + 1; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(overflow.contains("requires a literal compatible with type i8"));
+        let divide_by_zero = compile("const VALUE: i32 = 10 / 0; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(divide_by_zero.contains("division by zero in integer constant expression"));
+        let float_overflow = compile("const VALUE: f64 = 1.0 / 0.0; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(float_overflow.contains("floating-point constant expression is outside the finite range"));
+    }
+
+    #[test]
     fn lowers_mutable_and_immutable_static_variables() {
         let source = r#"static mut COUNTER: i32 = 40; static LIMIT: u32 = 42; static MESSAGE: str = "ready"; fn main() -> i32 { COUNTER = COUNTER + 2; print(COUNTER); print(LIMIT); print(MESSAGE); let p: ptr = &COUNTER; store_i32(p, 43); print(COUNTER); return 0; }"#;
         let ir = compile(source).unwrap();
