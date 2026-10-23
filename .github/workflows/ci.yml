@@ -77,6 +77,10 @@ jobs:
           cargo run --release -- examples/unsigned.ram -o target/unsigned
           expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' '255' '65535' '4294967295' '18446744073709551615' '1' '858993459' '1' '255')"
           test "$(target/unsigned)" = "$expected"
+      - name: Compile and link native library FFI example
+        run: |
+          cargo run --release -- examples/ffi_math.ram -o target/ffi-math --link-search /usr/lib/x86_64-linux-gnu --link-lib m
+          test "$(target/ffi-math)" = "9"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
