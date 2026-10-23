@@ -4112,6 +4112,65 @@ mod tests {
     }
 
     #[test]
+    fn parses_target_cpu_features_and_sysroot() {
+        let options = parse_args_from([
+            "example.ram".to_owned(),
+            "--target".to_owned(),
+            "x86_64-unknown-linux-gnu".to_owned(),
+            "--target-cpu".to_owned(),
+            "x86-64".to_owned(),
+            "--target-feature".to_owned(),
+            "+sse2".to_owned(),
+            "--target-feature".to_owned(),
+            "-avx".to_owned(),
+            "--sysroot".to_owned(),
+            "/opt/sysroot".to_owned(),
+        ]).unwrap();
+        assert_eq!(options.target_cpu.as_deref(), Some("x86-64"));
+        assert_eq!(options.target_features, vec!["+sse2", "-avx"]);
+        assert_eq!(options.sysroot, Some(PathBuf::from("/opt/sysroot")));
+    }
+
+    #[test]
+    fn rejects_invalid_target_cpu_and_features() {
+        let cpu = parse_args_from([
+            "example.ram".to_owned(), "--target-cpu".to_owned(), "-invalid".to_owned()
+        ]).unwrap_err();
+        assert!(cpu.contains("invalid target CPU"));
+
+        let feature = parse_args_from([
+            "example.ram".to_owned(), "--target-feature".to_owned(), "avx2".to_owned()
+        ]).unwrap_err();
+        assert!(feature.contains("expected +feature or -feature"));
+
+        let malformed = parse_args_from([
+            "example.ram".to_owned(), "--target-feature".to_owned(), "+avx; -sse".to_owned()
+        ]).unwrap_err();
+        assert!(malformed.contains("invalid target feature"));
+    }
+
+    #[test]
+    fn rejects_backend_target_options_for_check_and_ir_only_modes() {
+        for mode in ["--check", "--emit-llvm"] {
+            let error = parse_args_from([
+                "example.ram".to_owned(),
+                mode.to_owned(),
+                "--target-cpu".to_owned(),
+                "x86-64".to_owned(),
+            ]).unwrap_err();
+            assert!(error.contains("target CPU, target features, and sysroot require backend code generation"));
+        }
+
+        let sysroot = parse_args_from([
+            "example.ram".to_owned(),
+            "--emit-llvm".to_owned(),
+            "--sysroot".to_owned(),
+            "/".to_owned(),
+        ]).unwrap_err();
+        assert!(sysroot.contains("target CPU, target features, and sysroot require backend code generation"));
+    }
+
+    #[test]
     fn parses_multiple_source_files() {
         let options = parse_args_from([
             "main.ram".to_owned(),
