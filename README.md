@@ -48,7 +48,7 @@ Build the optional networking runtime with `cargo build --release -p ramlang-run
 - LLVM development libraries and matching `llvm-config` for one supported major version, 18 through 23 (default: LLVM 23.1)
 - A native system linker and platform runtime for executable linking
 
-On CachyOS, use the feature matching the installed LLVM major when it is not 18. For example, LLVM 23 uses `cargo build --no-default-features --features llvm23`. The default feature targets LLVM 18 and expects a matching `llvm-config` to be available.
+On CachyOS, use the feature matching the installed LLVM major. For example, LLVM 22 uses `cargo build --no-default-features --features llvm22`. The default feature targets LLVM 23 and expects a matching `llvm-config` to be available.
 
 On Arch Linux / CachyOS, install the required tools with:
 
