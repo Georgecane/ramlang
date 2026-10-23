@@ -1335,7 +1335,11 @@ impl<'a> FunctionGenerator<'a> {
                     self.emit(format!(
                         "{field_ptr} = getelementptr inbounds {ir_type}, ptr {storage}, i32 0, i32 {field_index}"
                     ));
-                    self.emit(format!("store {} {value}, ptr {field_ptr}", field_type.llvm()));
+                    if structure.packed {
+                        self.emit(format!("store {} {value}, ptr {field_ptr}, align 1", field_type.llvm()));
+                    } else {
+                        self.emit(format!("store {} {value}, ptr {field_ptr}", field_type.llvm()));
+                    }
                 }
                 Ok((storage, Type::Struct(*type_id)))
             }
@@ -1450,9 +1454,13 @@ impl<'a> FunctionGenerator<'a> {
                 Ok((result, element.ty()))
             }
             Expr::Field { base, field } => {
-                let (field_ptr, field_type) = self.emit_struct_field_ptr(base, field)?;
+                let (field_ptr, field_type, packed) = self.emit_struct_field_ptr(base, field)?;
                 let result = self.fresh_value();
-                self.emit(format!("{result} = load {}, ptr {field_ptr}", field_type.llvm()));
+                if packed {
+                    self.emit(format!("{result} = load {}, ptr {field_ptr}, align 1", field_type.llvm()));
+                } else {
+                    self.emit(format!("{result} = load {}, ptr {field_ptr}", field_type.llvm()));
+                }
                 Ok((result, field_type))
             }
             Expr::Cast { value, target } => {
@@ -1974,10 +1982,14 @@ impl<'a> FunctionGenerator<'a> {
                         return Err(format!("cannot assign to field '{field}' of immutable variable '{base_name}'; declare it with 'let mut'"));
                     }
                 }
-                let (field_ptr, field_type) = self.emit_struct_field_ptr(base, field)?;
+                let (field_ptr, field_type, packed) = self.emit_struct_field_ptr(base, field)?;
                 let (stored_value, actual_type) = self.emit_expr_expected(value, Some(field_type))?;
                 self.require_same(field_type, actual_type, &format!("assignment to field '{field}'"))?;
-                self.emit(format!("store {} {stored_value}, ptr {field_ptr}", field_type.llvm()));
+                if packed {
+                    self.emit(format!("store {} {stored_value}, ptr {field_ptr}, align 1", field_type.llvm()));
+                } else {
+                    self.emit(format!("store {} {stored_value}, ptr {field_ptr}", field_type.llvm()));
+                }
             }
             Stmt::IndexAssign { array, index, value } => {
                 let (element_ptr, element) = self.emit_array_element_ptr(array, index)?;
