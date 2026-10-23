@@ -2341,6 +2341,19 @@ impl<'a> FunctionGenerator<'a> {
         }
     }
 
+    fn enum_variant_identity(&self, expression: &Expr) -> Option<(u64, i32)> {
+        let Expr::Field { base, field } = expression else {
+            return None;
+        };
+        let Expr::Variable(enum_name) = base.as_ref() else {
+            return None;
+        };
+        let type_id = struct_type_id(enum_name);
+        let enumeration = self.enums.get(&type_id)?;
+        let (_, value) = enumeration.variants.iter().find(|(variant, _)| variant == field)?;
+        Some((type_id, *value))
+    }
+
     fn emit_stmt(&mut self, statement: &Stmt) -> Result<(), String> {
         if self.terminated {
             return Ok(());
@@ -2498,6 +2511,86 @@ impl<'a> FunctionGenerator<'a> {
 
                 self.label(&end_label);
                 self.scopes.pop();
+            }
+            Stmt::Match { value, arms, default } => {
+                let (scrutinee, scrutinee_type) = self.emit_expr(value)?;
+                if !scrutinee_type.is_integer() && scrutinee_type != Type::Bool {
+                    return Err("match currently requires an integer, bool, or enum value".to_owned());
+                }
+
+                if default.is_none() {
+                    let Type::Enum(enum_id) = scrutinee_type else {
+                        return Err("match on non-enum values requires a '_' fallback arm".to_owned());
+                    };
+                    let enumeration = self.enums.get(&enum_id)
+                        .ok_or_else(|| format!("unknown enum type id {enum_id:016x}"))?;
+                    let required = enumeration.variants.iter().map(|(_, value)| *value).collect::<HashSet<_>>();
+                    let mut covered = HashSet::<i32>::new();
+                    for (pattern, _) in arms {
+                        let Some((pattern_enum_id, discriminant)) = self.enum_variant_identity(pattern) else {
+                            return Err(format!("match on enum '{}' requires named enum variants or a '_' fallback", enumeration.name));
+                        };
+                        if pattern_enum_id != enum_id {
+                            return Err(format!("match arm belongs to a different enum than '{}'", enumeration.name));
+                        }
+                        if !covered.insert(discriminant) {
+                            return Err(format!("duplicate discriminant {discriminant} in match on enum '{}'", enumeration.name));
+                        }
+                    }
+                    if covered != required {
+                        let missing = enumeration.variants.iter()
+                            .filter(|(_, value)| !covered.contains(value))
+                            .map(|(name, _)| name.as_str())
+                            .collect::<Vec<_>>();
+                        return Err(format!(
+                            "non-exhaustive match on enum '{}'; missing variant(s): {}",
+                            enumeration.name,
+                            missing.join(", ")
+                        ));
+                    }
+                }
+
+                let end_label = self.fresh_label("match.end");
+                let mut has_fallthrough = false;
+                for (pattern, body) in arms {
+                    let (pattern_value, pattern_type) =
+                        self.emit_expr_expected(pattern, Some(scrutinee_type))?;
+                    self.require_same(scrutinee_type, pattern_type, "match arm pattern")?;
+                    let equal = self.fresh_value();
+                    self.emit(format!("{equal} = icmp eq {} {scrutinee}, {pattern_value}", scrutinee_type.llvm()));
+                    let arm_label = self.fresh_label("match.arm");
+                    let next_label = self.fresh_label("match.next");
+                    self.emit(format!("br i1 {equal}, label %{arm_label}, label %{next_label}"));
+                    self.terminated = true;
+
+                    self.label(&arm_label);
+                    self.emit_stmt(body)?;
+                    if !self.terminated {
+                        self.emit(format!("br label %{end_label}"));
+                        self.terminated = true;
+                        has_fallthrough = true;
+                    }
+                    self.label(&next_label);
+                }
+
+                if let Some(default) = default {
+                    self.emit_stmt(default)?;
+                    if !self.terminated {
+                        self.emit(format!("br label %{end_label}"));
+                        self.terminated = true;
+                        has_fallthrough = true;
+                    }
+                } else {
+                    self.emit("call void @llvm.trap()");
+                    self.emit("unreachable");
+                    self.terminated = true;
+                }
+
+                if has_fallthrough {
+                    self.label(&end_label);
+                } else {
+                    self.terminated = true;
+                }
             }
             Stmt::While { condition, body } => {
                 let condition_label = self.fresh_label("while.cond");
