@@ -242,6 +242,11 @@ jobs:
           cargo run --release -- examples/calloc_realloc.ram -o target/calloc-realloc
           expected="$(printf '%s\n%s\n%s' '0' '42' '7')"
           test "$(target/calloc-realloc)" = "$expected"
+      - name: Compile and run string and byte-search example
+        run: |
+          cargo run --release -- examples/string_memory.ram -o target/string-memory
+          expected="$(printf '%s\n%s\n%s\n%s' '7' '0' '0' '76')"
+          test "$(target/string-memory)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
