@@ -2730,6 +2730,26 @@ mod tests {
     }
 
     #[test]
+    fn lowers_volatile_loads_and_stores() {
+        let source = "fn main() -> i32 { let mut value: i32 = 0; let address: ptr = &value; volatile_store_i32(address, 12); let result: i32 = volatile_load_i32(address); print(result); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("store volatile i32 12, ptr"));
+        assert!(ir.contains("load volatile i32, ptr"));
+    }
+
+    #[test]
+    fn supports_volatile_access_for_each_scalar_width() {
+        let source = "fn main() -> i32 { let p: ptr = alloc(8); volatile_store_u8(p, 1); volatile_store_i16(ptr_offset(p, 2), 2); volatile_store_u32(ptr_offset(p, 4), 4); print(volatile_load_u8(p)); print(volatile_load_i16(ptr_offset(p, 2))); print(volatile_load_u32(ptr_offset(p, 4))); free(p); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("store volatile i8"));
+        assert!(ir.contains("store volatile i16"));
+        assert!(ir.contains("store volatile i32"));
+        assert!(ir.contains("load volatile i8"));
+        assert!(ir.contains("load volatile i16"));
+        assert!(ir.contains("load volatile i32"));
+    }
+
+    #[test]
     fn lowers_fixed_array_reads_writes_and_bounds_checks() {
         let source = "fn main() -> i32 { let data: [i32; 4] = alloc(16) as [i32; 4]; data[0] = 10; data[3] = 42; print(data[3]); free(data as ptr); return 0; }";
         let ir = compile(source).unwrap();
