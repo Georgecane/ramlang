@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    let value: u32 = 1;
+    let amount: u32 = 32;
+    print(value << amount);
+    return 0;
+}
