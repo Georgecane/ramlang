@@ -3288,6 +3288,26 @@ mod tests {
     }
 
     #[test]
+    fn lowers_calloc_and_realloc() {
+        let source = "fn main() -> i32 { let p: ptr = calloc(4, size_of(i32)); store_i32(p, 42); let q: ptr = realloc(p, 32); print(load_i32(q)); free(q); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("declare ptr @calloc(i64, i64)"));
+        assert!(ir.contains("declare ptr @realloc(ptr, i64)"));
+        assert!(ir.contains("call ptr @calloc(i64 4, i64 4)"));
+        assert!(ir.contains("call ptr @realloc(ptr"));
+    }
+
+    #[test]
+    fn rejects_invalid_calloc_and_realloc_arguments() {
+        let calloc_error = compile("fn main() -> i32 { let p: ptr = calloc(4); return 0; }").unwrap_err();
+        assert!(calloc_error.contains("calloc expects an element count and element size"));
+        let realloc_error = compile("fn main() -> i32 { let p: ptr = realloc(null); return 0; }").unwrap_err();
+        assert!(realloc_error.contains("realloc expects an existing pointer and a new byte count"));
+        let type_error = compile("fn main() -> i32 { let p: ptr = calloc(true, 4); return 0; }").unwrap_err();
+        assert!(type_error.contains("calloc element count"));
+    }
+
+    #[test]
     fn rejects_invalid_bulk_memory_arguments() {
         let count_error = compile("fn main() -> i32 { let p: ptr = alloc(8); memcpy(p, p); free(p); return 0; }").unwrap_err();
         assert!(count_error.contains("expects destination, source, and byte count"));
