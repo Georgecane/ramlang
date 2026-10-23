@@ -3326,6 +3326,17 @@ mod tests {
     }
 
     #[test]
+    fn lowers_atomic_nand_and_signed_unsigned_min_max() {
+        let source = "fn main() -> i32 { let mut signed: i32 = -1; let mut unsigned: u32 = 0; let signed_address: ptr = &signed; let unsigned_address: ptr = &unsigned; print(atomic_fetch_nand_i32(signed_address, 255)); print(atomic_fetch_max_i32(signed_address, 0)); print(atomic_fetch_min_i32(signed_address, 1)); print(atomic_fetch_umax_u32(unsigned_address, 5)); print(atomic_fetch_umin_u32(unsigned_address, 3)); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("atomicrmw nand ptr"));
+        assert!(ir.contains("atomicrmw max ptr"));
+        assert!(ir.contains("atomicrmw min ptr"));
+        assert!(ir.contains("atomicrmw umax ptr"));
+        assert!(ir.contains("atomicrmw umin ptr"));
+    }
+
+    #[test]
     fn rejects_invalid_atomic_memory_orderings_and_types() {
         let load_order = compile("fn main() -> i32 { let mut value: i32 = 0; let p: ptr = &value; let x: i32 = atomic_load_i32_release(p); return x; }").unwrap_err();
         assert!(load_order.contains("atomic loads support relaxed, acquire, or seq_cst ordering"));
