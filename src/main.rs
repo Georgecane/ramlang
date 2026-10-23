@@ -1640,7 +1640,7 @@ fn compile(options: Options) -> Result<(), String> {
     let mut command = Command::new(&clang);
     command.arg(format!("-O{}", options.opt_level)).arg("-Wno-override-module");
     if let Some(target) = &options.target {
-        command.arg("--target").arg(target);
+        command.arg("-target").arg(target);
     }
     command.arg(&ir_path);
     for path in &options.link_search_paths {
