@@ -160,6 +160,11 @@ jobs:
         run: |
           cargo run --release -- examples/memory_fences.ram -o target/memory-fences
           test "$(target/memory-fences)" = "42"
+      - name: Compile and run offset_of example
+        run: |
+          cargo run --release -- examples/offsetof.ram -o target/offsetof
+          expected="$(printf '%s\n%s\n%s' '0' '8' '16')"
+          test "$(target/offsetof)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
