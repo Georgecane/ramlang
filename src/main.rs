@@ -2578,6 +2578,13 @@ fn lower_global_constant(constant: &GlobalConst) -> Result<(String, Option<Strin
 }
 
 fn compile_to_llvm(program: &Program) -> Result<String, String> {
+    compile_to_llvm_for_pointer_width(program, usize::BITS)
+}
+
+fn compile_to_llvm_for_pointer_width(program: &Program, target_pointer_width: u32) -> Result<String, String> {
+    if !matches!(target_pointer_width, 32 | 64) {
+        return Err(format!("unsupported target pointer width {target_pointer_width}; only 32-bit and 64-bit targets are supported"));
+    }
     let functions = &program.functions;
     let mut structures = HashMap::<u64, StructDef>::new();
     for structure in &program.structs {
@@ -2759,7 +2766,7 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
             .map(|(index, (_, ty))| format!("{} %arg{index}", ty.llvm()))
             .collect::<Vec<_>>()
             .join(", ");
-        let generator = FunctionGenerator::new(&signatures, &structures, &global_values, &global_bindings, function.return_type, &function.name);
+        let generator = FunctionGenerator::new(&signatures, &structures, &global_values, &global_bindings, target_pointer_width, function.return_type, &function.name);
         let (body, string_globals, _) = generator.generate(function)?;
         for global in string_globals {
             module.push_str(&global);
@@ -2899,6 +2906,31 @@ where
     Ok(options)
 }
 
+fn target_pointer_width(target: Option<&str>) -> Result<u32, String> {
+    let Some(target) = target else {
+        return match usize::BITS {
+            32 | 64 => Ok(usize::BITS),
+            width => Err(format!("unsupported host pointer width {width}; only 32-bit and 64-bit hosts are supported")),
+        };
+    };
+    let architecture = target.split('-').next().unwrap_or(target);
+    if target.contains("gnux32") || target.contains("abi32") {
+        return Ok(32);
+    }
+    match architecture {
+        "x86_64" | "amd64" | "aarch64" | "arm64" | "riscv64"
+        | "powerpc64" | "powerpc64le" | "s390x" | "mips64" | "mips64el"
+        | "wasm64" | "loongarch64" | "sparc64" => Ok(64),
+        "i386" | "i486" | "i586" | "i686" | "x86" | "arm" | "riscv32"
+        | "wasm32" | "mips" | "mipsel" | "powerpc" | "powerpcle"
+        | "sparc" | "hexagon" | "sh4" => Ok(32),
+        arch if arch.starts_with("armv") || arch.starts_with("thumb") => Ok(32),
+        _ => Err(format!(
+            "cannot determine pointer width for target '{target}'; supported target triples must identify a known 32-bit or 64-bit architecture"
+        )),
+    }
+}
+
 fn compile(options: Options) -> Result<(), String> {
     let mut program = Program::default();
     for source_path in &options.sources {
@@ -2924,7 +2956,8 @@ fn compile(options: Options) -> Result<(), String> {
         .map(|path| path.display().to_string())
         .collect::<Vec<_>>()
         .join(", ");
-    let llvm_ir = compile_to_llvm(&program)
+    let pointer_width = target_pointer_width(options.target.as_deref())?;
+    let llvm_ir = compile_to_llvm_for_pointer_width(&program, pointer_width)
         .map_err(|error| format!("{source_label}: {error}"))?;
 
     if options.check_only {
