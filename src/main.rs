@@ -1520,7 +1520,7 @@ fn parse_source(source: &str) -> Result<Vec<Function>, String> {
 
 #[derive(Debug)]
 struct Options {
-    source: PathBuf,
+    sources: Vec<PathBuf>,
     output: Option<PathBuf>,
     emit_llvm: bool,
     check_only: bool,
@@ -1542,15 +1542,15 @@ where
 {
     let mut args = arguments.into_iter().peekable();
     let Some(source) = args.next() else {
-        return Err("usage: ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
+        return Err("usage: ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll]] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
     };
     if source == "--help" || source == "-h" {
-        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --target <triple>       Select the Clang compilation target\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
+        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll]] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --target <triple>       Select the Clang compilation target\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
         process::exit(0);
     }
 
     let mut options = Options {
-        source: PathBuf::from(source),
+        sources: vec![PathBuf::from(source)],
         output: None,
         emit_llvm: false,
         check_only: false,
@@ -1604,6 +1604,7 @@ where
                 let Some(value) = args.next() else { return Err("expected an argument after --link-arg".to_owned()); };
                 options.link_args.push(value);
             }
+            _ if !arg.starts_with('-') => options.sources.push(PathBuf::from(arg)),
             _ => return Err(format!("unknown option '{arg}'")),
         }
     }
@@ -1623,26 +1624,35 @@ where
 }
 
 fn compile(options: Options) -> Result<(), String> {
-    let source = fs::read_to_string(&options.source)
-        .map_err(|error| format!("cannot read {}: {error}", options.source.display()))?;
-    let functions = parse_source(&source).map_err(|error| format!("{}: {error}", options.source.display()))?;
+    let mut functions = Vec::new();
+    for source_path in &options.sources {
+        let source = fs::read_to_string(source_path)
+            .map_err(|error| format!("cannot read {}: {error}", source_path.display()))?;
+        let mut parsed = parse_source(&source)
+            .map_err(|error| format!("{}: {error}", source_path.display()))?;
+        functions.append(&mut parsed);
+    }
+    let source_label = options.sources.iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     let llvm_ir = compile_to_llvm(&functions)
-        .map_err(|error| format!("{}: {error}", options.source.display()))?;
+        .map_err(|error| format!("{source_label}: {error}"))?;
 
     if options.check_only {
-        println!("{}: OK", options.source.display());
+        println!("{source_label}: OK");
         return Ok(());
     }
 
     if options.emit_llvm {
-        let output = options.output.unwrap_or_else(|| options.source.with_extension("ll"));
+        let output = options.output.unwrap_or_else(|| options.sources[0].with_extension("ll"));
         fs::write(&output, llvm_ir)
             .map_err(|error| format!("cannot write {}: {error}", output.display()))?;
         println!("wrote {}", output.display());
         return Ok(());
     }
 
-    let output = options.output.unwrap_or_else(|| options.source.with_extension(""));
+    let output = options.output.unwrap_or_else(|| options.sources[0].with_extension(""));
     let ir_path = env::temp_dir().join(format!("ramlang-{}.ll", process::id()));
     fs::write(&ir_path, llvm_ir)
         .map_err(|error| format!("cannot write temporary LLVM IR: {error}"))?;
