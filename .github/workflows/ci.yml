@@ -203,6 +203,11 @@ jobs:
           cargo run --release -- examples/packed_structs.ram -o target/packed-structs
           expected="$(printf '%s\n%s\n%s\n%s\n%s' '1' '7' '1' '42' '43')"
           test "$(target/packed-structs)" = "$expected"
+      - name: Compile and run bulk memory operations example
+        run: |
+          cargo run --release -- examples/bulk_memory.ram -o target/bulk-memory
+          expected="$(printf '%s\n%s\n%s\n%s' '42' '0' '1' '42')"
+          test "$(target/bulk-memory)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
