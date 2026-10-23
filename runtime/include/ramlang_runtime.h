@@ -30,6 +30,10 @@ typedef struct RamlangTaskScope RamlangTaskScope;
  * A connection must not be closed while another thread is using that handle.
  */
 const char *ramlang_last_error(void);
+/* Rust-owned allocator used by compiler-generated async argument frames. */
+void *ramlang_alloc(uint64_t size);
+void ramlang_free(void *pointer);
+
 RamlangTcpConnection *ramlang_tcp_connect(const char *address, uint64_t timeout_ms);
 int64_t ramlang_tcp_write_frame(
     RamlangTcpConnection *connection,
