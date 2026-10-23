@@ -98,6 +98,14 @@ jobs:
           cargo run --release -- examples/hello.ram --emit-obj -o target/hello.o
           clang target/hello.o -o target/hello-from-object
           test "$(target/hello-from-object)" = "49"
+      - name: Emit, inspect, link, and run LLVM bitcode
+        run: |
+          cargo run --release -- examples/hello.ram --emit-bc -o target/hello.bc
+          test -s target/hello.bc
+          llvm-dis target/hello.bc -o target/hello-bitcode.ll
+          grep -Fq 'define i32 @main()' target/hello-bitcode.ll
+          clang target/hello.bc -o target/hello-from-bitcode
+          test "$(target/hello-from-bitcode)" = "49"
       - name: Emit, assemble, and run target assembly output
         run: |
           cargo run --release -- examples/hello.ram --emit-asm -o target/hello.s
