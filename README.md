@@ -720,9 +720,33 @@ fn main() -> i32 {
 
 The caller must allocate enough correctly aligned memory for each load/store operation and must not use a pointer after freeing it. The first implementation targets host platforms with a 64-bit `size_t` for the current `alloc(byte_count: i64)` ABI.
 
+## Relative source imports
+
+Use `import "path/to/file.ram";` at file scope to include another RamLang source file in the same compilation. Paths are resolved relative to the importing file, so a nested file can import from its parent directory with `../`. Imported files may themselves import other files; the compiler canonicalizes paths to avoid parsing the same file twice and tolerates import cycles while collecting declarations.
+
+```rust
+// examples/imports/main.ram
+import "math/add.ram";
+import "constants.ram";
+
+fn main() -> i32 {
+    print(add(BASE, 2));
+    return 0;
+}
+```
+
+You can compile only the entry file:
+
+```sh
+ramcomp examples/imports/main.ram -o imports-demo
+./imports-demo
+```
+
+Imports currently share one global symbol namespace. They are source inclusion, not qualified namespaces or package management; cyclic imports are deduplicated, but mutually dependent declarations still need to be valid after being combined into the single LLVM module.
+
 ## Multiple source files
 
-Pass multiple `.ram` files to one compiler invocation. All functions from the inputs are combined into one LLVM module, so a function in one file can call a function declared in another input file. Every input file must contain at least one function; modules, namespaces, and import declarations are not yet implemented.
+Pass multiple `.ram` files to one compiler invocation. All functions from the inputs are combined into one LLVM module, so a function in one file can call a function declared in another input file. Explicit multi-file compilation remains supported alongside relative imports.
 
 ```sh
 ramcomp examples/multi_file/main.ram examples/multi_file/math.ram -o program
@@ -787,7 +811,7 @@ fn main() -> i32 {
 
 ## Current limitations
 
-This is an early, intentionally small compiler. Raw pointers and manual heap allocation are supported through `ptr`, `null`, `alloc`, `free`, `ptr_offset`, scalar `load_*`/`store_*` operations, their volatile and explicitly unaligned variants, and the bulk memory routines `memcpy`, `memmove`, `memset`, and `memcmp`. Global constants, mutable/immutable static variables, C external global declarations, named and packed structs, target layout queries, and LLVM bit-manipulation intrinsics are implemented. These low-level facilities are unsafe by design: the programmer remains responsible for allocation size, alignment, bounds, lifetime, synchronization, target-specific address validity, and avoiding use-after-free or double-free. Typed pointer safety, nested arrays, modules/import declarations, variadic foreign calls, generics, constructors/methods, and a formal ownership model are not implemented yet. Signed division uses LLVM `sdiv`; unsigned division uses `udiv`. There is no stable language specification or complete cross-platform target configuration yet.
+This is an early, intentionally small compiler. Raw pointers and manual heap allocation are supported through `ptr`, `null`, `alloc`, `free`, `ptr_offset`, scalar `load_*`/`store_*` operations, their volatile and explicitly unaligned variants, and the bulk memory routines `memcpy`, `memmove`, `memset`, and `memcmp`. Global constants, mutable/immutable static variables, C external global declarations, named and packed structs, target layout queries, and LLVM bit-manipulation intrinsics are implemented. These low-level facilities are unsafe by design: the programmer remains responsible for allocation size, alignment, bounds, lifetime, synchronization, target-specific address validity, and avoiding use-after-free or double-free. Typed pointer safety, nested arrays, qualified namespaces, package management, variadic foreign calls, generics, constructors/methods, and a formal ownership model are not implemented yet. Signed division uses LLVM `sdiv`; unsigned division uses `udiv`. There is no stable language specification or complete cross-platform target configuration yet.
 
 The compiler emits opaque-pointer LLVM IR, so the current native path targets LLVM/Clang 15+. LLVM IR is an implementation boundary, not a promise that every future RamLang feature or target is already supported.
 
