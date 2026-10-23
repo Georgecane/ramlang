@@ -3910,6 +3910,48 @@ mod tests {
     }
 
     #[test]
+    fn lowers_enum_variants_and_explicit_discriminants() {
+        let source = "enum Color { Red, Green = 4, Blue } fn color_code(color: Color) -> i32 { return color as i32; } fn main() -> i32 { let mut color: Color = Color.Green; print(color); print(color == Color.Green); print(color < Color.Blue); print(size_of(Color)); return color_code(Color.Blue) - 5; }";
+        let ir = compile(source).unwrap();
+        let color_id = struct_type_id("Color");
+        assert!(ir.contains("store i32 4, ptr"));
+        assert!(ir.contains("store i32 5, ptr"));
+        assert!(ir.contains("icmp eq i32"));
+        assert!(ir.contains("icmp slt i32"));
+        assert!(ir.contains("define i32 @color_code(i32"));
+        assert!(ir.contains(&format!("ret i32 5")));
+        assert!(ir.contains("store i64 4, ptr"));
+        assert!(!ir.contains(&format!("%struct.{color_id:016x} = type")));
+    }
+
+    #[test]
+    fn resolves_enum_types_across_source_files() {
+        let mut main = parse_source("fn read_color(color: Color) -> i32 { return color as i32; } fn main() -> i32 { let color: Color = Color.Blue; return read_color(color) - 2; }").unwrap();
+        let colors = parse_source("enum Color { Red, Green, Blue }").unwrap();
+        main.functions.append(&mut colors.functions.clone());
+        main.structs.append(&mut colors.structs.clone());
+        main.enums.extend(colors.enums.clone());
+        main.constants.extend(colors.constants.clone());
+        main.static_vars.extend(colors.static_vars.clone());
+        for (id, name) in colors.type_references {
+            main.type_references.insert(id, name);
+        }
+        let ir = compile_to_llvm(&main).unwrap();
+        assert!(ir.contains("define i32 @read_color(i32"));
+        assert!(ir.contains("ret i32 2"));
+    }
+
+    #[test]
+    fn rejects_duplicate_enum_variants_and_unknown_enum_types() {
+        let duplicate = parse_source("enum Color { Red, Red } fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(duplicate.contains("duplicate variant 'Red'"));
+        let missing = compile("fn main() -> i32 { let color: MissingColor = MissingColor.Red; return 0; }").unwrap_err();
+        assert!(missing.contains("unknown type 'MissingColor'"));
+        let variant = compile("enum Color { Red, Blue } fn main() -> i32 { let color: Color = Color.Green; return 0; }").unwrap_err();
+        assert!(variant.contains("enum 'Color' has no variant 'Green'"));
+    }
+
+    #[test]
     fn lowers_named_struct_declarations_and_fields() {
         let source = "struct Point { x: i32, y: i32 } fn main() -> i32 { let mut point: Point = Point { x: 20, y: 22 }; print(point.x + point.y); point.x = 30; print(point.x); return 0; }";
         let ir = compile(source).unwrap();
