@@ -93,6 +93,16 @@ jobs:
         run: |
           cargo run --release -- examples/multi_file/main.ram examples/multi_file/math.ram -o target/multi-file
           test "$(target/multi-file)" = "49"
+      - name: Emit, link, and run native object output
+        run: |
+          cargo run --release -- examples/hello.ram --emit-obj -o target/hello.o
+          clang target/hello.o -o target/hello-from-object
+          test "$(target/hello-from-object)" = "49"
+      - name: Emit, assemble, and run target assembly output
+        run: |
+          cargo run --release -- examples/hello.ram --emit-asm -o target/hello.s
+          clang target/hello.s -o target/hello-from-assembly
+          test "$(target/hello-from-assembly)" = "49"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
