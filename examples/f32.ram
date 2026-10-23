@@ -1,0 +1,22 @@
+const HALF: f32 = 0.5;
+
+extern fn printf(format: str, ...) -> i32;
+
+fn main() -> i32 {
+    let values: [f32; 2] = [1.5, 2.25];
+    let result: f32 = values[0] * values[1] + HALF;
+    print(result);
+
+    let wide: f64 = result as f64;
+    let narrow: f32 = wide as f32;
+    print(narrow);
+
+    // C's default argument promotions convert f32 to double in varargs.
+    printf("%.2f\n", narrow);
+
+    let integer: i32 = narrow as i32;
+    print(integer);
+    print(size_of([f32; 2]));
+    print(align_of(f32));
+    return 0;
+}
