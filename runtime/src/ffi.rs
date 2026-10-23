@@ -64,6 +64,49 @@ impl AsyncRequestState {
     }
 }
 
+/// A cancellation scope that owns the lifetime policy for explicitly tracked requests.
+///
+/// A scope does not free request handles. Closing it cancels unfinished tracked work;
+/// the caller must still close each TCP/UDP request handle it created.
+pub struct RamlangTaskScope {
+    requests: Mutex<Vec<(Arc<AsyncRequestState>, &'static str)>>,
+}
+
+impl RamlangTaskScope {
+    fn new() -> Self {
+        Self {
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn track(
+        &self,
+        state: Arc<AsyncRequestState>,
+        protocol: &'static str,
+    ) -> Result<(), String> {
+        let mut requests = self
+            .requests
+            .lock()
+            .map_err(|_| "task scope lock is poisoned".to_owned())?;
+        if !requests.iter().any(|(existing, _)| Arc::ptr_eq(existing, &state)) {
+            requests.push((state, protocol));
+        }
+        Ok(())
+    }
+
+    fn cancel_all(&self) -> Result<(), String> {
+        let requests = self
+            .requests
+            .lock()
+            .map_err(|_| "task scope lock is poisoned".to_owned())?
+            .clone();
+        for (state, protocol) in requests {
+            state.cancel(protocol);
+        }
+        Ok(())
+    }
+}
+
 /// Opaque handle for a background TCP request.
 ///
 /// Requests run on a shared multithread Tokio runtime. Dropping the handle through
@@ -833,6 +876,150 @@ pub unsafe extern "C" fn ramlang_udp_request_close(request: *mut RamlangUdpReque
         let request = unsafe { Box::from_raw(request) };
         request.state.cancel("UDP");
         drop(request);
+    }
+    clear_last_error();
+}
+
+/// Create an empty cancellation scope for background TCP and UDP requests.
+///
+/// # Safety
+///
+/// This function has no pointer preconditions.
+#[unsafe(no_mangle)]
+pub extern "C" fn ramlang_task_scope_new() -> *mut RamlangTaskScope {
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangTaskScope::new()))
+}
+
+/// Track a TCP request so closing its scope cancels it if it is still pending.
+///
+/// A request can be tracked more than once without duplicate entries. The scope does not
+/// own/free the opaque request handle; the caller must still close it.
+///
+/// # Safety
+///
+/// scope and request must be live handles returned by ramlang_task_scope_new and
+/// ramlang_tcp_request_start, respectively, and must not be closed concurrently.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_task_scope_track_tcp(
+    scope: *mut RamlangTaskScope,
+    request: *mut RamlangTcpRequest,
+) -> i32 {
+    if scope.is_null() || request.is_null() {
+        set_last_error("scope and request must not be null");
+        return -1;
+    }
+    // SAFETY: pointer validity is covered by this function's caller contract.
+    let scope = unsafe { &*scope };
+    let request = unsafe { &*request };
+    match scope.track(Arc::clone(&request.state), "TCP") {
+        Ok(()) => {
+            clear_last_error();
+            0
+        }
+        Err(error) => {
+            set_last_error(&error);
+            -1
+        }
+    }
+}
+
+/// Track a UDP request so closing its scope cancels it if it is still pending.
+///
+/// The scope does not own/free the opaque request handle; the caller must still close it.
+///
+/// # Safety
+///
+/// scope and request must be live handles returned by ramlang_task_scope_new and
+/// ramlang_udp_request_start, respectively, and must not be closed concurrently.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_task_scope_track_udp(
+    scope: *mut RamlangTaskScope,
+    request: *mut RamlangUdpRequest,
+) -> i32 {
+    if scope.is_null() || request.is_null() {
+        set_last_error("scope and request must not be null");
+        return -1;
+    }
+    // SAFETY: pointer validity is covered by this function's caller contract.
+    let scope = unsafe { &*scope };
+    let request = unsafe { &*request };
+    match scope.track(Arc::clone(&request.state), "UDP") {
+        Ok(()) => {
+            clear_last_error();
+            0
+        }
+        Err(error) => {
+            set_last_error(&error);
+            -1
+        }
+    }
+}
+
+/// Cancel all unfinished requests tracked by a scope. Returns zero on success or -1 on error.
+///
+/// The scope remains live after cancellation, and more requests may be tracked afterwards.
+///
+/// # Safety
+///
+/// scope must be a live handle returned by ramlang_task_scope_new and must not be closed
+/// concurrently with this function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_task_scope_cancel(scope: *mut RamlangTaskScope) -> i32 {
+    if scope.is_null() {
+        set_last_error("scope must not be null");
+        return -1;
+    }
+    // SAFETY: pointer validity is covered by this function's caller contract.
+    match unsafe { &*scope }.cancel_all() {
+        Ok(()) => {
+            clear_last_error();
+            0
+        }
+        Err(error) => {
+            set_last_error(&error);
+            -1
+        }
+    }
+}
+
+/// Return the number of unique request handles tracked by this scope.
+///
+/// # Safety
+///
+/// scope must be a live handle returned by ramlang_task_scope_new and must not be closed
+/// concurrently with this function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_task_scope_len(scope: *mut RamlangTaskScope) -> i64 {
+    if scope.is_null() {
+        return fail_i64("scope must not be null");
+    }
+    // SAFETY: pointer validity is covered by this function's caller contract.
+    match unsafe { &*scope }.requests.lock() {
+        Ok(requests) => {
+            clear_last_error();
+            requests.len() as i64
+        }
+        Err(_) => fail_i64("task scope lock is poisoned"),
+    }
+}
+
+/// Close a cancellation scope, cancelling all unfinished tracked requests. Null is a no-op.
+///
+/// This does not free the request handles themselves; close each tracked request handle
+/// after the scope is closed. A handle already completed keeps its original result.
+///
+/// # Safety
+///
+/// A non-null scope must have been returned by ramlang_task_scope_new and must not be
+/// used again or closed concurrently after this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_task_scope_close(scope: *mut RamlangTaskScope) {
+    if !scope.is_null() {
+        // SAFETY: pointer validity is covered by this function's caller contract.
+        let scope = unsafe { Box::from_raw(scope) };
+        let _ = scope.cancel_all();
+        drop(scope);
     }
     clear_last_error();
 }
