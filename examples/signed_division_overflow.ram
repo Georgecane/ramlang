@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    let minimum: i32 = -2147483648;
+    let negative_one: i32 = -1;
+    print(minimum / negative_one);
+    return 0;
+}
