@@ -1,0 +1,18 @@
+fn main() -> i32 {
+    let mut value: i32 = 0;
+    let address: ptr = &value;
+
+    atomic_store_i32_release(address, 10);
+    print(atomic_load_i32_acquire(address));
+
+    print(atomic_fetch_add_i32_acq_rel(address, 5));
+    print(atomic_fetch_sub_i32_relaxed(address, 1));
+    print(atomic_exchange_i32_seq_cst(address, 20));
+
+    print(atomic_fetch_and_i32(address, 7));
+    print(atomic_fetch_or_i32(address, 8));
+    print(atomic_fetch_xor_i32(address, 1));
+    print(atomic_load_i32(address));
+
+    return 0;
+}
