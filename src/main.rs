@@ -1998,6 +1998,31 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((result, Type::Ptr));
                 }
 
+                if name == "calloc" {
+                    if args.len() != 2 {
+                        return Err("calloc expects an element count and element size".to_owned());
+                    }
+                    let (count, count_type) = self.emit_expr_expected(&args[0], Some(Type::I64))?;
+                    self.require_same(Type::I64, count_type, "calloc element count")?;
+                    let (size, size_type) = self.emit_expr_expected(&args[1], Some(Type::I64))?;
+                    self.require_same(Type::I64, size_type, "calloc element size")?;
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = call ptr @calloc(i64 {count}, i64 {size})"));
+                    return Ok((result, Type::Ptr));
+                }
+
+                if name == "realloc" {
+                    if args.len() != 2 {
+                        return Err("realloc expects an existing pointer and a new byte count".to_owned());
+                    }
+                    let pointer = self.emit_raw_pointer_expr(&args[0], "realloc pointer")?;
+                    let (size, size_type) = self.emit_expr_expected(&args[1], Some(Type::I64))?;
+                    self.require_same(Type::I64, size_type, "realloc byte count")?;
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = call ptr @realloc(ptr {pointer}, i64 {size})"));
+                    return Ok((result, Type::Ptr));
+                }
+
                 if name == "free" {
                     if args.len() != 1 {
                         return Err("free expects exactly one ptr argument".to_owned());
@@ -2506,7 +2531,7 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
         if signatures.contains_key(&constant.name) {
             return Err(format!("global constant '{}' conflicts with a function", constant.name));
         }
-        if matches!(constant.name.as_str(), "printf" | "malloc" | "free" | "memcpy" | "memmove" | "memset" | "memcmp" | "llvm.trap") {
+        if matches!(constant.name.as_str(), "printf" | "malloc" | "calloc" | "realloc" | "free" | "memcpy" | "memmove" | "memset" | "memcmp" | "llvm.trap") {
             return Err(format!("global constant '{}' conflicts with a reserved runtime symbol", constant.name));
         }
         if global_values.contains_key(&constant.name) || global_bindings.contains_key(&constant.name) {
@@ -2613,6 +2638,8 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
     module.push_str("@.fmt.str = private unnamed_addr constant [4 x i8] [i8 37, i8 115, i8 10, i8 0], align 1\n");
     module.push_str("declare i32 @printf(ptr, ...)\n\n");
     module.push_str("declare ptr @malloc(i64)\n");
+    module.push_str("declare ptr @calloc(i64, i64)\n");
+    module.push_str("declare ptr @realloc(ptr, i64)\n");
     module.push_str("declare void @free(ptr)\n");
     module.push_str("declare ptr @memcpy(ptr, ptr, i64)\n");
     module.push_str("declare ptr @memmove(ptr, ptr, i64)\n");
