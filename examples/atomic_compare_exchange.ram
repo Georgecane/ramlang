@@ -1,0 +1,17 @@
+fn main() -> i32 {
+    let mut value: i32 = 10;
+    let mut expected: i32 = 10;
+    let address: ptr = &value;
+    let expected_address: ptr = &expected;
+
+    let changed: bool = atomic_compare_exchange_i32_acq_rel(address, expected_address, 20);
+    print(changed);
+    print(value);
+
+    expected = 15;
+    let changed_again: bool = atomic_compare_exchange_i32_release(address, expected_address, 30);
+    print(changed_again);
+    print(expected);
+    print(value);
+    return 0;
+}
