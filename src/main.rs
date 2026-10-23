@@ -4320,6 +4320,44 @@ mod tests {
     }
 
     #[test]
+    fn resolves_scalar_array_chained_and_struct_type_aliases() {
+        let source = "type Scalar = i32; type Number = Scalar; type Values = [i32; 3]; struct Point { x: Number, y: Scalar } type Location = Point; fn add(left: Number, right: Scalar) -> Number { return left + right; } fn main() -> i32 { let values: Values = [10, 20, 12]; let point: Location = Location { x: 5, y: 7 }; print(add(values[2], point.x)); print(point.y); return 0; }";
+        let ir = compile(source).unwrap();
+        let point_id = struct_type_id("Point");
+        assert!(ir.contains(&format!("%struct.{point_id:016x} = type {{ i32, i32 }}")));
+        assert!(ir.contains("define i32 @add(i32"));
+        assert!(ir.contains("alloca [3 x i32]"));
+        assert!(ir.contains("store i32 12"));
+    }
+
+    #[test]
+    fn resolves_type_aliases_across_imported_source_files() {
+        let root = env::temp_dir().join(format!("ramlang-type-alias-import-test-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("types")).unwrap();
+        fs::write(root.join("main.ram"), "import \"types/number.ram\"; fn main() -> i32 { let value: Word = 40; print(value + 2); return 0; }").unwrap();
+        fs::write(root.join("types/number.ram"), "type Scalar = i32; type Word = Scalar;").unwrap();
+
+        let mut program = Program::default();
+        let mut visited = HashSet::new();
+        for part in load_source_recursive(&root.join("main.ram"), &mut visited).unwrap() {
+            merge_program(&mut program, part).unwrap();
+        }
+        assert!(compile_to_llvm(&program).is_ok());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn rejects_cyclic_duplicate_and_conflicting_type_aliases() {
+        let cycle = compile("type First = Second; type Second = First; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(cycle.contains("cyclic type alias"));
+        let duplicate = compile("type Word = i32; type Word = u32; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(duplicate.contains("duplicate type alias 'Word'"));
+        let conflict = compile("struct Point { x: i32 } type Point = i32; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(conflict.contains("conflicts with an existing type declaration"));
+    }
+
+    #[test]
     fn emits_global_scalar_and_string_constants() {
         let source = r#"const ANSWER: i32 = 42; const GREETING: str = "hello"; const ENABLED: bool = true; fn main() -> i32 { print(ANSWER); print(GREETING); print(ENABLED); return 0; }"#;
         let ir = compile(source).unwrap();
