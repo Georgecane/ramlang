@@ -11,7 +11,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Static types: `i32`, `i64`, `f64`, `bool`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Immutable local variables with `let` and mutable locals with `let mut`
-- Arithmetic, comparisons, unary `-` and `!`
+- Arithmetic (`+`, `-`, `*`, `/`, `%`), comparisons, unary `-` and `!`, and short-circuit `&&` / `||`
 - `if` / `else`, `while`, nested blocks, line and block comments
 - Built-in `print(value)` for integer, floating-point, and boolean values
 - Unit tests for code generation and common semantic errors
