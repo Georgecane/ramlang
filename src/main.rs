@@ -1792,7 +1792,6 @@ impl<'a> FunctionGenerator<'a> {
                             ArrayElement::I32 | ArrayElement::U32 | ArrayElement::F32 => Some(4_u64),
                             ArrayElement::I64 | ArrayElement::U64 | ArrayElement::F64 => Some(8_u64),
                             ArrayElement::Ptr | ArrayElement::Str => None,
-                            ArrayElement::Alias(_) => return Err("unresolved array element alias reached LLVM lowering".to_owned()),
                             ArrayElement::Alias(type_id) => return Err(format!("unresolved array element alias {type_id:016x} in size_of")),
                         };
                         if let Some(element_size) = element_size {
@@ -5888,8 +5887,8 @@ mod tests {
 
     #[test]
     fn rejects_f32_non_finite_literals() {
-        let error = compile("fn main() -> i32 { let value: f32 = 3402824000000000000000000000000000000000.0; return 0; }").unwrap_err();
-        assert!(error.contains("f32 finite range"));
+        let error = compile("fn main() -> i32 { let value: f32 = 1.0e100; return 0; }").unwrap_err();
+        assert!(error.contains("f32 finite range"), "unexpected error: {error}");
     }
 
     #[test]
