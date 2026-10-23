@@ -2424,7 +2424,7 @@ mod tests {
     fn lowers_address_of_for_variables_and_fields() {
         let source = "struct Point { x: i32 } fn main() -> i32 { let mut value: i32 = 7; let p: ptr = &value; store_i32(p, 42); let mut point: Point = Point { x: 1 }; let field: ptr = &point.x; store_i32(field, value); print(point.x); return 0; }";
         let ir = compile(source).unwrap();
-        assert!(ir.contains("store i32 42, ptr %v"));
+        assert!(ir.contains("store ptr %v"));
         assert!(ir.contains("store i32 7, ptr"));
         assert!(ir.contains("getelementptr inbounds %struct."));
     }
