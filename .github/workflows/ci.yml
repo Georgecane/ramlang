@@ -36,6 +36,10 @@ jobs:
         run: |
           cargo run --release -- examples/memory.ram -o target/memory
           test "$(target/memory)" = "42"
+      - name: Compile and run C ABI example
+        run: |
+          cargo run --release -- examples/ffi.ram -o target/ffi
+          test "$(target/ffi)" = "42"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
