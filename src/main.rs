@@ -6109,6 +6109,16 @@ mod tests {
     }
 
     #[test]
+    fn emits_f32_c_abi_parameters_and_returns() {
+        let source = "extern fn c_scale(value: f32) -> f32; fn apply(value: f32) -> f32 { return c_scale(value); } fn main() -> i32 { let result: f32 = apply(1.25); print(result); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("declare float @c_scale(float)"));
+        assert!(ir.contains("call float @c_scale(float"));
+        assert!(ir.contains("define float @apply(float"));
+        assert!(ir.contains("call float @apply(float"));
+    }
+
+    #[test]
     fn lowers_variadic_external_calls_and_default_promotions() {
         let source = "extern fn variadic_sum(base: i32, ...) -> i32; fn main() -> i32 { let small: i8 = -5; let medium: u16 = 250; let flag: bool = true; return variadic_sum(10, small, medium, flag, 2.0) - 258; }";
         let ir = compile(source).unwrap();
