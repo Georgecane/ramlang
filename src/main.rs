@@ -1866,6 +1866,22 @@ mod tests {
     }
 
     #[test]
+    fn emits_for_loop_control_flow() {
+        let source = "fn main() -> i32 { let mut sum: i32 = 0; for (let mut i: i32 = 0; i < 10; i = i + 1) { if (i == 3) { continue; } if (i == 7) { break; } sum = sum + i; } print(sum); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("for.cond"));
+        assert!(ir.contains("for.step"));
+        assert!(ir.contains("for.end"));
+    }
+
+    #[test]
+    fn for_loop_variable_is_scoped_to_the_loop() {
+        let source = "fn main() -> i32 { for (let mut i: i32 = 0; i < 2; i = i + 1) { } return i; }";
+        let error = compile(source).unwrap_err();
+        assert!(error.contains("unknown variable 'i'"));
+    }
+
+    #[test]
     fn emits_bitwise_and_shift_instructions() {
         let source = "fn main() -> i32 { let value: i32 = (6 & 3) | (1 << 3); print(~0); print(value); return 0; }";
         let ir = compile(source).unwrap();
