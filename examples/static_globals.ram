@@ -1,0 +1,15 @@
+static mut interrupt_count: i32 = 0;
+static status_mask: u32 = 15;
+static device_name: str = "device-ready";
+
+fn main() -> i32 {
+    interrupt_count = interrupt_count + 1;
+    print(interrupt_count);
+    print(status_mask);
+    print(device_name);
+
+    let counter_address: ptr = &interrupt_count;
+    store_i32(counter_address, 7);
+    print(interrupt_count);
+    return 0;
+}
