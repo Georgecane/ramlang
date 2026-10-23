@@ -1380,7 +1380,7 @@ fn format_general_float(value: f64) -> String {
         .parse::<i32>()
         .expect("Rust scientific float exponent is an integer");
 
-    if exponent < -4 || exponent >= 6 {
+    if !(-4..6).contains(&exponent) {
         let mantissa = trim_decimal_zeros(mantissa);
         format!("{mantissa}e{exponent:+03}")
     } else {
