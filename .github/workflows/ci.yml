@@ -111,6 +111,11 @@ jobs:
         run: |
           cargo run --release -- examples/array_literals.ram -o target/array-literals
           test "$(target/array-literals)" = "42"
+      - name: Compile and run named struct example
+        run: |
+          cargo run --release -- examples/structs.ram -o target/structs
+          expected="$(printf '%s\n%s' '42' '30')"
+          test "$(target/structs)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
