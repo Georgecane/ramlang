@@ -164,6 +164,26 @@ fn main() -> i32 {
 
 Do not dereference arbitrary integer-derived addresses. On targets with pointers wider than the chosen integer type, an integer round-trip may lose information; prefer the target's native pointer-width integer type when adding platform abstractions.
 
+## Fixed-length arrays
+
+Use `[element_type; length]` for a fixed-length view of a memory region, with indexed reads and writes. Every access emits a runtime bounds check and branches to `llvm.trap` if the index is outside the declared length. The compiler does not own the memory: allocate enough aligned storage for all elements, and free heap storage exactly once.
+
+```rust
+fn main() -> i32 {
+    let values: [i32; 4] = alloc(16) as [i32; 4];
+    let mut index: i32 = 0;
+    while (index < 4) {
+        values[index] = index * 10;
+        index = index + 1;
+    }
+    print(values[3]);
+    free(values as ptr);
+    return 0;
+}
+```
+
+Array types currently support scalar and pointer elements, but nested arrays and array literals are not implemented. An array type is a pointer plus a declared length, so the bounds check protects the declared index range; it cannot prove that the underlying allocation actually contains that much memory. The programmer must keep the allocation size and array type consistent.
+
 ## Explicit memory management
 
 Raw memory operations are intentionally explicit. This example allocates four bytes, stores an integer, reads it back, and frees the allocation:
@@ -249,7 +269,7 @@ fn main() -> i32 {
 
 ## Current limitations
 
-This is an early, intentionally small compiler. Raw pointers and manual heap allocation are supported through `ptr`, `null`, `alloc`, `free`, `ptr_offset`, `load_i8`/`load_i16`/`load_i32`/`load_i64`, `load_u8`/`load_u16`/`load_u32`/`load_u64`, `load_f64`/`load_bool`/`load_ptr`, and matching `store_*` intrinsics. These operations are unsafe by design: the programmer is responsible for allocation size, alignment, bounds, lifetime, and avoiding use-after-free or double-free. Typed pointer safety, arrays, user-defined structs, strings, modules, imports, variadic foreign calls, generics, and a formal ownership model are not implemented yet. Integer division uses signed LLVM division. There is no stable language specification or cross-platform target configuration yet.
+This is an early, intentionally small compiler. Raw pointers and manual heap allocation are supported through `ptr`, `null`, `alloc`, `free`, `ptr_offset`, `load_i8`/`load_i16`/`load_i32`/`load_i64`, `load_u8`/`load_u16`/`load_u32`/`load_u64`, `load_f64`/`load_bool`/`load_ptr`, and matching `store_*` intrinsics. These operations are unsafe by design: the programmer is responsible for allocation size, alignment, bounds, lifetime, and avoiding use-after-free or double-free. Typed pointer safety, nested arrays, array literals, user-defined structs, modules/import declarations, variadic foreign calls, generics, and a formal ownership model are not implemented yet. Integer division uses signed LLVM division. There is no stable language specification or cross-platform target configuration yet.
 
 The compiler emits opaque-pointer LLVM IR, so the current native path targets LLVM/Clang 15+. LLVM IR is an implementation boundary, not a promise that every future RamLang feature or target is already supported.
 
