@@ -257,6 +257,15 @@ jobs:
         run: |
           cargo run --release -- examples/calloc_realloc.ram --target i386-unknown-linux-gnu --emit-obj -o target/calloc-realloc-i386.o
           file target/calloc-realloc-i386.o | grep -F 'ELF 32-bit'
+      - name: Compile and run enum values example
+        run: |
+          cargo run --release -- examples/enums.ram -o target/enums
+          expected="$(printf '%s\n%s\n%s\n%s' '4' '1' '1' '4')"
+          test "$(target/enums)" = "$expected"
+      - name: Compile enum types across source files
+        run: |
+          cargo run --release -- examples/multi_file/color_main.ram examples/multi_file/color.ram -o target/enum-multi
+          test "$(target/enum-multi)" = "2"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
