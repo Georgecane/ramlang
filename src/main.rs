@@ -5505,6 +5505,30 @@ mod tests {
     }
 
     #[test]
+    fn lowers_variadic_external_calls_and_default_promotions() {
+        let source = "extern fn variadic_sum(base: i32, ...) -> i32; fn main() -> i32 { let small: i8 = -5; let medium: u16 = 250; let flag: bool = true; return variadic_sum(10, small, medium, flag, 2.0) - 258; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("declare i32 @variadic_sum(i32, ...)"));
+        assert!(ir.contains("sext i8"));
+        assert!(ir.contains("zext i16"));
+        assert!(ir.contains("zext i1"));
+        assert!(ir.contains("call i32 (i32, ...) @variadic_sum(i32 10"));
+        assert!(ir.contains("double 2.000000e0") || ir.contains("double 2.000000e+00") || ir.contains("double 2.000000e00"));
+    }
+
+    #[test]
+    fn rejects_invalid_variadic_declarations_and_calls() {
+        let definition = parse_source("fn not_extern(value: i32, ...) -> i32 { return value; } fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(definition.contains("variadic functions must be declared with 'extern fn'"));
+
+        let too_few = compile("extern fn variadic_sum(base: i32, ...) -> i32; fn main() -> i32 { return variadic_sum() ; }").unwrap_err();
+        assert!(too_few.contains("expects at least 1 argument(s), got 0"));
+
+        let aggregate = compile("struct Pair { a: i32, b: i32 } extern fn consume(base: i32, ...) -> i32; fn main() -> i32 { let p: Pair = Pair { a: 1, b: 2 }; return consume(0, p); }").unwrap_err();
+        assert!(aggregate.contains("cannot pass arrays or structs by value"));
+    }
+
+    #[test]
     fn emits_short_circuit_logic_and_remainder() {
         let source = "fn side() -> bool { print(9); return true; } fn main() -> i32 { let value: i32 = 7 % 4; if (false && side() || value == 3) { print(0); } else { print(1); } return 0; }";
         let ir = compile(source).unwrap();
