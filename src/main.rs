@@ -3493,7 +3493,10 @@ fn resolve_enum_expr(
                 resolve_enum_expr(element, enum_ids, alias_types);
             }
         }
-        Expr::StructLiteral { fields, .. } => {
+        Expr::StructLiteral { type_id, fields } => {
+            if let Some(Type::Struct(resolved_id)) = alias_types.get(type_id) {
+                *type_id = *resolved_id;
+            }
             for (_, value) in fields {
                 resolve_enum_expr(value, enum_ids, alias_types);
             }
