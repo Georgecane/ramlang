@@ -97,7 +97,7 @@ impl<'a> Lexer<'a> {
                         self.advance();
                     }
                     if !self.peek(0).is_some_and(|b| b.is_ascii_digit()) {
-                        return Err(self.error("floating-point exponent requires at least one digit".to_owned()));
+                        return Err(format!("{line}:{column}: floating-point exponent requires at least one digit"));
                     }
                     while self.peek(0).is_some_and(|b| b.is_ascii_digit()) {
                         self.advance();
