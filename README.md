@@ -1,13 +1,14 @@
 # RamLang
 
-RamLang is a small C-inspired, statically typed systems-language experiment written in Rust. The compiler lowers source code to LLVM IR and uses LLVM/Clang to produce a native executable.
+RamLang is a statically typed systems-language experiment written in Rust. Its Rust front-end lowers source code to LLVM IR, and an in-process LLVM backend verifies and emits native machine code.
 
 > **Development status:** an initial end-to-end compiler is implemented. This is an early language implementation, not yet a stable systems-language ABI or a complete C/C++ replacement.
 
 ## Current features
 
-- Rust-based lexer, parser, compiler driver, and LLVM IR backend
-- Native compilation through Clang (LLVM 15 or newer, using opaque pointers), with LLVM IR, object, assembly, bitcode, and generated C-header output modes
+- Rust-based lexer, parser, compiler driver, and LLVM backend using Inkwell
+- In-process LLVM IR parsing, verification, target-machine code generation, object emission, assembly emission, and bitcode emission; the system linker driver is used only for final executable linking
+- LLVM 18-23 bindings selectable with Cargo features (default: LLVM 18.1)
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Optional Tokio-backed TCP and UDP runtime exposed as a C-compatible shared library, including non-blocking request handles, cancellation scopes, and a structured task-group API for Rust consumers
@@ -42,10 +43,12 @@ Build the optional networking runtime with `cargo build --release -p ramlang-run
 
 ## Requirements
 
-- Rust 1.99.1 stable (edition 2024; pinned by `rust-toolchain.toml`)
+- Rust 1.99.1 stable (edition 2024; pinned by `rust-toolchain.toml)
 - Cargo manifest declares Rust 1.99 as the minimum supported version
-- LLVM/Clang 15 or newer for producing native executables
-- A native C toolchain/runtime provided by the operating system
+- LLVM development libraries and matching `llvm-config` for one supported major version, 18 through 23 (default: LLVM 18.1)
+- A native system linker and platform runtime for executable linking
+
+On CachyOS, use the feature matching the installed LLVM major when it is not 18. For example, LLVM 23 uses `cargo build --no-default-features --features llvm23`. The default feature targets LLVM 18 and expects a matching `llvm-config` to be available.
 
 On Arch Linux / CachyOS, install the required tools with:
 
@@ -53,7 +56,7 @@ On Arch Linux / CachyOS, install the required tools with:
 sudo pacman -S --needed rust clang llvm
 ```
 
-If Clang is not named `clang` or is outside `PATH`, set `RAMLANG_CLANG` to its executable path.
+For final executable linking, RamLang uses `clang` as the platform linker driver by default. Override it with `RAMLANG_LINKER`; `RAMLANG_CLANG` remains a compatibility alias.
 
 ## Build and test
 
