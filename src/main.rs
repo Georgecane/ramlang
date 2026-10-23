@@ -346,7 +346,8 @@ struct GlobalVar {
     name: String,
     ty: Type,
     mutable: bool,
-    value: Expr,
+    value: Option<Expr>,
+    external: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -475,12 +476,16 @@ impl Parser {
                 continue;
             }
             if self.match_keyword("static") {
-                program.static_vars.push(self.parse_global_var()?);
+                program.static_vars.push(self.parse_global_var(false)?);
                 continue;
             }
             let external = self.match_keyword("extern");
+            if external && self.match_keyword("static") {
+                program.static_vars.push(self.parse_global_var(true)?);
+                continue;
+            }
             if !self.match_keyword("fn") {
-                return Err(self.error("expected a struct, const, static, function declaration, or 'extern fn'".to_owned()));
+                return Err(self.error("expected a struct, const, static, function declaration, 'extern static', or 'extern fn'".to_owned()));
             }
             program.functions.push(self.parse_function(external)?);
         }
@@ -493,7 +498,7 @@ impl Parser {
         Ok(program)
     }
 
-    fn parse_global_var(&mut self) -> Result<GlobalVar, String> {
+    fn parse_global_var(&mut self, external: bool) -> Result<GlobalVar, String> {
         let mutable = self.match_keyword("mut");
         let name = self.expect_ident("static variable name")?;
         self.expect_symbol(":")?;
@@ -501,10 +506,17 @@ impl Parser {
         if ty == Type::Void {
             return Err(self.error("a static variable cannot have type void".to_owned()));
         }
-        self.expect_symbol("=")?;
-        let value = self.parse_expression()?;
+        if external && matches!(ty, Type::Array(_, _) | Type::Struct(_)) {
+            return Err(self.error("extern static currently supports scalar and raw-pointer types only".to_owned()));
+        }
+        let value = if external {
+            None
+        } else {
+            self.expect_symbol("=")?;
+            Some(self.parse_expression()?)
+        };
         self.expect_symbol(";")?;
-        Ok(GlobalVar { name, ty, mutable, value })
+        Ok(GlobalVar { name, ty, mutable, value, external })
     }
 
     fn parse_global_const(&mut self) -> Result<GlobalConst, String> {
