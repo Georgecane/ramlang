@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    print(strlen("RamLang"));
+    print(strcmp("RamLang", "RamLang"));
+    print(strncmp("RamLang", "Ram", 3));
+
+    let found: ptr = memchr("RamLang", 76, 7);
+    print(load_u8(found));
+    return 0;
+}
