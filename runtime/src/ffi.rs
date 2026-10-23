@@ -1438,6 +1438,118 @@ mod tests {
     }
 
     #[test]
+    fn c_abi_task_scope_cancels_tcp_and_udp_requests_together() {
+        let tcp_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let tcp_address = tcp_listener.local_addr().unwrap();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+
+        let tcp_ready = ready_tx.clone();
+        let tcp_server = thread::spawn(move || {
+            let (mut stream, _) = tcp_listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut header = [0_u8; 4];
+            stream.read_exact(&mut header).unwrap();
+            let length = u32::from_be_bytes(header) as usize;
+            let mut payload = vec![0_u8; length];
+            stream.read_exact(&mut payload).unwrap();
+            tcp_ready.send("tcp").unwrap();
+            thread::sleep(Duration::from_millis(200));
+        });
+
+        let udp_server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        udp_server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let udp_address = udp_server.local_addr().unwrap();
+        let udp_ready = ready_tx.clone();
+        let udp_server = thread::spawn(move || {
+            let mut payload = [0_u8; 64];
+            let _ = udp_server.recv_from(&mut payload).unwrap();
+            udp_ready.send("udp").unwrap();
+            thread::sleep(Duration::from_millis(200));
+        });
+        drop(ready_tx);
+
+        let tcp_address = CString::new(tcp_address.to_string()).unwrap();
+        let tcp_payload = b"tcp scope";
+        // SAFETY: pointers are valid and inputs are copied before the calls return.
+        let tcp_request = unsafe {
+            ramlang_tcp_request_start(
+                tcp_address.as_ptr(),
+                tcp_payload.as_ptr(),
+                tcp_payload.len() as u64,
+                5_000,
+            )
+        };
+
+        let udp_address = CString::new(udp_address.to_string()).unwrap();
+        let udp_payload = b"udp scope";
+        // SAFETY: pointers are valid and inputs are copied before the calls return.
+        let udp_request = unsafe {
+            ramlang_udp_request_start(
+                udp_address.as_ptr(),
+                udp_payload.as_ptr(),
+                udp_payload.len() as u64,
+                64,
+                5_000,
+            )
+        };
+        assert!(!tcp_request.is_null(), "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+        assert!(!udp_request.is_null(), "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+
+        let scope = ramlang_task_scope_new();
+        assert!(!scope.is_null());
+        // SAFETY: these are live handles and none are closed concurrently.
+        assert_eq!(unsafe { ramlang_task_scope_track_tcp(scope, tcp_request) }, 0);
+        assert_eq!(unsafe { ramlang_task_scope_track_udp(scope, udp_request) }, 0);
+        assert_eq!(unsafe { ramlang_task_scope_len(scope) }, 2);
+
+        let mut seen = [ready_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+                        ready_rx.recv_timeout(Duration::from_secs(2)).unwrap()];
+        seen.sort_unstable();
+        assert_eq!(seen, ["tcp", "udp"]);
+
+        // SAFETY: scope is live and not being closed concurrently.
+        assert_eq!(unsafe { ramlang_task_scope_cancel(scope) }, 0);
+        assert_eq!(unsafe { ramlang_tcp_request_wait(tcp_request, 500) }, 1);
+        assert_eq!(unsafe { ramlang_udp_request_wait(udp_request, 500) }, 1);
+
+        let mut output = [0_u8; 64];
+        // SAFETY: each handle is live and output has 64 writable bytes.
+        assert_eq!(
+            unsafe { ramlang_tcp_request_read_result(tcp_request, output.as_mut_ptr(), 64) },
+            -1
+        );
+        assert_eq!(
+            unsafe { CStr::from_ptr(ramlang_last_error()) }.to_string_lossy(),
+            "TCP request cancelled"
+        );
+        assert_eq!(
+            unsafe { ramlang_udp_request_read_result(udp_request, output.as_mut_ptr(), 64) },
+            -1
+        );
+        assert_eq!(
+            unsafe { CStr::from_ptr(ramlang_last_error()) }.to_string_lossy(),
+            "UDP request cancelled"
+        );
+
+        // SAFETY: these handles are live and all usage has completed.
+        unsafe {
+            ramlang_task_scope_close(scope);
+            ramlang_tcp_request_close(tcp_request);
+            ramlang_udp_request_close(udp_request);
+        }
+        tcp_server.join().unwrap();
+        udp_server.join().unwrap();
+    }
+
+    #[test]
     fn c_abi_task_scope_cancels_tracked_tcp_requests() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let server_address = listener.local_addr().unwrap();
