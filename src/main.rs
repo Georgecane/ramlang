@@ -3883,6 +3883,15 @@ fn compile_to_llvm_for_target(
 
     let mut signatures = HashMap::new();
     for function in functions {
+        if function.name == "printf"
+            && (!function.external
+                || !function.variadic
+                || function.params.len() != 1
+                || function.params[0].1 != Type::Str
+                || function.return_type != Type::I32)
+        {
+            return Err("printf is a reserved runtime symbol; declare it as extern fn printf(format: str, ...) -> i32".to_owned());
+        }
         let signature = Signature {
             params: function.params.iter().map(|(_, ty)| *ty).collect(),
             return_type: function.return_type,
@@ -4039,6 +4048,10 @@ fn compile_to_llvm_for_target(
 
     for function in functions {
         if function.external {
+            if function.name == "printf" {
+                // The runtime declaration emitted above is the canonical printf prototype.
+                continue;
+            }
             let mut params = function.params.iter()
                 .map(|(_, ty)| ty.llvm())
                 .collect::<Vec<_>>();
@@ -5535,6 +5548,23 @@ mod tests {
         assert!(ir.contains("zext i1"));
         assert!(ir.contains("call i32 (i32, ...) @variadic_sum(i32 10"));
         assert!(ir.contains("double 2.000000e0") || ir.contains("double 2.000000e+00") || ir.contains("double 2.000000e00"));
+    }
+
+    #[test]
+    fn allows_declaring_and_calling_printf_as_variadic_ffi() {
+        let source = r#"extern fn printf(format: str, ...) -> i32; fn main() -> i32 { let code: i8 = 65; printf("%d %d %.1f\\n", code, true, 2.5); return 0; }"#;
+        let ir = compile(source).unwrap();
+        assert_eq!(ir.matches("declare i32 @printf(ptr, ...)").count(), 1);
+        assert!(ir.contains("call i32 (ptr, ...) @printf(ptr"));
+        assert!(ir.contains("sext i8"));
+        assert!(ir.contains("zext i1"));
+        assert!(ir.contains("double 2.500000"));
+    }
+
+    #[test]
+    fn rejects_incompatible_printf_declarations() {
+        let error = compile("extern fn printf(format: str) -> i32; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(error.contains("declare it as extern fn printf(format: str, ...) -> i32"));
     }
 
     #[test]
