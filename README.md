@@ -419,7 +419,8 @@ RamLang exposes typed atomic operations for integer widths 8, 16, 32, and 64:
 - `atomic_load_i32(ptr)` and `atomic_load_i32_acquire(ptr)`
 - `atomic_store_i32(ptr, value)` and `atomic_store_i32_release(ptr, value)`
 - `atomic_exchange_i32(ptr, value)`
-- `atomic_fetch_add_i32(ptr, value)`, `atomic_fetch_sub_i32`, `atomic_fetch_and_i32`, `atomic_fetch_or_i32`, and `atomic_fetch_xor_i32`
+- `atomic_fetch_add_i32(ptr, value)`, `atomic_fetch_sub_i32`, `atomic_fetch_and_i32`, `atomic_fetch_or_i32`, `atomic_fetch_xor_i32`, and `atomic_fetch_nand_i32`
+- Signed `atomic_fetch_min_i32` / `atomic_fetch_max_i32` and unsigned `atomic_fetch_umin_u32` / `atomic_fetch_umax_u32`
 - `atomic_compare_exchange_i32(ptr, expected_ptr, desired)`, which returns a boolean and writes the observed value back through `expected_ptr`
 
 All operations default to sequentially consistent ordering when no ordering suffix is supplied. Supported explicit suffixes are `relaxed`, `acquire`, `release`, `acq_rel`, and `seq_cst`, subject to LLVM's ordering rules: loads do not accept release semantics, and stores do not accept acquire semantics. `relaxed` maps to LLVM's `monotonic` ordering. Read-modify-write operations return the previous value.
