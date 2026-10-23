@@ -16,6 +16,10 @@ The shared library is written to target/release/libramlang_runtime.so on Linux. 
 - ramlang_tcp_write_frame(handle, data, length): write one frame and return zero on success, or -1 on failure.
 - ramlang_tcp_read_frame(handle, output, capacity): read one frame into a caller-owned buffer and return its byte length, or -1 on failure.
 - ramlang_tcp_close(handle): release a handle.
+- ramlang_task_scope_new(): create a cancellation scope; track TCP/UDP request handles with ramlang_task_scope_track_tcp and ramlang_task_scope_track_udp.
+- ramlang_task_scope_cancel(scope): cancel all unfinished requests tracked by that scope while keeping the scope alive.
+- ramlang_task_scope_len(scope): report the number of unique tracked requests.
+- ramlang_task_scope_close(scope): cancel unfinished tracked work and release the scope; request handles must still be closed separately.
 - ramlang_tcp_request_start(address, data, length, timeout_ms): copy the inputs and asynchronously connect, write one frame, then read one response frame.
 - ramlang_tcp_request_is_ready(handle): return 1 when complete, 0 while pending, or -1 on error.
 - ramlang_tcp_request_wait(handle, wait_timeout_ms): return 1 when complete, 0 when the wait timeout expires, or -1 on error.
@@ -50,6 +54,12 @@ The included example connects to a local echo server, sends the frame ping, read
 
 A server must be listening at 127.0.0.1:39871 and speak the same length-prefixed framing protocol. The example is exercised in CI against a local Tokio echo server. Use a local test endpoint first; do not connect programs to untrusted public hosts until the error handling and protocol behavior are appropriate for your application.
 
+
+
+
+## Cancellation scopes
+
+A request scope lets a .ram caller group its background TCP and UDP request handles and cancel the unfinished work together on an error path. Create a scope, start a request, track its handle, and keep the request handle alive until the result has been consumed or the request has been closed. Closing a scope cancels all pending tracked requests and wakes any threads waiting for their results; it does not free the request handles themselves. Always close the individual request handles after closing the scope. Repeatedly tracking the same handle is safe and does not add duplicate entries.
 
 
 ## Non-blocking TCP requests from RamLang
