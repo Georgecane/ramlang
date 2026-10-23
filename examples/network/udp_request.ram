@@ -1,0 +1,38 @@
+extern fn ramlang_last_error() -> str;
+extern fn ramlang_udp_request_start(destination: str, data: ptr, length: u64, response_capacity: u64, timeout_ms: u64) -> ptr;
+extern fn ramlang_udp_request_is_ready(request: ptr) -> i32;
+extern fn ramlang_udp_request_wait(request: ptr, wait_timeout_ms: u64) -> i32;
+extern fn ramlang_udp_request_read_result(request: ptr, output: ptr, capacity: u64) -> i64;
+extern fn ramlang_udp_request_cancel(request: ptr) -> i32;
+extern fn ramlang_udp_request_close(request: ptr);
+
+fn main() -> i32 {
+    let request: ptr = ramlang_udp_request_start("127.0.0.1:39872", "async" as ptr, 5, 128, 2000);
+    if (request == null) {
+        print(ramlang_last_error());
+        return 1;
+    }
+
+    let wait_result: i32 = ramlang_udp_request_wait(request, 3000);
+    if (wait_result != 1) {
+        print("UDP request did not complete");
+        ramlang_udp_request_cancel(request);
+        ramlang_udp_request_close(request);
+        return 2;
+    }
+
+    let buffer: ptr = alloc(128);
+    let received: i64 = ramlang_udp_request_read_result(request, buffer, 128);
+    if (received < 0) {
+        print(ramlang_last_error());
+        free(buffer);
+        ramlang_udp_request_close(request);
+        return 3;
+    }
+
+    print(received);
+    print(load_u8(buffer));
+    free(buffer);
+    ramlang_udp_request_close(request);
+    return 0;
+}
