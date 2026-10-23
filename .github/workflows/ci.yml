@@ -347,6 +347,11 @@ jobs:
           cargo run --release -- examples/saturating_arithmetic.ram -o target/saturating-arithmetic
           expected="$(printf '%s\n%s\n%s\n%s' '2147483647' '-2147483648' '65535' '0')"
           test "$(target/saturating-arithmetic)" = "$expected"
+      - name: Compile and run f32 memory operations example
+        run: |
+          cargo run --release -- examples/f32_memory.ram -o target/f32-memory
+          expected="$(printf '%s\n%s\n%s' '1.5' '3.5' '4.25')"
+          test "$(target/f32-memory)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
