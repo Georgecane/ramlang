@@ -2825,9 +2825,27 @@ mod tests {
     }
 
     #[test]
+    fn lowers_target_aware_alignment_for_scalars_arrays_and_structs() {
+        let source = "struct Aligned { byte: u8, wide: i64 } fn main() -> i32 { let a: i64 = align_of(i8); let b: i64 = align_of(i32); let c: i64 = align_of([i16; 4]); let d: i64 = align_of(Aligned); print(a); print(b); print(c); print(d); return 0; }";
+        let ir = compile(source).unwrap();
+        let struct_id = struct_type_id("Aligned");
+        assert!(ir.contains("getelementptr { i8, i8 }, ptr null"));
+        assert!(ir.contains("getelementptr { i8, i32 }, ptr null"));
+        assert!(ir.contains("getelementptr { i8, [4 x i16] }, ptr null"));
+        assert!(ir.contains(&format!("getelementptr {{ i8, %struct.{struct_id:016x} }}, ptr null")));
+        assert!(ir.matches("ptrtoint ptr").count() >= 4);
+    }
+
+    #[test]
     fn rejects_size_of_void() {
         let error = compile("fn main() -> i32 { let n: i64 = size_of(void); return 0; }").unwrap_err();
         assert!(error.contains("size_of(void) is invalid"));
+    }
+
+    #[test]
+    fn rejects_align_of_void() {
+        let error = compile("fn main() -> i32 { let n: i64 = align_of(void); return 0; }").unwrap_err();
+        assert!(error.contains("align_of(void) is invalid"));
     }
 
     #[test]
