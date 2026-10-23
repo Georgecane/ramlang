@@ -25,7 +25,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             stream.read_exact(&mut header).await?;
             let length = u32::from_be_bytes(header) as usize;
             if length > MAX_FRAME_SIZE {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "test frame is too large"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "test frame is too large",
+                ));
             }
 
             let mut payload = vec![0_u8; length];
