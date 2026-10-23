@@ -247,6 +247,12 @@ jobs:
           cargo run --release -- examples/string_memory.ram -o target/string-memory
           expected="$(printf '%s\n%s\n%s\n%s' '7' '0' '0' '76')"
           test "$(target/string-memory)" = "$expected"
+      - name: Emit and inspect target-specific 32-bit LLVM IR
+        run: |
+          cargo run --release -- examples/calloc_realloc.ram --emit-llvm target/calloc-realloc-i386.ll --target i386-unknown-linux-gnu
+          grep -Fq 'target triple = "i386-unknown-linux-gnu"' target/calloc-realloc-i386.ll
+          grep -Fq 'declare ptr @calloc(i32, i32)' target/calloc-realloc-i386.ll
+          grep -Fq 'declare i32 @strlen(ptr)' target/calloc-realloc-i386.ll
       - name: Cross-compile size_t-based memory APIs for 32-bit x86
         run: |
           cargo run --release -- examples/calloc_realloc.ram --target i386-unknown-linux-gnu --emit-obj -o target/calloc-realloc-i386.o
