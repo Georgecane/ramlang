@@ -3597,6 +3597,40 @@ fn resolve_enum_stmt(
     }
 }
 
+fn resolve_alias_target(
+    ty: Type,
+    aliases: &HashMap<u64, &TypeAlias>,
+    structures: &HashMap<u64, &StructDef>,
+    enums: &HashMap<u64, &EnumDef>,
+    type_names: &HashMap<u64, String>,
+    stack: &mut Vec<u64>,
+) -> Result<Type, String> {
+    match ty {
+        Type::Struct(type_id) => {
+            if let Some(alias) = aliases.get(&type_id) {
+                if stack.contains(&type_id) {
+                    return Err(format!("cyclic type alias involving '{}'", alias.name));
+                }
+                stack.push(type_id);
+                let resolved = resolve_alias_target(
+                    alias.target, aliases, structures, enums, type_names, stack,
+                );
+                stack.pop();
+                resolved
+            } else if enums.contains_key(&type_id) {
+                Ok(Type::Enum(type_id))
+            } else if structures.contains_key(&type_id) {
+                Ok(Type::Struct(type_id))
+            } else {
+                let name = type_names.get(&type_id).cloned()
+                    .unwrap_or_else(|| format!("type id {type_id:016x}"));
+                Err(format!("unknown type '{name}'"))
+            }
+        }
+        other => Ok(other),
+    }
+}
+
 fn resolve_program_enum_types(source: &Program) -> Result<Program, String> {
     let mut program = source.clone();
     let structures = program.structs.iter().map(|item| (item.id, item)).collect::<HashMap<_, _>>();
@@ -3612,6 +3646,31 @@ fn resolve_program_enum_types(source: &Program) -> Result<Program, String> {
             return Err(format!("duplicate enum declaration '{}'", enumeration.name));
         }
     }
+
+    let mut aliases = HashMap::<u64, &TypeAlias>::new();
+    let mut alias_names = HashMap::<String, u64>::new();
+    for alias in &program.type_aliases {
+        if structures.contains_key(&alias.id) || enums.contains_key(&alias.id) {
+            return Err(format!("type alias '{}' conflicts with an existing type declaration", alias.name));
+        }
+        if aliases.insert(alias.id, alias).is_some()
+            || alias_names.insert(alias.name.clone(), alias.id).is_some()
+        {
+            return Err(format!("duplicate type alias '{}'", alias.name));
+        }
+    }
+
+    let mut type_names = program.type_references.clone();
+    for structure in &program.structs {
+        type_names.insert(structure.id, structure.name.clone());
+    }
+    for enumeration in &program.enums {
+        type_names.insert(enumeration.id, enumeration.name.clone());
+    }
+    for alias in &program.type_aliases {
+        type_names.insert(alias.id, alias.name.clone());
+    }
+
     for (type_id, type_name) in &program.type_references {
         if let Some(structure) = structures.get(type_id) {
             if structure.name != *type_name {
@@ -3621,35 +3680,48 @@ fn resolve_program_enum_types(source: &Program) -> Result<Program, String> {
             if enumeration.name != *type_name {
                 return Err(format!("enum type identifier collision between '{}' and '{}'", enumeration.name, type_name));
             }
+        } else if let Some(alias) = aliases.get(type_id) {
+            if alias.name != *type_name {
+                return Err(format!("type alias identifier collision between '{}' and '{}'", alias.name, type_name));
+            }
         } else {
             return Err(format!("unknown type '{type_name}'"));
         }
     }
+
+    let mut alias_types = HashMap::<u64, Type>::new();
+    for alias in &program.type_aliases {
+        let target = resolve_alias_target(
+            alias.target, &aliases, &structures, &enums, &type_names, &mut Vec::new(),
+        )?;
+        alias_types.insert(alias.id, target);
+    }
+
     let enum_ids = enums.keys().copied().collect::<HashSet<_>>();
     for structure in &mut program.structs {
         for (_, ty) in &mut structure.fields {
-            resolve_enum_type(ty, &enum_ids);
+            resolve_enum_type(ty, &enum_ids, &alias_types);
         }
     }
     for function in &mut program.functions {
         for (_, ty) in &mut function.params {
-            resolve_enum_type(ty, &enum_ids);
+            resolve_enum_type(ty, &enum_ids, &alias_types);
         }
-        resolve_enum_type(&mut function.return_type, &enum_ids);
+        resolve_enum_type(&mut function.return_type, &enum_ids, &alias_types);
         if let Some(body) = &mut function.body {
-            resolve_enum_stmt(body, &enum_ids);
+            resolve_enum_stmt(body, &enum_ids, &alias_types);
         }
     }
     for constant in &mut program.constants {
-        resolve_enum_type(&mut constant.ty, &enum_ids);
+        resolve_enum_type(&mut constant.ty, &enum_ids, &alias_types);
         resolve_global_enum_variant(&mut constant.value, &program.enums)?;
-        resolve_enum_expr(&mut constant.value, &enum_ids);
+        resolve_enum_expr(&mut constant.value, &enum_ids, &alias_types);
     }
     for variable in &mut program.static_vars {
-        resolve_enum_type(&mut variable.ty, &enum_ids);
+        resolve_enum_type(&mut variable.ty, &enum_ids, &alias_types);
         if let Some(value) = &mut variable.value {
             resolve_global_enum_variant(value, &program.enums)?;
-            resolve_enum_expr(value, &enum_ids);
+            resolve_enum_expr(value, &enum_ids, &alias_types);
         }
     }
     Ok(program)
