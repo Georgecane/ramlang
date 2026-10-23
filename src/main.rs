@@ -276,6 +276,7 @@ enum Stmt {
     Expression(Expr),
     If { condition: Expr, then_branch: Box<Stmt>, else_branch: Option<Box<Stmt>> },
     While { condition: Expr, body: Box<Stmt> },
+    For { initializer: Box<Stmt>, condition: Expr, increment: Box<Stmt>, body: Box<Stmt> },
 }
 
 #[derive(Debug, Clone)]
@@ -483,6 +484,24 @@ impl Parser {
             let body = Box::new(self.parse_block()?);
             return Ok(Stmt::While { condition, body });
         }
+        if self.match_keyword("for") {
+            self.expect_symbol("(")?;
+            let initializer = self.parse_statement()?;
+            if !matches!(initializer, Stmt::Let { .. } | Stmt::Assign { .. }) {
+                return Err(self.error("for-loop initializer must be a variable declaration or assignment".to_owned()));
+            }
+            let condition = self.parse_expression()?;
+            self.expect_symbol(";")?;
+            let increment = self.parse_for_increment()?;
+            self.expect_symbol(")")?;
+            let body = Box::new(self.parse_block()?);
+            return Ok(Stmt::For {
+                initializer: Box::new(initializer),
+                condition,
+                increment: Box::new(increment),
+                body,
+            });
+        }
         if matches!(self.current().kind, TokenKind::Ident)
             && self.tokens.get(self.index + 1).is_some_and(|t| t.kind == TokenKind::Symbol("=".to_owned()))
         {
@@ -495,6 +514,18 @@ impl Parser {
         let expression = self.parse_expression()?;
         self.expect_symbol(";")?;
         Ok(Stmt::Expression(expression))
+    }
+
+    fn parse_for_increment(&mut self) -> Result<Stmt, String> {
+        if matches!(self.current().kind, TokenKind::Ident)
+            && self.tokens.get(self.index + 1).is_some_and(|token| token.kind == TokenKind::Symbol("=".to_owned()))
+        {
+            let name = self.current().text.clone();
+            self.index += 2;
+            let value = self.parse_expression()?;
+            return Ok(Stmt::Assign { name, value });
+        }
+        Ok(Stmt::Expression(self.parse_expression()?))
     }
 
     fn parse_expression(&mut self) -> Result<Expr, String> {
@@ -1298,6 +1329,43 @@ impl<'a> FunctionGenerator<'a> {
                 } else {
                     self.label(&end_label);
                 }
+            }
+            Stmt::For { initializer, condition, increment, body } => {
+                self.scopes.push(HashMap::new());
+                self.emit_stmt(initializer)?;
+
+                let condition_label = self.fresh_label("for.cond");
+                let body_label = self.fresh_label("for.body");
+                let increment_label = self.fresh_label("for.step");
+                let end_label = self.fresh_label("for.end");
+
+                self.emit(format!("br label %{condition_label}"));
+                self.terminated = true;
+
+                self.label(&condition_label);
+                let (condition_value, condition_type) = self.emit_expr(condition)?;
+                self.require_same(Type::Bool, condition_type, "for condition")?;
+                self.emit(format!("br i1 {condition_value}, label %{body_label}, label %{end_label}"));
+                self.terminated = true;
+
+                self.label(&body_label);
+                self.loop_stack.push((increment_label.clone(), end_label.clone()));
+                self.emit_stmt(body)?;
+                self.loop_stack.pop();
+                if !self.terminated {
+                    self.emit(format!("br label %{increment_label}"));
+                    self.terminated = true;
+                }
+
+                self.label(&increment_label);
+                self.emit_stmt(increment)?;
+                if !self.terminated {
+                    self.emit(format!("br label %{condition_label}"));
+                    self.terminated = true;
+                }
+
+                self.label(&end_label);
+                self.scopes.pop();
             }
             Stmt::While { condition, body } => {
                 let condition_label = self.fresh_label("while.cond");
