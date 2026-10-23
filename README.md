@@ -10,11 +10,13 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Native compilation through Clang (LLVM 15 or newer, using opaque pointers)
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
+- Global scalar, boolean, null-pointer, and UTF-8 string constants, available across source files
 - Immutable local variables with `let` and mutable locals with `let mut`
 - Explicit casts with `as` between signed integer widths, integers and `f64`, integers and `bool`, `bool` and `f64`, and `str` / `ptr`
 - Arithmetic (`+`, `-`, `*`, `/`, `%`), signed comparisons, bitwise (`&`, `|`, `^`, `~`) and shift (`<<`, `>>`) operations, unary `-` and `!`, and short-circuit `&&` / `||`
 - `if` / `else`, `while`, C-style `for` loops, `break`, `continue`, nested loops and blocks, line and block comments
-- UTF-8 string literals with `\\n`, `\\r`, `\\t`, `\\0`, `\\\\`, and `\\\"` escapes\n- Built-in `print(value)` for integers, floating-point values, booleans, and strings
+- UTF-8 string literals with `\\n`, `\\r`, `\\t`, `\\0`, `\\\\`, and `\\\"` escapes
+- Built-in `print(value)` for integers, floating-point values, booleans, and strings
 - Unit tests for code generation and common semantic errors
 
 ## Requirements
@@ -163,6 +165,23 @@ fn main() -> i32 {
 ```
 
 Do not dereference arbitrary integer-derived addresses. On targets with pointers wider than the chosen integer type, an integer round-trip may lose information; prefer the target's native pointer-width integer type when adding platform abstractions.
+
+## Global constants
+
+Declare compile-time constants at file scope with `const`. Scalar constants are substituted into expressions as LLVM constants, and string constants are emitted as immutable UTF-8 data. Constants in one source file can be referenced from another file in the same compilation.
+
+```rust
+const ANSWER: i32 = 42;
+const GREETING: str = "RamLang";
+
+fn main() -> i32 {
+    print(ANSWER);
+    print(GREETING);
+    return 0;
+}
+```
+
+The initial implementation accepts literal values for global constants (numeric, boolean, string, or null). It does not yet evaluate arbitrary constant expressions or initialize global arrays/structs.
 
 ## Named structs
 
