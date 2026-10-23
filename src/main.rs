@@ -1979,7 +1979,7 @@ fn lower_global_constant(constant: &GlobalConst) -> Result<(String, Option<Strin
     );
 
     if matches!(constant.ty, Type::Ptr | Type::Str | Type::Array(_, _) | Type::Struct(_))
-        && matches!(constant.value, Expr::Null)
+        && matches!(&constant.value, Expr::Null)
     {
         return Ok(("null".to_owned(), None));
     }
@@ -2002,8 +2002,8 @@ fn lower_global_constant(constant: &GlobalConst) -> Result<(String, Option<Strin
     }
 
     if constant.ty == Type::Bool {
-        if let Expr::Bool(value) = constant.value {
-            return Ok((if value { "true" } else { "false" }.to_owned(), None));
+        if let Expr::Bool(value) = &constant.value {
+            return Ok((if *value { "true" } else { "false" }.to_owned(), None));
         }
         return Err(mismatch());
     }
@@ -2085,6 +2085,30 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
         }
     }
 
+    let mut global_values = HashMap::<String, (Type, String)>::new();
+    let mut global_declarations = Vec::<String>::new();
+    for constant in &program.constants {
+        if signatures.contains_key(&constant.name) {
+            return Err(format!("global constant '{}' conflicts with a function", constant.name));
+        }
+        if matches!(constant.name.as_str(), "printf" | "malloc" | "free" | "llvm.trap") {
+            return Err(format!("global constant '{}' conflicts with a reserved runtime symbol", constant.name));
+        }
+        if global_values.contains_key(&constant.name) {
+            return Err(format!("duplicate global constant '{}'", constant.name));
+        }
+        let (value, declaration) = lower_global_constant(constant)?;
+        if let Some(declaration) = declaration {
+            global_declarations.push(declaration);
+        } else {
+            global_declarations.push(format!(
+                "@{} = constant {} {}",
+                constant.name, constant.ty.llvm(), value
+            ));
+        }
+        global_values.insert(constant.name.clone(), (constant.ty, value));
+    }
+
     let main = signatures.get("main").ok_or_else(|| "program must define fn main() -> i32".to_owned())?;
     let main_function = functions.iter().find(|function| function.name == "main").unwrap();
     if main_function.external || !main.params.is_empty() || main.return_type != Type::I32 {
@@ -2107,6 +2131,13 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
         module.push_str(&format!("%struct.{:016x} = type {{ {fields} }}\n", structure.id));
     }
     if !program.structs.is_empty() {
+        module.push('\n');
+    }
+    for declaration in &global_declarations {
+        module.push_str(declaration);
+        module.push('\n');
+    }
+    if !global_declarations.is_empty() {
         module.push('\n');
     }
     module.push_str("@.fmt.i32 = private unnamed_addr constant [4 x i8] [i8 37, i8 100, i8 10, i8 0], align 1\n");
@@ -2134,7 +2165,7 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
             .map(|(index, (_, ty))| format!("{} %arg{index}", ty.llvm()))
             .collect::<Vec<_>>()
             .join(", ");
-        let generator = FunctionGenerator::new(&signatures, &structures, function.return_type, &function.name);
+        let generator = FunctionGenerator::new(&signatures, &structures, &global_values, function.return_type, &function.name);
         let (body, string_globals, _) = generator.generate(function)?;
         for global in string_globals {
             module.push_str(&global);
@@ -2279,6 +2310,7 @@ fn compile(options: Options) -> Result<(), String> {
             .map_err(|error| format!("{}: {error}", source_path.display()))?;
         program.functions.append(&mut parsed.functions);
         program.structs.append(&mut parsed.structs);
+        program.constants.append(&mut parsed.constants);
         for (type_id, type_name) in parsed.type_references {
             if let Some(existing) = program.type_references.get(&type_id) {
                 if existing != &type_name {
