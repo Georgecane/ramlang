@@ -237,6 +237,11 @@ jobs:
           cargo run --release -- examples/atomic_minmax.ram -o target/atomic-minmax
           expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s' '0' '-1' '0' '0' '5' '3')"
           test "$(target/atomic-minmax)" = "$expected"
+      - name: Compile and run calloc/realloc example
+        run: |
+          cargo run --release -- examples/calloc_realloc.ram -o target/calloc-realloc
+          expected="$(printf '%s\n%s\n%s' '0' '42' '7')"
+          test "$(target/calloc-realloc)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
