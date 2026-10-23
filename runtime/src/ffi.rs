@@ -35,7 +35,10 @@ impl AsyncTcpRequestState {
     }
 
     fn complete(&self, result: Result<Vec<u8>, String>) {
-        let mut slot = self.result.lock().unwrap_or_else(|error| error.into_inner());
+        let mut slot = self
+            .result
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         if slot.is_none() {
             *slot = Some(result);
             self.ready.notify_all();
@@ -291,7 +294,6 @@ pub unsafe extern "C" fn ramlang_tcp_read_frame(
     }
 }
 
-
 /// Start a TCP request on the shared background runtime without waiting for completion.
 ///
 /// The function connects to address, writes one length-prefixed frame, then reads one
@@ -356,11 +358,8 @@ pub unsafe extern "C" fn ramlang_tcp_request_start(
     let worker_state = Arc::clone(&state);
     let task = runtime.spawn(async move {
         let result = async {
-            let mut connection = TcpConnection::connect(
-                &address,
-                Duration::from_millis(timeout_ms),
-            )
-            .await?;
+            let mut connection =
+                TcpConnection::connect(&address, Duration::from_millis(timeout_ms)).await?;
             connection.write_frame(&payload).await?;
             connection.read_frame(MAX_FFI_TCP_FRAME_SIZE).await
         }
@@ -385,9 +384,7 @@ pub unsafe extern "C" fn ramlang_tcp_request_start(
 ///
 /// request must be a live handle returned by ramlang_tcp_request_start.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ramlang_tcp_request_is_ready(
-    request: *mut RamlangTcpRequest,
-) -> i32 {
+pub unsafe extern "C" fn ramlang_tcp_request_is_ready(request: *mut RamlangTcpRequest) -> i32 {
     if request.is_null() {
         set_last_error("request must not be null");
         return -1;
@@ -522,9 +519,7 @@ pub unsafe extern "C" fn ramlang_tcp_request_read_result(
 ///
 /// request must be a live handle returned by ramlang_tcp_request_start.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ramlang_tcp_request_cancel(
-    request: *mut RamlangTcpRequest,
-) -> i32 {
+pub unsafe extern "C" fn ramlang_tcp_request_cancel(request: *mut RamlangTcpRequest) -> i32 {
     if request.is_null() {
         set_last_error("request must not be null");
         return -1;
@@ -949,12 +944,10 @@ mod tests {
         let mut first_output = [0_u8; 64];
         let mut second_output = [0_u8; 64];
         // SAFETY: both handles are live and the output buffers have 64 writable bytes.
-        let first_length = unsafe {
-            ramlang_tcp_request_read_result(first, first_output.as_mut_ptr(), 64)
-        };
-        let second_length = unsafe {
-            ramlang_tcp_request_read_result(second, second_output.as_mut_ptr(), 64)
-        };
+        let first_length =
+            unsafe { ramlang_tcp_request_read_result(first, first_output.as_mut_ptr(), 64) };
+        let second_length =
+            unsafe { ramlang_tcp_request_read_result(second, second_output.as_mut_ptr(), 64) };
         assert_eq!(first_length, first_payload.len() as i64);
         assert_eq!(second_length, second_payload.len() as i64);
         assert_eq!(&first_output[..first_length as usize], first_payload);
