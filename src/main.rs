@@ -1128,6 +1128,7 @@ fn compile_to_llvm(functions: &[Function]) -> Result<String, String> {
     module.push_str("@.fmt.i32 = private unnamed_addr constant [4 x i8] [i8 37, i8 100, i8 10, i8 0], align 1\n");
     module.push_str("@.fmt.i64 = private unnamed_addr constant [6 x i8] [i8 37, i8 108, i8 108, i8 100, i8 10, i8 0], align 1\n");
     module.push_str("@.fmt.f64 = private unnamed_addr constant [4 x i8] [i8 37, i8 103, i8 10, i8 0], align 1\n");
+    module.push_str("@.fmt.str = private unnamed_addr constant [4 x i8] [i8 37, i8 115, i8 10, i8 0], align 1\n");
     module.push_str("declare i32 @printf(ptr, ...)\n\n");
     module.push_str("declare ptr @malloc(i64)\n");
     module.push_str("declare void @free(ptr)\n\n");
@@ -1146,8 +1147,12 @@ fn compile_to_llvm(functions: &[Function]) -> Result<String, String> {
             .map(|(index, (_, ty))| format!("{} %arg{index}", ty.llvm()))
             .collect::<Vec<_>>()
             .join(", ");
-        let generator = FunctionGenerator::new(&signatures, function.return_type);
-        let (body, _) = generator.generate(function)?;
+        let generator = FunctionGenerator::new(&signatures, function.return_type, &function.name);
+        let (body, string_globals, _) = generator.generate(function)?;
+        for global in string_globals {
+            module.push_str(&global);
+            module.push('\n');
+        }
         let header = format!("define {} @{}({params}) {{\n", function.return_type.llvm(), function.name);
         module.push_str(&header);
         module.push_str(&body);
