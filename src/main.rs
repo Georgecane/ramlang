@@ -2487,6 +2487,17 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((decoded, output_type));
                 }
 
+                if name == "sleep_ms" {
+                    if args.len() != 1 {
+                        return Err("sleep_ms expects one unsigned millisecond delay".to_owned());
+                    }
+                    let (delay, delay_type) = self.emit_expr_expected(&args[0], Some(Type::U64))?;
+                    self.require_same(Type::U64, delay_type, "sleep_ms delay")?;
+                    let future = self.fresh_value();
+                    self.emit(format!("{future} = call ptr @ramlang_sleep_future(i64 {delay})"));
+                    return Ok((future, Type::Future(FutureOutput::Void)));
+                }
+
                 if name == "tcp_request" {
                     if args.len() != 3 {
                         return Err("tcp_request expects an address, UTF-8 payload, and timeout in milliseconds".to_owned());
@@ -4673,7 +4684,7 @@ fn compile_to_llvm_for_target(
     module.push_str(&format!("declare ptr @ramlang_memchr(ptr, i32, {size_t})\n"));
     module.push_str("declare ptr @ramlang_alloc(i64)\n");
     module.push_str("declare ptr @ramlang_future_spawn_i64(ptr, ptr)\n");
-    module.push_str("declare i64 @ramlang_future_await_i64(ptr)\n");
+    module.push_str("declare i64 @ramlang_future_await_i64(ptr)\n");\n    module.push_str("declare ptr @ramlang_sleep_future(i64)\\n");
     module.push_str("declare void @ramlang_future_close(ptr)\n");
     module.push_str("declare ptr @ramlang_tcp_request_future(ptr, ptr, i64)\n");
     module.push_str("declare ptr @ramlang_udp_request_future(ptr, ptr, i64)\n");
