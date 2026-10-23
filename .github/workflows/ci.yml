@@ -232,6 +232,11 @@ jobs:
           cargo run --release -- examples/atomic_compare_exchange.ram -o target/atomic-compare-exchange
           expected="$(printf '%s\n%s\n%s\n%s\n%s' '1' '20' '0' '20' '20')"
           test "$(target/atomic-compare-exchange)" = "$expected"
+      - name: Compile and run atomic min-max example
+        run: |
+          cargo run --release -- examples/atomic_minmax.ram -o target/atomic-minmax
+          expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s' '0' '-1' '0' '0' '5' '3')"
+          test "$(target/atomic-minmax)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
