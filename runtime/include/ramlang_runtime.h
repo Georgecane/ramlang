@@ -1,6 +1,7 @@
 #ifndef RAMLANG_RUNTIME_H
 #define RAMLANG_RUNTIME_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -37,6 +38,20 @@ void ramlang_print_u32(uint32_t value);
 void ramlang_print_u64(uint64_t value);
 void ramlang_print_f64(double value);
 void ramlang_print_str(const char *value);
+
+/* Rust implementations of allocation, byte-memory, and string primitives. */
+void *ramlang_malloc(size_t size);
+void *ramlang_calloc(size_t count, size_t size);
+void *ramlang_realloc(void *pointer, size_t new_size);
+void ramlang_free(void *pointer);
+void *ramlang_memcpy(void *destination, const void *source, size_t count);
+void *ramlang_memmove(void *destination, const void *source, size_t count);
+void *ramlang_memset(void *destination, int byte, size_t count);
+int32_t ramlang_memcmp(const void *left, const void *right, size_t count);
+size_t ramlang_strlen(const char *value);
+int32_t ramlang_strcmp(const char *left, const char *right);
+int32_t ramlang_strncmp(const char *left, const char *right, size_t count);
+void *ramlang_memchr(const void *value, int byte, size_t count);
 
 /* Rust-owned allocator used by compiler-generated async argument frames. */
 void *ramlang_alloc(uint64_t size);
