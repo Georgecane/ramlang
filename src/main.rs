@@ -2457,6 +2457,24 @@ mod tests {
     }
 
     #[test]
+    fn lowers_assertions_and_optimizer_assumptions() {
+        let source = "fn main() -> i32 { let value: i32 = 42; assert(value == 42); assume(value > 0); print(value); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("assert.ok"));
+        assert!(ir.contains("assert.trap"));
+        assert!(ir.contains("call void @llvm.trap()"));
+        assert!(ir.contains("call void @llvm.assume(i1"));
+    }
+
+    #[test]
+    fn rejects_invalid_assert_and_assume_arguments() {
+        let assert_error = compile("fn main() -> i32 { assert(1); return 0; }").unwrap_err();
+        assert!(assert_error.contains("assert condition"));
+        let assume_count = compile("fn main() -> i32 { assume(true, false); return 0; }").unwrap_err();
+        assert!(assume_count.contains("assume expects exactly one bool argument"));
+    }
+
+    #[test]
     fn rejects_invalid_and_duplicate_global_constants() {
         let range_error = compile("const VALUE: i8 = 300; fn main() -> i32 { return 0; }").unwrap_err();
         assert!(range_error.contains("requires a literal compatible with type i8"));
