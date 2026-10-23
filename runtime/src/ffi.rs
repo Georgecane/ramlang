@@ -547,6 +547,293 @@ pub unsafe extern "C" fn ramlang_tcp_request_close(request: *mut RamlangTcpReque
     clear_last_error();
 }
 
+/// Opaque handle for a background UDP request.
+///
+/// The request resolves the destination, binds an ephemeral local UDP socket, sends one
+/// datagram, and receives one reply from the resolved destination. Work runs on the shared
+/// multithread Tokio runtime and can be cancelled through the handle.
+pub struct RamlangUdpRequest {
+    state: Arc<AsyncTcpRequestState>,
+}
+
+/// Start a UDP request in the background without waiting for its response.
+///
+/// The destination is resolved before sending. The request receives one datagram from the
+/// selected destination address; data and destination are copied before this function returns.
+/// Both the request payload and response capacity are bounded by 65,507 bytes. timeout_ms
+/// must be greater than zero and applies separately to DNS lookup, bind, send, and receive.
+///
+/// Returns a request handle immediately, or null if validation or runtime setup fails.
+///
+/// # Safety
+///
+/// destination must be a valid NUL-terminated UTF-8 C string. If length is nonzero, data
+/// must point to at least length readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_request_start(
+    destination: *const c_char,
+    data: *const u8,
+    length: u64,
+    response_capacity: u64,
+    timeout_ms: u64,
+) -> *mut RamlangUdpRequest {
+    let destination = match read_c_string(destination, "destination") {
+        Ok(destination) => destination,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    if timeout_ms == 0 {
+        set_last_error("timeout_ms must be greater than zero");
+        return ptr::null_mut();
+    }
+    let length = match usize::try_from(length) {
+        Ok(length) => length,
+        Err(_) => {
+            set_last_error("UDP request length does not fit this platform");
+            return ptr::null_mut();
+        }
+    };
+    let response_capacity = match usize::try_from(response_capacity) {
+        Ok(capacity) => capacity,
+        Err(_) => {
+            set_last_error("UDP response capacity does not fit this platform");
+            return ptr::null_mut();
+        }
+    };
+    if length > MAX_FFI_UDP_PAYLOAD {
+        set_last_error("UDP request payload exceeds 65,507 bytes");
+        return ptr::null_mut();
+    }
+    if response_capacity > MAX_FFI_UDP_PAYLOAD {
+        set_last_error("UDP response capacity exceeds 65,507 bytes");
+        return ptr::null_mut();
+    }
+    if length > 0 && data.is_null() {
+        set_last_error("data must not be null when length is nonzero");
+        return ptr::null_mut();
+    }
+
+    let payload = if length == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: validated by the caller contract and null check above.
+        unsafe { slice::from_raw_parts(data, length) }.to_vec()
+    };
+    let runtime = match async_request_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+
+    let state = Arc::new(AsyncTcpRequestState::new());
+    let worker_state = Arc::clone(&state);
+    let task = runtime.spawn(async move {
+        let result = async {
+            let mut addresses = tokio::time::timeout(
+                Duration::from_millis(timeout_ms),
+                tokio::net::lookup_host(destination.as_str()),
+            )
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "UDP DNS lookup timed out"))??;
+            let target = addresses.next().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "UDP destination resolved to no addresses")
+            })?;
+            let bind_address = if target.is_ipv4() {
+                "0.0.0.0:0"
+            } else {
+                "[::]:0"
+            };
+            let endpoint =
+                UdpEndpoint::bind(bind_address, Duration::from_millis(timeout_ms)).await?;
+            endpoint.send_to(&payload, &target.to_string()).await?;
+            let (response, peer) = endpoint.recv_from(response_capacity).await?;
+            if peer != target {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "UDP response came from an unexpected peer",
+                ));
+            }
+            Ok::<Vec<u8>, io::Error>(response)
+        }
+        .await
+        .map_err(|error| error.to_string());
+
+        worker_state.complete(result);
+    });
+    state.set_abort_handle(task.abort_handle());
+    drop(task);
+
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangUdpRequest { state }))
+}
+
+/// Return 1 when a UDP request has completed, 0 while pending, or -1 on error.
+///
+/// # Safety
+///
+/// request must be a live handle returned by ramlang_udp_request_start.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_request_is_ready(request: *mut RamlangUdpRequest) -> i32 {
+    if request.is_null() {
+        set_last_error("request must not be null");
+        return -1;
+    }
+    // SAFETY: pointer validity is part of the documented caller contract.
+    let request = unsafe { &*request };
+    match request.state.result.lock() {
+        Ok(result) => {
+            let ready = result.is_some();
+            clear_last_error();
+            if ready { 1 } else { 0 }
+        }
+        Err(_) => {
+            set_last_error("UDP request result lock is poisoned");
+            -1
+        }
+    }
+}
+
+/// Wait up to wait_timeout_ms for a UDP request to complete.
+///
+/// Returns 1 when complete, 0 if only the wait timed out, or -1 on error. A zero timeout
+/// performs a non-blocking readiness check.
+///
+/// # Safety
+///
+/// request must be a live handle returned by ramlang_udp_request_start.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_request_wait(
+    request: *mut RamlangUdpRequest,
+    wait_timeout_ms: u64,
+) -> i32 {
+    if request.is_null() {
+        set_last_error("request must not be null");
+        return -1;
+    }
+    // SAFETY: pointer validity is part of the documented caller contract.
+    let request = unsafe { &*request };
+    let total_wait = Duration::from_millis(wait_timeout_ms);
+    let start = Instant::now();
+    let mut result = match request.state.result.lock() {
+        Ok(result) => result,
+        Err(_) => {
+            set_last_error("UDP request result lock is poisoned");
+            return -1;
+        }
+    };
+
+    loop {
+        if result.is_some() {
+            clear_last_error();
+            return 1;
+        }
+        let remaining = total_wait.saturating_sub(start.elapsed());
+        if remaining.is_zero() {
+            clear_last_error();
+            return 0;
+        }
+        match request.state.ready.wait_timeout(result, remaining) {
+            Ok((next, _)) => result = next,
+            Err(_) => {
+                set_last_error("UDP request wait lock is poisoned");
+                return -1;
+            }
+        }
+    }
+}
+
+/// Copy the completed UDP response into caller-owned memory.
+///
+/// Returns the response length or -1 for pending requests, failed requests, or insufficient
+/// capacity. The saved response can be read again after an insufficient-buffer error.
+///
+/// # Safety
+///
+/// request must be a live handle returned by ramlang_udp_request_start. If capacity is
+/// nonzero, output must point to at least capacity writable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_request_read_result(
+    request: *mut RamlangUdpRequest,
+    output: *mut u8,
+    capacity: u64,
+) -> i64 {
+    if request.is_null() {
+        return fail_i64("request must not be null");
+    }
+    let capacity = match usize::try_from(capacity) {
+        Ok(capacity) => capacity,
+        Err(_) => return fail_i64("UDP response buffer capacity does not fit this platform"),
+    };
+    if capacity > MAX_FFI_UDP_PAYLOAD {
+        return fail_i64("UDP response buffer exceeds 65,507 bytes");
+    }
+    if capacity > 0 && output.is_null() {
+        return fail_i64("output must not be null when capacity is nonzero");
+    }
+    // SAFETY: pointer validity is part of the documented caller contract.
+    let request = unsafe { &*request };
+    let result = match request.state.result.lock() {
+        Ok(result) => result,
+        Err(_) => return fail_i64("UDP request result lock is poisoned"),
+    };
+    let response = match result.as_ref() {
+        Some(Ok(response)) => response,
+        Some(Err(error)) => return fail_i64(error),
+        None => return fail_i64("UDP request has not completed"),
+    };
+    if response.len() > capacity {
+        return fail_i64(format!(
+            "UDP response needs {} bytes but output capacity is {}",
+            response.len(),
+            capacity
+        ));
+    }
+    if !response.is_empty() {
+        // SAFETY: response length is at most capacity, checked above.
+        unsafe { ptr::copy_nonoverlapping(response.as_ptr(), output, response.len()) };
+    }
+    clear_last_error();
+    response.len() as i64
+}
+
+/// Cancel a pending UDP request. Returns zero on success or -1 for an invalid handle.
+///
+/// # Safety
+///
+/// request must be a live handle returned by ramlang_udp_request_start.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_request_cancel(request: *mut RamlangUdpRequest) -> i32 {
+    if request.is_null() {
+        set_last_error("request must not be null");
+        return -1;
+    }
+    // SAFETY: pointer validity is part of the documented caller contract.
+    unsafe { &*request }.state.cancel();
+    clear_last_error();
+    0
+}
+
+/// Cancel unfinished work and release a UDP request handle. Passing null is a no-op.
+///
+/// # Safety
+///
+/// A non-null handle must have been returned by ramlang_udp_request_start and must not
+/// be used again or closed concurrently after this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_request_close(request: *mut RamlangUdpRequest) {
+    if !request.is_null() {
+        // SAFETY: pointer validity is part of the documented caller contract.
+        let request = unsafe { Box::from_raw(request) };
+        request.state.cancel();
+        drop(request);
+    }
+    clear_last_error();
+}
+
 /// Close a TCP handle. Passing null is a no-op.
 ///
 /// # Safety
