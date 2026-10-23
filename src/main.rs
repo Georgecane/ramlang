@@ -2104,6 +2104,31 @@ mod tests {
     }
 
     #[test]
+    fn lowers_fixed_array_reads_writes_and_bounds_checks() {
+        let source = "fn main() -> i32 { let data: [i32; 4] = alloc(16) as [i32; 4]; data[0] = 10; data[3] = 42; print(data[3]); free(data as ptr); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("getelementptr inbounds i32"));
+        assert!(ir.contains("icmp ult i64"));
+        assert!(ir.contains("call void @llvm.trap()"));
+        assert!(ir.contains("store i32 42"));
+        assert!(ir.contains("array.bounds.trap"));
+    }
+
+    #[test]
+    fn rejects_non_integer_array_indices() {
+        let source = "fn main() -> i32 { let data: [i32; 2] = alloc(8) as [i32; 2]; print(data[true]); free(data as ptr); return 0; }";
+        assert!(compile(source).unwrap_err().contains("array index must be an integer"));
+    }
+
+    #[test]
+    fn rejects_zero_length_and_void_element_arrays() {
+        let zero = parse_source("fn main() -> i32 { let a: [i32; 0] = null as [i32; 0]; return 0; }").unwrap_err();
+        assert!(zero.contains("array length must be greater than zero"));
+        let void_element = parse_source("fn main() -> i32 { let a: [void; 2] = null as [void; 2]; return 0; }").unwrap_err();
+        assert!(void_element.contains("array element type must be a non-void scalar"));
+    }
+
+    #[test]
     fn accepts_null_pointer_values() {
         let source = "fn main() -> i32 { let p: ptr = null; if (p == null) { return 0; } else { return 1; } }";
         let ir = compile(source).unwrap();
