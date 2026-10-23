@@ -14,10 +14,12 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Install LLVM and Clang
-        run: sudo apt-get update && sudo apt-get install -y clang-18 llvm-18-dev
-          echo "LLVM_SYS_181_PREFIX=/usr/lib/llvm-18" >> "$GITHUB_ENV"
-          echo "LLVM_CONFIG_PATH=/usr/lib/llvm-18/bin/llvm-config" >> "$GITHUB_ENV"
-          echo "RAMLANG_CLANG=clang-18" >> "$GITHUB_ENV"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-23 llvm-23-dev
+          echo "LLVM_SYS_231_PREFIX=/usr/lib/llvm-23" >> "$GITHUB_ENV"
+          echo "LLVM_CONFIG_PATH=/usr/lib/llvm-23/bin/llvm-config" >> "$GITHUB_ENV"
+          echo "RAMLANG_CLANG=clang-23" >> "$GITHUB_ENV"
       - name: Format check
         run: cargo fmt --manifest-path runtime/Cargo.toml -- --check
       - name: Test workspace
