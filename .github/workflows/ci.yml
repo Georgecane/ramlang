@@ -180,6 +180,11 @@ jobs:
           cargo run --release -- examples/static_globals.ram -o target/static-globals
           expected="$(printf '%s\n%s\n%s\n%s' '1' '15' 'device-ready' '7')"
           test "$(target/static-globals)" = "$expected"
+      - name: Compile static globals across source files
+        run: |
+          cargo run --release -- examples/multi_file/state_main.ram examples/multi_file/state.ram -o target/static-state
+          expected="$(printf '%s\n%s' '1' '100')"
+          test "$(target/static-state)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
