@@ -491,7 +491,7 @@ mod tests {
     use super::*;
     use std::{
         io::{Read, Write},
-        net::TcpListener,
+        net::{TcpListener, UdpSocket},
         thread,
     };
 
@@ -538,6 +538,80 @@ mod tests {
 
         // SAFETY: connection has not been closed or otherwise freed.
         unsafe { ramlang_tcp_close(connection) };
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn c_abi_udp_datagram_round_trip() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let server_address = server.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let mut payload = [0_u8; 64];
+            let (length, peer) = server.recv_from(&mut payload).unwrap();
+            server.send_to(&payload[..length], peer).unwrap();
+        });
+
+        let local_address = CString::new("127.0.0.1:0").unwrap();
+        // SAFETY: local_address is a live NUL-terminated CString.
+        let endpoint = unsafe { ramlang_udp_bind(local_address.as_ptr(), 2_000) };
+        assert!(!endpoint.is_null(), "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+
+        let mut local_output = [0 as c_char; 64];
+        // SAFETY: the endpoint is live and local_output has 64 writable bytes.
+        let local_length =
+            unsafe { ramlang_udp_local_addr(endpoint, local_output.as_mut_ptr(), 64) };
+        assert!(local_length > 0, "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+        assert!(unsafe { CStr::from_ptr(local_output.as_ptr()) }
+            .to_string_lossy()
+            .starts_with("127.0.0.1:"));
+
+        let destination = CString::new(server_address.to_string()).unwrap();
+        let payload = b"ramlang udp";
+        // SAFETY: endpoint and destination are live, and payload has payload.len() bytes.
+        assert_eq!(
+            unsafe {
+                ramlang_udp_send_to(
+                    endpoint,
+                    payload.as_ptr(),
+                    payload.len() as u64,
+                    destination.as_ptr(),
+                )
+            },
+            payload.len() as i64,
+            "{}",
+            unsafe { CStr::from_ptr(ramlang_last_error()).to_string_lossy() }
+        );
+
+        let mut output = [0_u8; 64];
+        let mut peer_output = [0 as c_char; 64];
+        // SAFETY: endpoint is live; output and peer_output have the declared capacities.
+        assert_eq!(
+            unsafe {
+                ramlang_udp_recv_from(
+                    endpoint,
+                    output.as_mut_ptr(),
+                    output.len() as u64,
+                    peer_output.as_mut_ptr(),
+                    peer_output.len() as u64,
+                )
+            },
+            payload.len() as i64,
+            "{}",
+            unsafe { CStr::from_ptr(ramlang_last_error()).to_string_lossy() }
+        );
+        assert_eq!(&output[..payload.len()], payload);
+        assert_eq!(
+            unsafe { CStr::from_ptr(peer_output.as_ptr()) }.to_string_lossy(),
+            server_address.to_string()
+        );
+
+        // SAFETY: endpoint has not been closed or otherwise freed.
+        unsafe { ramlang_udp_close(endpoint) };
         server.join().unwrap();
     }
 
