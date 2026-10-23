@@ -266,6 +266,11 @@ jobs:
         run: |
           cargo run --release -- examples/multi_file/color_main.ram examples/multi_file/color.ram -o target/enum-multi
           test "$(target/enum-multi)" = "2"
+      - name: Compile and run enum global storage example
+        run: |
+          cargo run --release -- examples/enum_globals.ram -o target/enum-globals
+          expected="$(printf '%s\n%s\n%s' '4' '0' '5')"
+          test "$(target/enum-globals)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
