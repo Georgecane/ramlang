@@ -44,6 +44,18 @@ int64_t ramlang_tcp_read_frame(
 void ramlang_tcp_close(RamlangTcpConnection *connection);
 
 /*
+ * Native RamLang Future bridge. Generated async functions use a small Rust runtime
+ * handle so their callbacks can run concurrently. Awaiting i64 blocks the current caller
+ * in this initial backend; state-machine lowering will remove that blocking phase.
+ */
+typedef struct RamlangFuture RamlangFuture;
+typedef int64_t (*RamlangFutureCallback)(void *context);
+RamlangFuture *ramlang_future_spawn_i64(RamlangFutureCallback callback, void *context);
+int64_t ramlang_future_await_i64(RamlangFuture *future);
+int32_t ramlang_future_is_ready(RamlangFuture *future);
+void ramlang_future_close(RamlangFuture *future);
+
+/*
  * Explicit cancellation scope for background network requests.
  *
  * Track each request you create. Cancelling/closing the scope wakes pending waits and
