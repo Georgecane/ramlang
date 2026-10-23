@@ -372,6 +372,7 @@ enum Expr {
     Null,
     Variable(String),
     StructLiteral { type_id: u64, fields: Vec<(String, Expr)> },
+    SizeOf(Type),
     Field { base: Box<Expr>, field: String },
     Unary { op: String, right: Box<Expr> },
     Cast { value: Box<Expr>, target: Type },
@@ -901,6 +902,11 @@ impl Parser {
                 return Ok(Expr::StructLiteral { type_id, fields });
             }
             if self.match_symbol("(") {
+                if name == "size_of" || name == "sizeof" {
+                    let target_type = self.parse_type()?;
+                    self.expect_symbol(")")?;
+                    return Ok(Expr::SizeOf(target_type));
+                }
                 let mut args = Vec::new();
                 if !self.check_symbol(")") {
                     loop {
@@ -1114,6 +1120,58 @@ impl<'a> FunctionGenerator<'a> {
 
     fn emit_expr_expected(&mut self, expression: &Expr, expected: Option<Type>) -> Result<(String, Type), String> {
         match expression {
+            Expr::SizeOf(ty) => {
+                match ty {
+                    Type::Void => Err("size_of(void) is invalid".to_owned()),
+                    Type::I8 | Type::U8 | Type::Bool => Ok(("1".to_owned(), Type::I64)),
+                    Type::I16 | Type::U16 => Ok(("2".to_owned(), Type::I64)),
+                    Type::I32 | Type::U32 => Ok(("4".to_owned(), Type::I64)),
+                    Type::I64 | Type::U64 | Type::F64 => Ok(("8".to_owned(), Type::I64)),
+                    Type::Array(element, length) => {
+                        let element_size = match element {
+                            ArrayElement::I8 | ArrayElement::U8 | ArrayElement::Bool => Some(1_u64),
+                            ArrayElement::I16 | ArrayElement::U16 => Some(2_u64),
+                            ArrayElement::I32 | ArrayElement::U32 => Some(4_u64),
+                            ArrayElement::I64 | ArrayElement::U64 | ArrayElement::F64 => Some(8_u64),
+                            ArrayElement::Ptr | ArrayElement::Str => None,
+                        };
+                        if let Some(element_size) = element_size {
+                            Ok(((element_size * u64::from(*length)).to_string(), Type::I64))
+                        } else {
+                            let one_past = self.fresh_value();
+                            self.emit(format!("{one_past} = getelementptr ptr, ptr null, i64 1"));
+                            let pointer_size = self.fresh_value();
+                            self.emit(format!("{pointer_size} = ptrtoint ptr {one_past} to i64"));
+                            if *length == 1 {
+                                Ok((pointer_size, Type::I64))
+                            } else {
+                                let size = self.fresh_value();
+                                self.emit(format!("{size} = mul i64 {pointer_size}, {}", length));
+                                Ok((size, Type::I64))
+                            }
+                        }
+                    }
+                    Type::Ptr | Type::Str => {
+                        let one_past = self.fresh_value();
+                        self.emit(format!("{one_past} = getelementptr ptr, ptr null, i64 1"));
+                        let size = self.fresh_value();
+                        self.emit(format!("{size} = ptrtoint ptr {one_past} to i64"));
+                        Ok((size, Type::I64))
+                    }
+                    Type::Struct(type_id) => {
+                        if !self.structs.contains_key(type_id) {
+                            return Err(format!("unknown struct type id {type_id:016x}"));
+                        }
+                        let one_past = self.fresh_value();
+                        self.emit(format!(
+                            "{one_past} = getelementptr %struct.{type_id:016x}, ptr null, i64 1"
+                        ));
+                        let size = self.fresh_value();
+                        self.emit(format!("{size} = ptrtoint ptr {one_past} to i64"));
+                        Ok((size, Type::I64))
+                    }
+                }
+            }
             Expr::StructLiteral { type_id, fields } => {
                 let structure = self.structs.get(type_id).cloned()
                     .ok_or_else(|| format!("unknown struct type id {type_id:016x}"))?;
