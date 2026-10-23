@@ -103,7 +103,7 @@ fn main() -> i32 {
 }
 ```
 
-`bool` converts to integers as 0 or 1; integer zero converts to `false` and any nonzero value converts to `true`. Casts to `void` and integer/pointer casts are currently rejected. Unsigned integer types `u8`, `u16`, `u32`, and `u64` use zero extension and unsigned comparisons/division/right-shift lowering; casts from unsigned integers to `f64` use unsigned conversion instructions.
+`bool` converts to integers as 0 or 1; integer zero converts to `false` and any nonzero value converts to `true`. Casts to `void` and floating-point/pointer casts are rejected. Explicit integer/pointer casts lower to LLVM `inttoptr` and `ptrtoint`; they are inherently unsafe, target-dependent, and can create invalid or misaligned addresses. Unsigned integer types `u8`, `u16`, `u32`, and `u64` use zero extension and unsigned comparisons/division/right-shift lowering; casts from unsigned integers to `f64` use unsigned conversion instructions.
 
 ## Strings
 
@@ -145,6 +145,24 @@ fn main() -> i32 {
 ```
 
 This example links against the host C runtime and prints `42`. At present, FFI uses the supported scalar and raw-pointer types; variadic declarations and per-library link metadata inside source files are not implemented. Pass library search paths and link flags on the compiler command line.
+
+### Explicit address conversion
+
+`ptr` may be converted to an integer type with `as`, and integer values may be converted back to `ptr`. Use this only for low-level code where target pointer width and address validity are understood:
+
+```rust
+fn main() -> i32 {
+    let memory: ptr = alloc(4);
+    let address: u64 = memory as u64;
+    let alias: ptr = address as ptr;
+    store_i32(alias, 42);
+    print(load_i32(memory));
+    free(memory);
+    return 0;
+}
+```
+
+Do not dereference arbitrary integer-derived addresses. On targets with pointers wider than the chosen integer type, an integer round-trip may lose information; prefer the target's native pointer-width integer type when adding platform abstractions.
 
 ## Explicit memory management
 
