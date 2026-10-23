@@ -1,8 +1,8 @@
 # Networking from RamLang
 
-RamLang currently compiles ordinary synchronous functions to native code. Its compiler does not yet implement language-native async functions or await expressions. To make networking available to current .ram programs, the runtime provides a C ABI bridge backed by Tokio.
+RamLang currently compiles ordinary synchronous functions to native code. Its compiler does not yet implement language-native async functions or await expressions. The Tokio-backed runtime exposes networking through a C ABI so current .ram programs can use the APIs through extern fn declarations.
 
-The bridge is **blocking at the RamLang call site**: a call to connect, write, or read waits until that operation completes or reaches its configured timeout. Tokio handles the socket I/O internally, but these functions are not a substitute for native async/await. Native async syntax and compiler state-machine lowering remain future compiler work.
+The connection-oriented TCP functions and UDP functions are blocking at the RamLang call site. In addition, the TCP request-handle API starts a full connect/write/read transaction on a shared multithread Tokio runtime and returns immediately; a RamLang program can start multiple requests before waiting for their results. This provides non-blocking network concurrency through explicit handles, but it is not a substitute for native async/await or compiler state-machine lowering.
 
 ## Build the shared library
 
@@ -16,6 +16,12 @@ The shared library is written to target/release/libramlang_runtime.so on Linux. 
 - ramlang_tcp_write_frame(handle, data, length): write one frame and return zero on success, or -1 on failure.
 - ramlang_tcp_read_frame(handle, output, capacity): read one frame into a caller-owned buffer and return its byte length, or -1 on failure.
 - ramlang_tcp_close(handle): release a handle.
+- ramlang_tcp_request_start(address, data, length, timeout_ms): copy the inputs and asynchronously connect, write one frame, then read one response frame.
+- ramlang_tcp_request_is_ready(handle): return 1 when complete, 0 while pending, or -1 on error.
+- ramlang_tcp_request_wait(handle, wait_timeout_ms): return 1 when complete, 0 when the wait timeout expires, or -1 on error.
+- ramlang_tcp_request_read_result(handle, output, capacity): copy a successful response into caller-owned memory, or return -1 and set the diagnostic on failure.
+- ramlang_tcp_request_cancel(handle): cancel pending work.
+- ramlang_tcp_request_close(handle): cancel unfinished work and release the handle.
 - ramlang_last_error(): return the calling OS thread's latest diagnostic as a NUL-terminated string.
 - ramlang_udp_bind(local_address, timeout_ms): bind a UDP endpoint and return an opaque handle.
 - ramlang_udp_local_addr(handle, output, capacity): write the local address as a NUL-terminated string.
@@ -39,6 +45,22 @@ The included example connects to a local echo server, sends the frame ping, read
       target/tcp-client
 
 A server must be listening at 127.0.0.1:39871 and speak the same length-prefixed framing protocol. The example is exercised in CI against a local Tokio echo server. Use a local test endpoint first; do not connect programs to untrusted public hosts until the error handling and protocol behavior are appropriate for your application.
+
+
+
+## Non-blocking TCP requests from RamLang
+
+Each request handle represents one connection, one framed write and one framed response read. The request start call copies the address and payload before returning and queues the operation on a shared multithread Tokio runtime. Start multiple handles before waiting on any of them to let their network operations overlap. Each connect, write and read has the supplied per-operation timeout; request wait has its own independent timeout. A response remains stored until the handle is closed, so a too-small output buffer can be corrected and read again. Closing the handle cancels unfinished work.
+
+The two-request example sends first and second on two independent TCP connections, then waits for both responses:
+
+    cargo build --release -p ramlang-runtime
+    cargo run --release -- examples/network/tcp_concurrent.ram \
+      --link-search target/release --link-lib ramlang_runtime \
+      -o target/tcp-concurrent
+    LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH" target/tcp-concurrent
+
+The local test server listens on 127.0.0.1:39873 and accepts two connections. The expected program output is 5, 102, 6, 115 on separate lines. The C ABI is non-blocking for request submission, but RamLang still lacks native async/await syntax; programs currently manage request handles explicitly.
 
 
 ## UDP example
