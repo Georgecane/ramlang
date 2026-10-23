@@ -2568,6 +2568,11 @@ fn statement_always_returns(statement: &Stmt) -> bool {
         Stmt::If { then_branch, else_branch: Some(else_branch), .. } => {
             statement_always_returns(then_branch) && statement_always_returns(else_branch)
         }
+        Stmt::Match { arms, default, .. } => {
+            !arms.is_empty()
+                && arms.iter().all(|(_, body)| statement_always_returns(body))
+                && default.as_ref().is_none_or(|body| statement_always_returns(body))
+        }
         _ => false,
     }
 }
@@ -2789,6 +2794,16 @@ fn resolve_enum_stmt(statement: &mut Stmt, enum_ids: &HashSet<u64>) {
             resolve_enum_stmt(then_branch, enum_ids);
             if let Some(else_branch) = else_branch {
                 resolve_enum_stmt(else_branch, enum_ids);
+            }
+        }
+        Stmt::Match { value, arms, default } => {
+            resolve_enum_expr(value, enum_ids);
+            for (pattern, body) in arms {
+                resolve_enum_expr(pattern, enum_ids);
+                resolve_enum_stmt(body, enum_ids);
+            }
+            if let Some(default) = default {
+                resolve_enum_stmt(default, enum_ids);
             }
         }
         Stmt::While { condition, body } => {
