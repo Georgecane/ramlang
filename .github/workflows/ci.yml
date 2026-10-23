@@ -216,6 +216,11 @@ jobs:
             echo "expected out-of-bounds array access to trap"
             exit 1
           fi
+      - name: Compile and run atomic operations example
+        run: |
+          cargo run --release -- examples/atomics.ram -o target/atomics
+          expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' '10' '10' '15' '14' '20' '4' '12' '13')"
+          test "$(target/atomics)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
