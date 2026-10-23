@@ -79,16 +79,15 @@ impl RamlangTaskScope {
         }
     }
 
-    fn track(
-        &self,
-        state: Arc<AsyncRequestState>,
-        protocol: &'static str,
-    ) -> Result<(), String> {
+    fn track(&self, state: Arc<AsyncRequestState>, protocol: &'static str) -> Result<(), String> {
         let mut requests = self
             .requests
             .lock()
             .map_err(|_| "task scope lock is poisoned".to_owned())?;
-        if !requests.iter().any(|(existing, _)| Arc::ptr_eq(existing, &state)) {
+        if !requests
+            .iter()
+            .any(|(existing, _)| Arc::ptr_eq(existing, &state))
+        {
             requests.push((state, protocol));
         }
         Ok(())
