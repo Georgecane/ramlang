@@ -2005,7 +2005,7 @@ impl<'a> FunctionGenerator<'a> {
                             }
                         }
                     }
-                    Type::Ptr | Type::Str => {
+                    Type::Ptr | Type::Str | Type::Future(_) => {
                         let one_past = self.fresh_value();
                         self.emit(format!("{one_past} = getelementptr ptr, ptr null, i64 1"));
                         let size = self.fresh_value();
@@ -3916,6 +3916,12 @@ fn resolve_enum_type(
     enum_ids: &HashSet<u64>,
     alias_types: &HashMap<u64, Type>,
 ) -> Result<(), String> {
+    if let Type::Future(output) = ty {
+        let mut output_type = output.ty();
+        resolve_enum_type(&mut output_type, enum_ids, alias_types)?;
+        *output = FutureOutput::from_type(output_type)
+            .ok_or_else(|| "unsupported Future output type after alias resolution".to_owned())?;
+    }
     if let Type::Struct(type_id) = ty {
         if let Some(alias_type) = alias_types.get(type_id) {
             *ty = *alias_type;
@@ -4218,6 +4224,19 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
     compile_to_llvm_for_target(program, usize::BITS, None)
 }
 
+fn async_abi_parameter_type(ty: Type) -> bool {
+    matches!(
+        ty,
+        Type::I8 | Type::I16 | Type::I32 | Type::I64
+            | Type::U8 | Type::U16 | Type::U32 | Type::U64
+            | Type::F32 | Type::F64 | Type::Bool | Type::Enum(_)
+    )
+}
+
+fn async_abi_result_type(ty: Type) -> bool {
+    ty == Type::Void || async_abi_parameter_type(ty)
+}
+
 fn compile_to_llvm_for_target(
     program: &Program,
     target_pointer_width: u32,
@@ -4269,10 +4288,30 @@ fn compile_to_llvm_for_target(
         {
             return Err("printf is a reserved runtime symbol; declare it as extern fn printf(format: str, ...) -> i32".to_owned());
         }
+        if function.asynchronous {
+            if function.external {
+                return Err(format!("async function '{}' cannot be external", function.name));
+            }
+            if !async_abi_result_type(function.return_type) {
+                return Err(format!(
+                    "async function '{}' must return void, an integer, bool, an enum, or a float in this backend",
+                    function.name
+                ));
+            }
+            for (parameter, ty) in &function.params {
+                if !async_abi_parameter_type(*ty) {
+                    return Err(format!(
+                        "async function '{}' parameter '{}' must be an integer, bool, enum, or float in this backend",
+                        function.name, parameter
+                    ));
+                }
+            }
+        }
         let signature = Signature {
             params: function.params.iter().map(|(_, ty)| *ty).collect(),
             return_type: function.return_type,
             variadic: function.variadic,
+            asynchronous: function.asynchronous,
         };
         if signatures.insert(function.name.clone(), signature).is_some() {
             return Err(format!("duplicate function '{}'", function.name));
@@ -4389,8 +4428,8 @@ fn compile_to_llvm_for_target(
 
     let main = signatures.get("main").ok_or_else(|| "program must define fn main() -> i32".to_owned())?;
     let main_function = functions.iter().find(|function| function.name == "main").unwrap();
-    if main_function.external || !main.params.is_empty() || main.return_type != Type::I32 {
-        return Err("entry point must be a definition with signature fn main() -> i32".to_owned());
+    if main_function.external || main_function.asynchronous || !main.params.is_empty() || main.return_type != Type::I32 {
+        return Err("entry point must be a synchronous definition with signature fn main() -> i32".to_owned());
     }
     for function in functions {
         if let Some(body) = &function.body {
@@ -4813,7 +4852,7 @@ fn c_type_name(ty: Type, program: &Program, depth: usize) -> Result<String, Stri
         Type::F64 => Ok("double".to_owned()),
         Type::Bool => Ok("bool".to_owned()),
         Type::Str => Ok("const char *".to_owned()),
-        Type::Ptr => Ok("void *".to_owned()),
+        Type::Ptr | Type::Future(_) => Ok("void *".to_owned()),
         Type::Array(element, _) => Ok(format!("{} *", c_array_element_type(element, program, depth + 1)?)),
         Type::Enum(_) => Ok("int32_t".to_owned()),
         Type::Struct(id) => {
