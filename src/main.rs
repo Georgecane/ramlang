@@ -4687,6 +4687,29 @@ mod tests {
     }
 
     #[test]
+    fn guards_integer_division_and_remainder() {
+        let source = "fn main() -> i32 { let numerator: i32 = 10; let denominator: i32 = 2; print(numerator / denominator); print(numerator % denominator); let unsigned: u32 = 8; print(unsigned / 2); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("icmp ne i32"));
+        assert!(ir.contains("icmp eq i32"));
+        assert!(ir.contains("icmp eq i32"));
+        assert!(ir.contains("and i1"));
+        assert!(ir.contains("integer.division.trap"));
+        assert!(ir.contains("call void @llvm.trap()"));
+        assert!(ir.contains("sdiv i32"));
+        assert!(ir.contains("srem i32"));
+        assert!(ir.contains("udiv i32"));
+    }
+
+    #[test]
+    fn emits_guards_for_signed_minimum_divided_by_negative_one() {
+        let ir = compile("fn main() -> i32 { let value: i32 = -2147483648; let minus_one: i32 = -1; return value / minus_one; }").unwrap();
+        assert!(ir.contains("icmp eq i32"));
+        assert!(ir.contains("-2147483648"));
+        assert!(ir.contains("integer.division.trap"));
+    }
+
+    #[test]
     fn resolves_scalar_array_chained_and_struct_type_aliases() {
         let source = "type Scalar = i32; type Number = Scalar; type Values = [i32; 3]; struct Point { x: Number, y: Scalar } type Location = Point; fn add(left: Number, right: Scalar) -> Number { return left + right; } fn main() -> i32 { let values: Values = [10, 20, 12]; let point: Location = Location { x: 5, y: 7 }; print(add(values[2], point.x)); print(point.y); return 0; }";
         let ir = compile(source).unwrap();
