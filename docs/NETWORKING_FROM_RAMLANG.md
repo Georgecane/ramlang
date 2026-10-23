@@ -1,14 +1,29 @@
 # Networking from RamLang
 
-RamLang currently compiles ordinary synchronous functions to native code. Its compiler does not yet implement language-native async functions or await expressions. The Tokio-backed runtime exposes networking through a C ABI so current .ram programs can use the APIs through extern fn declarations.
+RamLang now has an initial language-level async fn / Future<T> / await path and native text networking built-ins. The compiler emits calls into a Rust-owned Tokio runtime, so ordinary .ram code can start TCP or UDP work and await its UTF-8 response without declaring an extern fn or writing C source.
 
-The connection-oriented TCP functions and UDP functions are blocking at the RamLang call site. In addition, the TCP request-handle API starts a full connect/write/read transaction on a shared multithread Tokio runtime and returns immediately; a RamLang program can start multiple requests before waiting for their results. This provides non-blocking network concurrency through explicit handles, but it is not a substitute for native async/await or compiler state-machine lowering.
+This is the first native integration milestone, not the final async execution model. async fn invocations run on the runtime's blocking pool, the built-in network operations run as Tokio tasks, and the current await waits on the calling OS thread. The next compiler milestone is explicit suspension/state-machine lowering so awaiting one future yields rather than tying up an OS thread. Text built-ins require valid UTF-8 and return a runtime-owned NUL-terminated response string; release it with free(response as ptr). Binary TCP/UDP APIs remain available through the runtime ABI for protocols that are not text-based.
 
 ## Build the shared library
 
     cargo build --release -p ramlang-runtime
 
-The shared library is written to target/release/libramlang_runtime.so on Linux. The C declarations are in runtime/include/ramlang_runtime.h.
+The shared library is written to target/release/libramlang_runtime.so on Linux. The C-compatible declarations are in runtime/include/ramlang_runtime.h; they are an implementation ABI, not a requirement to write RamLang programs in C.
+
+## Native TCP and UDP requests in RamLang
+
+tcp_request(address, payload, timeout_ms) and udp_request(address, payload, timeout_ms) are built-ins that return Future<str>. They accept UTF-8 text, use framed TCP or a single UDP datagram respectively, and resolve to a NUL-terminated UTF-8 reply:
+
+    let tcp_response: str = await tcp_request("127.0.0.1:39874", "hello over RamLang", 3000);
+    print(tcp_response);
+    free(tcp_response as ptr);
+
+    let udp_response: str = await udp_request("127.0.0.1:39875", "hello over UDP", 3000);
+    print(udp_response);
+    free(udp_response as ptr);
+
+The caller owns each response and must free it exactly once. A network, timeout, allocation, or UTF-8 error makes await yield a null pointer for Future<str> and records a diagnostic in the runtime's last-error slot. The TCP protocol uses a four-byte big-endian length prefix. The UDP protocol sends and receives one datagram and has the standard 65,507-byte payload limit. The examples in examples/async/tcp_request.ram and examples/async/udp_request.ram are compiled and run against local echo servers in CI.
+
 
 ## Available C ABI
 
@@ -104,6 +119,10 @@ The UDP request API starts a send and waits for one response on the shared Tokio
 The example uses the local echo service at 127.0.0.1:39872 and prints the response length and first byte. As with the TCP request API, this is handle-based background concurrency, not language-native async/await syntax.
 
 
-## Roadmap to native async
+## Next async compiler milestones
 
-The next compiler work must introduce async-function declarations and async function types, add an await expression with type checking, then lower suspension points into a state machine. The runtime ABI will need task scheduling, wake-up, cancellation and structured-concurrency semantics before RamLang can claim native asynchronous execution.
+- Lower await to suspend/resume state machines instead of blocking the caller's OS thread.
+- Propagate cancellation from parent tasks into in-flight network operations and define drop semantics for unused futures.
+- Generalize Future<T> beyond the currently supported scalar and text-pointer results, including binary buffers with explicit lengths.
+- Add timers, async DNS, server/listener APIs, and typed errors as standard-library surface area rather than requiring raw handle management.
+- Add compile-fail tests for invalid await contexts, lifetime tests for returned buffers, and stress tests for cancellation, concurrency, malformed responses, and timeouts.
