@@ -271,6 +271,7 @@ enum Type {
     Ptr,
     Array(ArrayElement, u32),
     Struct(u64),
+    Enum(u64),
     Void,
 }
 
@@ -291,6 +292,7 @@ impl Type {
             Self::Ptr => "ptr",
             Self::Array(_, _) => "ptr",
             Self::Struct(_) => "ptr",
+            Self::Enum(_) => "i32",
             Self::Void => "void",
         }
     }
@@ -300,7 +302,7 @@ impl Type {
     }
 
     fn is_integer(self) -> bool {
-        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::U8 | Self::U16 | Self::U32 | Self::U64)
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::Enum(_))
     }
 
     fn is_unsigned(self) -> bool {
@@ -311,7 +313,7 @@ impl Type {
         match self {
             Self::I8 | Self::U8 => Some(8),
             Self::I16 | Self::U16 => Some(16),
-            Self::I32 | Self::U32 => Some(32),
+            Self::I32 | Self::U32 | Self::Enum(_) => Some(32),
             Self::I64 | Self::U64 => Some(64),
             _ => None,
         }
@@ -336,6 +338,13 @@ struct StructDef {
 }
 
 #[derive(Debug, Clone)]
+struct EnumDef {
+    id: u64,
+    name: String,
+    variants: Vec<(String, i32)>,
+}
+
+#[derive(Debug, Clone)]
 struct GlobalConst {
     name: String,
     ty: Type,
@@ -355,6 +364,7 @@ struct GlobalVar {
 struct Program {
     functions: Vec<Function>,
     structs: Vec<StructDef>,
+    enums: Vec<EnumDef>,
     constants: Vec<GlobalConst>,
     static_vars: Vec<GlobalVar>,
     type_references: HashMap<u64, String>,
@@ -479,6 +489,10 @@ impl Parser {
                 program.structs.push(self.parse_struct(false)?);
                 continue;
             }
+            if self.match_keyword("enum") {
+                program.enums.push(self.parse_enum()?);
+                continue;
+            }
             if self.match_keyword("const") {
                 program.constants.push(self.parse_global_const()?);
                 continue;
@@ -493,11 +507,11 @@ impl Parser {
                 continue;
             }
             if !self.match_keyword("fn") {
-                return Err(self.error("expected a struct, const, static, function declaration, 'extern static', or 'extern fn'".to_owned()));
+                return Err(self.error("expected a struct, enum, const, static, function declaration, 'extern static', or 'extern fn'".to_owned()));
             }
             program.functions.push(self.parse_function(external)?);
         }
-        if program.functions.is_empty() && program.structs.is_empty()
+        if program.functions.is_empty() && program.structs.is_empty() && program.enums.is_empty()
             && program.constants.is_empty() && program.static_vars.is_empty()
         {
             return Err("source file does not contain any declarations".to_owned());
@@ -538,6 +552,47 @@ impl Parser {
         let value = self.parse_expression()?;
         self.expect_symbol(";")?;
         Ok(GlobalConst { name, ty, value })
+    }
+
+    fn parse_enum(&mut self) -> Result<EnumDef, String> {
+        let name = self.expect_ident("enum name")?;
+        let id = struct_type_id(&name);
+        self.type_references.insert(id, name.clone());
+        self.expect_symbol("{")?;
+        let mut variants = Vec::new();
+        let mut next_value: i32 = 0;
+        while !self.check_symbol("}") && !self.at_end() {
+            let variant = self.expect_ident("enum variant name")?;
+            if variants.iter().any(|(existing, _)| existing == &variant) {
+                return Err(self.error(format!("duplicate variant '{variant}' in enum '{name}'")));
+            }
+            let value = if self.match_symbol("=") {
+                let negative = self.match_symbol("-");
+                if !matches!(self.current().kind, TokenKind::Number) || self.current().text.contains('.') {
+                    return Err(self.error("enum discriminant must be an integer literal".to_owned()));
+                }
+                let text = self.current().text.clone();
+                self.index += 1;
+                let parsed: i64 = text.parse()
+                    .map_err(|_| self.error("enum discriminant is outside the i32 range".to_owned()))?;
+                let parsed = if negative { -parsed } else { parsed };
+                i32::try_from(parsed)
+                    .map_err(|_| self.error("enum discriminant is outside the i32 range".to_owned()))?
+            } else {
+                next_value
+            };
+            next_value = value.checked_add(1)
+                .ok_or_else(|| self.error("enum discriminant overflow after variant".to_owned()))?;
+            variants.push((variant, value));
+            if !self.match_symbol(",") {
+                break;
+            }
+        }
+        self.expect_symbol("}")?;
+        if variants.is_empty() {
+            return Err(self.error(format!("enum '{name}' must contain at least one variant")));
+        }
+        Ok(EnumDef { id, name, variants })
     }
 
     fn parse_struct(&mut self, packed: bool) -> Result<StructDef, String> {
