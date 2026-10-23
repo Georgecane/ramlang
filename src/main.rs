@@ -338,6 +338,7 @@ struct StructDef {
 struct Program {
     functions: Vec<Function>,
     structs: Vec<StructDef>,
+    type_references: HashMap<u64, String>,
 }
 
 fn struct_type_id(name: &str) -> u64 {
@@ -382,11 +383,12 @@ enum Expr {
 struct Parser {
     tokens: Vec<Token>,
     index: usize,
+    type_references: HashMap<u64, String>,
 }
 
 impl Parser {
     fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, index: 0 }
+        Self { tokens, index: 0, type_references: HashMap::new() }
     }
 
     fn current(&self) -> &Token {
@@ -457,11 +459,14 @@ impl Parser {
         if program.functions.is_empty() && program.structs.is_empty() {
             return Err("source file does not contain any declarations".to_owned());
         }
+        program.type_references = self.type_references;
         Ok(program)
     }
 
     fn parse_struct(&mut self) -> Result<StructDef, String> {
         let name = self.expect_ident("struct name")?;
+        let id = struct_type_id(&name);
+        self.type_references.insert(id, name.clone());
         self.expect_symbol("{")?;
         let mut fields = Vec::new();
         while !self.check_symbol("}") && !self.at_end() {
@@ -483,7 +488,7 @@ impl Parser {
         if fields.is_empty() {
             return Err(self.error(format!("struct '{name}' must contain at least one field")));
         }
-        Ok(StructDef { id: struct_type_id(&name), name, fields })
+        Ok(StructDef { id, name, fields })
     }
 
     fn parse_type(&mut self) -> Result<Type, String> {
@@ -519,7 +524,11 @@ impl Parser {
             "str" => Ok(Type::Str),
             "ptr" => Ok(Type::Ptr),
             "void" => Ok(Type::Void),
-            _ => Ok(Type::Struct(struct_type_id(&name))),
+            _ => {
+                let id = struct_type_id(&name);
+                self.type_references.insert(id, name);
+                Ok(Type::Struct(id))
+            },
         }
     }
 
@@ -887,7 +896,9 @@ impl Parser {
                     }
                 }
                 self.expect_symbol("}")?;
-                return Ok(Expr::StructLiteral { type_id: struct_type_id(&name), fields });
+                let type_id = struct_type_id(&name);
+                self.type_references.insert(type_id, name);
+                return Ok(Expr::StructLiteral { type_id, fields });
             }
             if self.match_symbol("(") {
                 let mut args = Vec::new();
