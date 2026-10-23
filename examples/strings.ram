@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    print("Hello, LLVM!");
+    print("UTF-8 strings work.");
+    return 0;
+}
