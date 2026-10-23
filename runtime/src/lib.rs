@@ -107,19 +107,19 @@ impl UdpEndpoint {
             ));
         }
 
-        timeout(self.operation_timeout, self.socket.send_to(payload, address))
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "UDP send timed out"))?
+        timeout(
+            self.operation_timeout,
+            self.socket.send_to(payload, address),
+        )
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "UDP send timed out"))?
     }
 
     /// Receive one datagram, rejecting it if it exceeds the configured maximum.
     ///
     /// One extra byte is read so oversized datagrams can be detected instead of silently
     /// accepting a truncated payload. The maximum buffer is bounded to the UDP payload limit.
-    pub async fn recv_from(
-        &self,
-        max_datagram_size: usize,
-    ) -> io::Result<(Vec<u8>, SocketAddr)> {
+    pub async fn recv_from(&self, max_datagram_size: usize) -> io::Result<(Vec<u8>, SocketAddr)> {
         const MAX_UDP_PAYLOAD: usize = 65_507;
         let buffer_size = max_datagram_size.saturating_add(1).min(MAX_UDP_PAYLOAD + 1);
         let mut buffer = vec![0_u8; buffer_size];
@@ -224,7 +224,9 @@ mod tests {
             let (mut stream, _) = listener.accept().await.unwrap();
             stream.write_all(&2048_u32.to_be_bytes()).await.unwrap();
         });
-        let mut client = TcpConnection::connect(&address.to_string(), Duration::from_secs(2)).await.unwrap();
+        let mut client = TcpConnection::connect(&address.to_string(), Duration::from_secs(2))
+            .await
+            .unwrap();
         let error = client.read_frame(1024).await.unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         server.await.unwrap();
