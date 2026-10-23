@@ -4064,6 +4064,7 @@ fn merge_program(target: &mut Program, mut source: Program) -> Result<(), String
     target.functions.append(&mut source.functions);
     target.structs.append(&mut source.structs);
     target.enums.append(&mut source.enums);
+    target.type_aliases.append(&mut source.type_aliases);
     target.constants.append(&mut source.constants);
     target.static_vars.append(&mut source.static_vars);
     for (type_id, type_name) in source.type_references {
