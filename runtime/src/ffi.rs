@@ -962,6 +962,62 @@ mod tests {
     }
 
     #[test]
+    fn c_abi_async_tcp_request_cancel_unblocks_waiters() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server_address = listener.local_addr().unwrap();
+        let (received_tx, received_rx) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut header = [0_u8; 4];
+            stream.read_exact(&mut header).unwrap();
+            let length = u32::from_be_bytes(header) as usize;
+            let mut payload = vec![0_u8; length];
+            stream.read_exact(&mut payload).unwrap();
+            received_tx.send(()).unwrap();
+            // Keep the socket open with no response so the client's read remains pending.
+            thread::sleep(Duration::from_millis(250));
+        });
+
+        let address = CString::new(server_address.to_string()).unwrap();
+        let payload = b"cancel me";
+        // SAFETY: address and payload are valid and copied synchronously.
+        let request = unsafe {
+            ramlang_tcp_request_start(
+                address.as_ptr(),
+                payload.as_ptr(),
+                payload.len() as u64,
+                5_000,
+            )
+        };
+        assert!(!request.is_null(), "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+        received_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        // SAFETY: request is live and has not been closed.
+        assert_eq!(unsafe { ramlang_tcp_request_cancel(request) }, 0);
+        assert_eq!(unsafe { ramlang_tcp_request_wait(request, 500) }, 1);
+
+        let mut output = [0_u8; 64];
+        // SAFETY: request is live and output has 64 writable bytes.
+        assert_eq!(
+            unsafe { ramlang_tcp_request_read_result(request, output.as_mut_ptr(), 64) },
+            -1
+        );
+        assert_eq!(
+            unsafe { CStr::from_ptr(ramlang_last_error()) }.to_string_lossy(),
+            "TCP request cancelled"
+        );
+
+        // SAFETY: request is live and has not been closed.
+        unsafe { ramlang_tcp_request_close(request) };
+        server.join().unwrap();
+    }
+
+    #[test]
     fn c_abi_udp_datagram_round_trip() {
         let server = UdpSocket::bind("127.0.0.1:0").unwrap();
         server
