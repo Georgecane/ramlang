@@ -14,7 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Verify Rust toolchain version
+        run: rustc --version | grep -F '1.99.1'
       - name: Install LLVM toolchain
         run: |
           sudo apt-get update
