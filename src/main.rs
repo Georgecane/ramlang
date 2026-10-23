@@ -992,7 +992,7 @@ fn compile_to_llvm(functions: &[Function]) -> Result<String, String> {
                 .map(|(_, ty)| ty.llvm())
                 .collect::<Vec<_>>()
                 .join(", ");
-            module.push_str(&format!("declare {} @{}({params})\\n\\n", function.return_type.llvm(), function.name));
+            module.push_str(&format!("declare {} @{}({params})\n\n", function.return_type.llvm(), function.name));
             continue;
         }
 
