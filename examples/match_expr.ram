@@ -1,0 +1,13 @@
+fn decode(code: i32) -> i32 {
+    return match (code) {
+        0 => 42,
+        200 => 7,
+        _ => panic("unsupported code"),
+    };
+}
+
+fn main() -> i32 {
+    print(decode(0));
+    print(decode(200));
+    return 0;
+}
