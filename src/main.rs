@@ -343,6 +343,7 @@ enum Stmt {
 #[derive(Debug, Clone)]
 enum Expr {
     Number(String),
+    ArrayLiteral(Vec<Expr>),
     String(String),
     Bool(bool),
     Null,
@@ -754,6 +755,23 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Result<Expr, String> {
+        if self.match_symbol("[") {
+            let mut elements = Vec::new();
+            if self.check_symbol("]") {
+                return Err(self.error("array literals cannot be empty".to_owned()));
+            }
+            loop {
+                elements.push(self.parse_expression()?);
+                if !self.match_symbol(",") {
+                    break;
+                }
+                if self.check_symbol("]") {
+                    break;
+                }
+            }
+            self.expect_symbol("]")?;
+            return Ok(Expr::ArrayLiteral(elements));
+        }
         if self.match_symbol("(") {
             let expr = self.parse_expression()?;
             self.expect_symbol(")")?;
@@ -955,6 +973,32 @@ impl<'a> FunctionGenerator<'a> {
 
     fn emit_expr_expected(&mut self, expression: &Expr, expected: Option<Type>) -> Result<(String, Type), String> {
         match expression {
+            Expr::ArrayLiteral(elements) => {
+                let Some(Type::Array(element, length)) = expected else {
+                    return Err("array literals require an explicit fixed-length array type, for example [i32; 4]".to_owned());
+                };
+                if elements.len() != length as usize {
+                    return Err(format!("array literal has {} element(s), but its type requires {length}", elements.len()));
+                }
+                let element_type = element.ty();
+                let aggregate_type = format!("[{length} x {}]", element.llvm());
+                let storage = self.fresh_value();
+                self.allocas.push(format!("  {storage} = alloca {aggregate_type}"));
+                for (index, expression) in elements.iter().enumerate() {
+                    let (value, actual_type) = self.emit_expr_expected(expression, Some(element_type))?;
+                    self.require_same(element_type, actual_type, "array literal element")?;
+                    let element_ptr = self.fresh_value();
+                    self.emit(format!(
+                        "{element_ptr} = getelementptr inbounds {aggregate_type}, ptr {storage}, i64 0, i64 {index}"
+                    ));
+                    self.emit(format!("store {} {value}, ptr {element_ptr}", element.llvm()));
+                }
+                let first_element = self.fresh_value();
+                self.emit(format!(
+                    "{first_element} = getelementptr inbounds {aggregate_type}, ptr {storage}, i64 0, i64 0"
+                ));
+                Ok((first_element, Type::Array(element, length)))
+            }
             Expr::String(value) => {
                 let index = self.string_counter;
                 self.string_counter += 1;
