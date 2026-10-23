@@ -198,6 +198,11 @@ jobs:
           clang target/extern-globals.o target/extern-globals-c.o -o target/extern-globals
           expected="$(printf '%s\n%s' '42' '100')"
           test "$(target/extern-globals)" = "$expected"
+      - name: Compile and run packed struct layout example
+        run: |
+          cargo run --release -- examples/packed_structs.ram -o target/packed-structs
+          expected="$(printf '%s\n%s\n%s\n%s\n%s' '1' '7' '1' '42' '43')"
+          test "$(target/packed-structs)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
