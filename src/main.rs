@@ -5,6 +5,10 @@ use std::{
     process::{self, Command},
 };
 
+fn is_float_literal(text: &str) -> bool {
+    text.contains('.') || text.contains('e') || text.contains('E')
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TokenKind {
     Ident,
@@ -83,6 +87,18 @@ impl<'a> Lexer<'a> {
                 }
                 if self.peek(0) == Some(b'.') && self.peek(1).is_some_and(|b| b.is_ascii_digit()) {
                     self.advance();
+                    while self.peek(0).is_some_and(|b| b.is_ascii_digit()) {
+                        self.advance();
+                    }
+                }
+                if matches!(self.peek(0), Some(b'e' | b'E')) {
+                    self.advance();
+                    if matches!(self.peek(0), Some(b'+' | b'-')) {
+                        self.advance();
+                    }
+                    if !self.peek(0).is_some_and(|b| b.is_ascii_digit()) {
+                        return Err(self.error("floating-point exponent requires at least one digit".to_owned()));
+                    }
                     while self.peek(0).is_some_and(|b| b.is_ascii_digit()) {
                         self.advance();
                     }
@@ -647,7 +663,7 @@ impl Parser {
             let explicit_value = self.match_symbol("=");
             let value = if explicit_value {
                 let negative = self.match_symbol("-");
-                if !matches!(self.current().kind, TokenKind::Number) || self.current().text.contains('.') {
+                if !matches!(self.current().kind, TokenKind::Number) || is_float_literal(&self.current().text) {
                     return Err(self.error("enum discriminant must be an integer literal".to_owned()));
                 }
                 let text = self.current().text.clone();
@@ -1915,7 +1931,7 @@ impl<'a> FunctionGenerator<'a> {
                 Ok((result, Type::Str))
             }
             Expr::Number(text) => {
-                if text.contains('.') {
+                if is_float_literal(text) {
                     let value: f64 = text.parse().map_err(|_| format!("invalid floating-point literal '{text}'"))?;
                     if !value.is_finite() {
                         return Err(format!("floating-point literal '{text}' is outside the supported finite range"));
@@ -2112,7 +2128,7 @@ impl<'a> FunctionGenerator<'a> {
                 }
                 if op == "-" {
                     if let Expr::Number(text) = right.as_ref() {
-                        if !text.contains('.') {
+                        if !is_float_literal(text) {
                             let magnitude: i128 = text.parse()
                                 .map_err(|_| format!("integer literal '-{text}' is outside the supported range"))?;
                             let signed = magnitude.checked_neg()
@@ -3412,7 +3428,7 @@ fn constant_integer_value_with_globals(
     globals: &HashMap<String, (Type, String)>,
 ) -> Result<Option<i128>, String> {
     match expression {
-        Expr::Number(text) if !text.contains('.') => {
+        Expr::Number(text) if !is_float_literal(text) => {
             let value: u128 = text.parse()
                 .map_err(|_| format!("integer constant '{text}' is outside the supported range"))?;
             if value > i128::MAX as u128 {
@@ -5870,9 +5886,10 @@ mod tests {
 
     #[test]
     fn supports_f32_literals_arithmetic_casts_arrays_and_variadic_promotion() {
-        let source = r#"const HALF: f32 = 0.5; extern fn printf(format: str, ...) -> i32; fn main() -> i32 { let values: [f32; 2] = [1.5, 2.25]; let result: f32 = values[0] * values[1] + HALF; print(result); let wide: f64 = result as f64; let narrow: f32 = wide as f32; print(narrow); printf("%.2f\n", narrow); let integer: i32 = narrow as i32; print(integer); print(size_of([f32; 2])); print(align_of(f32)); return 0; }"#;
+        let source = r#"const HALF: f32 = 0.5; const TINY: f32 = 1.25e-2; extern fn printf(format: str, ...) -> i32; fn main() -> i32 { let values: [f32; 2] = [1.5, 2.25]; let result: f32 = values[0] * values[1] + HALF; print(result); let wide: f64 = result as f64; let narrow: f32 = wide as f32; print(narrow); printf("%.2f\n", narrow); let integer: i32 = narrow as i32; print(integer); print(size_of([f32; 2])); print(align_of(f32)); print(TINY); return 0; }"#;
         let ir = compile(source).unwrap();
         assert!(ir.contains("@HALF = constant float"));
+        assert!(ir.contains("@TINY = constant float"));
         assert!(ir.contains("alloca [2 x float]"));
         assert!(ir.contains("fmul float"));
         assert!(ir.contains("fadd float"));
@@ -5883,6 +5900,15 @@ mod tests {
         assert!(ir.contains("double"));
         assert!(ir.contains("call i32 (ptr, ...) @printf(ptr @.fmt.i64, i64 8)"));
         assert!(ir.contains("getelementptr { i8, float }, ptr null"));
+    }
+
+    #[test]
+    fn parses_scientific_float_literals_and_rejects_incomplete_exponents() {
+        let ir = compile("fn main() -> i32 { let value: f64 = 1.25e2; let small: f32 = 1.25E-2; print(value); print(small); return 0; }").unwrap();
+        assert!(ir.contains("1.25000000000000000e2"));
+        assert!(ir.contains("1.25000000e-2"));
+        let error = parse_source("fn main() -> i32 { let value: f64 = 1.0e+; return 0; }").unwrap_err();
+        assert!(error.contains("floating-point exponent requires at least one digit"));
     }
 
     #[test]
