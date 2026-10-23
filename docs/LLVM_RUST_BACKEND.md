@@ -18,15 +18,16 @@ The build uses Inkwell 0.11.x and supports LLVM 18.1.x through 23.1.x behind exp
 
 The compiler backend no longer invokes Clang to parse IR and emit machine code. The final executable still uses a platform linker driver so system startup objects, libc, user-selected native libraries, and target sysroots can be linked correctly.
 
-This is not yet a claim that all C interoperability is gone. Existing programs can explicitly declare `extern fn`, the runtime still exports a C-compatible bridge for the current compiler, and existing built-ins currently lower to familiar native runtime symbols such as `printf` and `malloc`. Keeping the stable platform ABI is distinct from requiring RamLang applications to be written in C.
+Default generated modules now route printing, allocation, byte-memory operations, string helpers, and the first async networking built-ins through project-owned Rust runtime symbols. The compiler no longer emits default references to libc's printf, malloc, memcpy, or related helpers. The platform linker and operating-system startup/runtime are still used to create an executable, and explicit extern fn declarations remain as optional foreign-function interoperability. This removes the requirement to write or compile C source for ordinary RamLang programs; it does not claim to remove every C ABI from the toolchain.
 
 ## Migration roadmap
 
 - Replace string-based IR construction incrementally with typed Inkwell builders and typed LLVM values, starting with function signatures, basic blocks, and primitive expressions.
-- Define RamLang's own runtime ABI in Rust and route built-in printing, allocation, panic, and networking through that runtime instead of requiring C source code or libc function declarations in generated IR.
-- Add first-class `Future<T>`, `async fn`, and `await` to the parser and type checker.
-- Lower async functions into explicit resumable state machines with cancellation and structured task ownership. Do not lower `await` to an ordinary blocking function call and call that asynchronous.
-- Make TCP/UDP and timers standard-library operations over the native future model. Preserve explicit unsafe/extern declarations for deliberate foreign-library interoperability.
+- Replace the remaining string-based LLVM IR construction incrementally with typed Inkwell builders and typed LLVM values.
+- Complete the Rust-owned standard runtime for panic, bounds and allocation errors, and eliminate legacy libc assumptions from the generated module.
+- Turn the initial Future<T>/async fn/await path into resumable state-machine lowering so await suspends without blocking an OS thread.
+- Expand native networking from the initial UTF-8 TCP/UDP request helpers to listeners, binary-safe buffers with explicit lengths, cancellation propagation, timers, and typed errors.
+- Preserve explicit unsafe/extern declarations for deliberate foreign-library interoperability while keeping ordinary code independent of C source.
 - Add target matrix tests, LLVM verifier tests, negative type-checking tests, async suspension/cancellation tests, fuzzing, and cross-platform runtime tests before removing compatibility paths.
 
 The existing textual IR unit tests remain useful as lowering tests during the transition. Native-object and executable integration tests additionally exercise the LLVM library and target-machine path.
