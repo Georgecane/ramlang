@@ -306,7 +306,7 @@ impl Parser {
             "bool" => Ok(Type::Bool),
             "ptr" => Ok(Type::Ptr),
             "void" => Ok(Type::Void),
-            _ => Err(self.error(format!("unknown type '{name}'; expected i32, i64, f64, bool, or void"))),
+            _ => Err(self.error(format!("unknown type '{name}'; expected i8, i32, i64, f64, bool, ptr, or void"))),
         }
     }
 
