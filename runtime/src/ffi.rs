@@ -1506,8 +1506,14 @@ mod tests {
         let scope = ramlang_task_scope_new();
         assert!(!scope.is_null());
         // SAFETY: these are live handles and none are closed concurrently.
-        assert_eq!(unsafe { ramlang_task_scope_track_tcp(scope, tcp_request) }, 0);
-        assert_eq!(unsafe { ramlang_task_scope_track_udp(scope, udp_request) }, 0);
+        assert_eq!(
+            unsafe { ramlang_task_scope_track_tcp(scope, tcp_request) },
+            0
+        );
+        assert_eq!(
+            unsafe { ramlang_task_scope_track_udp(scope, udp_request) },
+            0
+        );
         assert_eq!(unsafe { ramlang_task_scope_len(scope) }, 2);
 
         let mut seen = [
