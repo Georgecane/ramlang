@@ -381,6 +381,7 @@ enum Expr {
     Variable(String),
     StructLiteral { type_id: u64, fields: Vec<(String, Expr)> },
     SizeOf(Type),
+    AlignOf(Type),
     Field { base: Box<Expr>, field: String },
     Unary { op: String, right: Box<Expr> },
     Cast { value: Box<Expr>, target: Type },
@@ -927,10 +928,14 @@ impl Parser {
                 return Ok(Expr::StructLiteral { type_id, fields });
             }
             if self.match_symbol("(") {
-                if name == "size_of" || name == "sizeof" {
+                if matches!(name.as_str(), "size_of" | "sizeof" | "align_of" | "alignof") {
                     let target_type = self.parse_type()?;
                     self.expect_symbol(")")?;
-                    return Ok(Expr::SizeOf(target_type));
+                    return Ok(if matches!(name.as_str(), "align_of" | "alignof") {
+                        Expr::AlignOf(target_type)
+                    } else {
+                        Expr::SizeOf(target_type)
+                    });
                 }
                 let mut args = Vec::new();
                 if !self.check_symbol(")") {
@@ -1147,6 +1152,22 @@ impl<'a> FunctionGenerator<'a> {
 
     fn emit_expr_expected(&mut self, expression: &Expr, expected: Option<Type>) -> Result<(String, Type), String> {
         match expression {
+            Expr::AlignOf(ty) => {
+                if *ty == Type::Void {
+                    return Err("align_of(void) is invalid".to_owned());
+                }
+                let abi_type = match ty {
+                    Type::Array(element, length) => format!("[{length} x {}]", element.llvm()),
+                    _ => ty.llvm().to_owned(),
+                };
+                let member_ptr = self.fresh_value();
+                self.emit(format!(
+                    "{member_ptr} = getelementptr {{ i8, {abi_type} }}, ptr null, i32 0, i32 1"
+                ));
+                let alignment = self.fresh_value();
+                self.emit(format!("{alignment} = ptrtoint ptr {member_ptr} to i64"));
+                Ok((alignment, Type::I64))
+            }
             Expr::SizeOf(ty) => {
                 match ty {
                     Type::Void => Err("size_of(void) is invalid".to_owned()),
