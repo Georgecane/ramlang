@@ -1,0 +1,22 @@
+fn main() -> i32 {
+    let memory: ptr = calloc(2, size_of(i32));
+    if (memory == null) {
+        return 1;
+    }
+
+    print(load_i32(memory));
+    store_i32(memory, 42);
+
+    let expanded: ptr = realloc(memory, 16);
+    if (expanded == null) {
+        free(memory);
+        return 1;
+    }
+
+    print(load_i32(expanded));
+    store_i32(ptr_offset(expanded, size_of(i32)), 7);
+    print(load_i32(ptr_offset(expanded, size_of(i32))));
+
+    free(expanded);
+    return 0;
+}
