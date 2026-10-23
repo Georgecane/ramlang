@@ -179,6 +179,7 @@ impl<'a> Lexer<'a> {
 
             let symbol = match byte {
                 b'(' => "(", b')' => ")", b'{' => "{", b'}' => "}",
+                b'[' => "[", b']' => "]",
                 b':' => ":", b';' => ";", b',' => ",", b'+' => "+",
                 b'-' => "-", b'*' => "*", b'/' => "/", b'%' => "%", b'=' => "=",
                 b'<' => "<", b'>' => ">", b'!' => "!",
@@ -198,6 +199,63 @@ impl<'a> Lexer<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArrayElement {
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+    F64,
+    Bool,
+    Ptr,
+    Str,
+}
+
+impl ArrayElement {
+    fn from_type(ty: Type) -> Option<Self> {
+        match ty {
+            Type::I8 => Some(Self::I8),
+            Type::I16 => Some(Self::I16),
+            Type::I32 => Some(Self::I32),
+            Type::I64 => Some(Self::I64),
+            Type::U8 => Some(Self::U8),
+            Type::U16 => Some(Self::U16),
+            Type::U32 => Some(Self::U32),
+            Type::U64 => Some(Self::U64),
+            Type::F64 => Some(Self::F64),
+            Type::Bool => Some(Self::Bool),
+            Type::Ptr => Some(Self::Ptr),
+            Type::Str => Some(Self::Str),
+            _ => None,
+        }
+    }
+
+    fn ty(self) -> Type {
+        match self {
+            Self::I8 => Type::I8,
+            Self::I16 => Type::I16,
+            Self::I32 => Type::I32,
+            Self::I64 => Type::I64,
+            Self::U8 => Type::U8,
+            Self::U16 => Type::U16,
+            Self::U32 => Type::U32,
+            Self::U64 => Type::U64,
+            Self::F64 => Type::F64,
+            Self::Bool => Type::Bool,
+            Self::Ptr => Type::Ptr,
+            Self::Str => Type::Str,
+        }
+    }
+
+    fn llvm(self) -> &'static str {
+        self.ty().llvm()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Type {
     I8,
     I16,
@@ -211,6 +269,7 @@ enum Type {
     Bool,
     Str,
     Ptr,
+    Array(ArrayElement, u32),
     Void,
 }
 
@@ -229,6 +288,7 @@ impl Type {
             Self::Bool => "i1",
             Self::Str => "ptr",
             Self::Ptr => "ptr",
+            Self::Array(_, _) => "ptr",
             Self::Void => "void",
         }
     }
@@ -270,6 +330,7 @@ enum Stmt {
     Block(Vec<Stmt>),
     Let { name: String, declared_type: Option<Type>, mutable: bool, value: Expr },
     Assign { name: String, value: Expr },
+    IndexAssign { array: Expr, index: Expr, value: Expr },
     Return(Option<Expr>),
     Break,
     Continue,
@@ -288,6 +349,7 @@ enum Expr {
     Variable(String),
     Unary { op: String, right: Box<Expr> },
     Cast { value: Box<Expr>, target: Type },
+    Index { array: Box<Expr>, index: Box<Expr> },
     Binary { left: Box<Expr>, op: String, right: Box<Expr> },
     Call { name: String, args: Vec<Expr> },
 }
@@ -370,6 +432,23 @@ impl Parser {
     }
 
     fn parse_type(&mut self) -> Result<Type, String> {
+        if self.match_symbol("[") {
+            let element_type = self.parse_type()?;
+            self.expect_symbol(";")?;
+            if !matches!(self.current().kind, TokenKind::Number) || self.current().text.contains('.') {
+                return Err(self.error("array length must be a positive integer literal".to_owned()));
+            }
+            let length: u32 = self.current().text.parse()
+                .map_err(|_| self.error("array length exceeds the supported u32 range".to_owned()))?;
+            if length == 0 {
+                return Err(self.error("array length must be greater than zero".to_owned()));
+            }
+            self.index += 1;
+            self.expect_symbol("]")?;
+            let element = ArrayElement::from_type(element_type)
+                .ok_or_else(|| self.error("array element type must be a non-void scalar or pointer type".to_owned()))?;
+            return Ok(Type::Array(element, length));
+        }
         let name = self.expect_ident("type name")?;
         match name.as_str() {
             "i8" => Ok(Type::I8),
@@ -643,9 +722,17 @@ impl Parser {
 
     fn parse_cast(&mut self) -> Result<Expr, String> {
         let mut value = self.parse_primary()?;
-        while self.match_keyword("as") {
-            let target = self.parse_type()?;
-            value = Expr::Cast { value: Box::new(value), target };
+        loop {
+            if self.match_symbol("[") {
+                let index = self.parse_expression()?;
+                self.expect_symbol("]")?;
+                value = Expr::Index { array: Box::new(value), index: Box::new(index) };
+            } else if self.match_keyword("as") {
+                let target = self.parse_type()?;
+                value = Expr::Cast { value: Box::new(value), target };
+            } else {
+                break;
+            }
         }
         Ok(value)
     }
