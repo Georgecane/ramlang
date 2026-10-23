@@ -1,0 +1,9 @@
+fn square(x: i32) -> i32 {
+    return x * x;
+}
+
+fn main() -> i32 {
+    let answer: i32 = square(7);
+    print(answer);
+    return 0;
+}
