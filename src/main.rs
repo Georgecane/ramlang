@@ -4534,9 +4534,29 @@ mod tests {
     fn allows_diverging_panic_fallback_in_match_expression() {
         let source = r#"fn decode(code: i32) -> i32 { return match (code) { 0 => 42, _ => panic("invalid code") }; } fn main() -> i32 { print(decode(0)); return 0; }"#;
         let ir = compile(source).unwrap();
+        assert!(ir.contains("switch i32"));
         assert!(ir.contains("phi i32"));
         assert!(ir.contains("call void @llvm.trap()"));
         assert!(ir.contains("unreachable"));
+    }
+
+    #[test]
+    fn lowers_constant_match_expressions_to_switch_and_phi() {
+        let source = "fn main() -> i32 { let x: i32 = 2; let value: i32 = match (x) { 1 => 10, 2 => 20, _ => 30 }; print(value); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("switch i32"));
+        assert!(ir.contains("phi i32"));
+        assert!(!ir.contains("match.expr.next"));
+    }
+
+    #[test]
+    fn keeps_dynamic_match_expression_patterns_in_comparison_order() {
+        let source = "fn main() -> i32 { let x: i32 = 2; let first: i32 = 1; let second: i32 = 2; let value: i32 = match (x) { first => 10, second => 20, _ => 30 }; print(value); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(!ir.contains("switch i32"));
+        assert!(ir.contains("icmp eq i32"));
+        assert!(ir.contains("match.expr.next"));
+        assert!(ir.contains("phi i32"));
     }
 
     #[test]
