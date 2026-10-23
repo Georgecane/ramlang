@@ -521,6 +521,32 @@ fn main() -> i32 {
 
 The pointer is non-owning and follows the lifetime of its underlying storage. Do not return or retain a pointer to a local after its stack frame ends. Taking the address of a temporary expression is rejected.
 
+## Allocation, zero-initialization, and resizing
+
+Alongside `alloc(bytes)` and `free(ptr)`, RamLang provides `calloc(count, element_size)` to allocate zero-initialized storage and `realloc(ptr, new_size)` to resize an existing allocation.
+
+```rust
+fn main() -> i32 {
+    let memory: ptr = calloc(2, size_of(i32));
+    if (memory == null) {
+        return 1;
+    }
+
+    store_i32(memory, 42);
+    let expanded: ptr = realloc(memory, 16);
+    if (expanded == null) {
+        free(memory);
+        return 1;
+    }
+
+    print(load_i32(expanded));
+    free(expanded);
+    return 0;
+}
+```
+
+If `realloc` fails for a nonzero size, the original allocation remains valid, so do not overwrite your only copy of the original pointer before checking the result. On success, use the returned pointer and do not use the old pointer. All sizes use `i64`; the compiler does not automatically track allocation lengths or ownership.
+
 ## Bulk memory operations
 
 RamLang provides `memcpy(destination, source, byte_count)`, `memmove(destination, source, byte_count)`, `memset(destination, fill_value, byte_count)`, and `memcmp(left, right, byte_count)`. These lower to the corresponding C runtime functions; byte counts use `i64`, and pointer-like arguments may be raw pointers, strings, arrays, or struct-backed values.
