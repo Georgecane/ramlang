@@ -1083,6 +1083,7 @@ struct Binding {
 struct FunctionGenerator<'a> {
     signatures: &'a HashMap<String, Signature>,
     structs: &'a HashMap<u64, StructDef>,
+    enums: &'a HashMap<u64, EnumDef>,
     globals: &'a HashMap<String, (Type, String)>,
     global_bindings: &'a HashMap<String, Binding>,
     target_pointer_width: u32,
@@ -1105,6 +1106,7 @@ impl<'a> FunctionGenerator<'a> {
     fn new(
         signatures: &'a HashMap<String, Signature>,
         structs: &'a HashMap<u64, StructDef>,
+        enums: &'a HashMap<u64, EnumDef>,
         globals: &'a HashMap<String, (Type, String)>,
         global_bindings: &'a HashMap<String, Binding>,
         target_pointer_width: u32,
@@ -1112,7 +1114,7 @@ impl<'a> FunctionGenerator<'a> {
         function_name: &str,
     ) -> Self {
         Self {
-            signatures, structs, globals, global_bindings, target_pointer_width, return_type, allocas: Vec::new(), lines: Vec::new(),
+            signatures, structs, enums, globals, global_bindings, target_pointer_width, return_type, allocas: Vec::new(), lines: Vec::new(),
             scopes: vec![HashMap::new()], current_block: "entry".to_owned(),
             function_name: function_name.to_owned(), string_counter: 0,
             string_globals: Vec::new(), loop_stack: Vec::new(),
@@ -1558,6 +1560,14 @@ impl<'a> FunctionGenerator<'a> {
                 Ok((result, element.ty()))
             }
             Expr::Field { base, field } => {
+                if let Expr::Variable(enum_name) = base.as_ref() {
+                    if let Some(enumeration) = self.enums.get(&struct_type_id(enum_name)) {
+                        let Some((_, value)) = enumeration.variants.iter().find(|(variant, _)| variant == field) else {
+                            return Err(format!("enum '{}' has no variant '{}'", enumeration.name, field));
+                        };
+                        return Ok((value.to_string(), Type::Enum(enumeration.id)));
+                    }
+                }
                 let (field_ptr, field_type, packed) = self.emit_struct_field_ptr(base, field)?;
                 let result = self.fresh_value();
                 if packed {
@@ -2827,13 +2837,26 @@ fn compile_to_llvm_for_target(
             return Err(format!("duplicate struct declaration '{}'", structure.name));
         }
     }
+    let mut enumerations = HashMap::<u64, EnumDef>::new();
+    for enumeration in &program.enums {
+        if structures.contains_key(&enumeration.id) {
+            return Err(format!("enum '{}' conflicts with a struct declaration", enumeration.name));
+        }
+        if enumerations.insert(enumeration.id, enumeration.clone()).is_some() {
+            return Err(format!("duplicate enum declaration '{}'", enumeration.name));
+        }
+    }
     for (type_id, type_name) in &program.type_references {
-        match structures.get(type_id) {
-            None => return Err(format!("unknown struct type '{type_name}'")),
-            Some(structure) if structure.name != *type_name => {
+        if let Some(structure) = structures.get(type_id) {
+            if structure.name != *type_name {
                 return Err(format!("struct type identifier collision between '{}' and '{}'", structure.name, type_name));
             }
-            Some(_) => {}
+        } else if let Some(enumeration) = enumerations.get(type_id) {
+            if enumeration.name != *type_name {
+                return Err(format!("enum type identifier collision between '{}' and '{}'", enumeration.name, type_name));
+            }
+        } else {
+            return Err(format!("unknown type '{type_name}'"));
         }
     }
 
@@ -3006,7 +3029,7 @@ fn compile_to_llvm_for_target(
             .map(|(index, (_, ty))| format!("{} %arg{index}", ty.llvm()))
             .collect::<Vec<_>>()
             .join(", ");
-        let generator = FunctionGenerator::new(&signatures, &structures, &global_values, &global_bindings, target_pointer_width, function.return_type, &function.name);
+        let generator = FunctionGenerator::new(&signatures, &structures, &enumerations, &global_values, &global_bindings, target_pointer_width, function.return_type, &function.name);
         let (body, string_globals, _) = generator.generate(function)?;
         for global in string_globals {
             module.push_str(&global);
