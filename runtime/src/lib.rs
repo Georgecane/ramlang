@@ -13,6 +13,72 @@ use tokio::{
     time::timeout,
 };
 
+use tokio::task::{JoinError, JoinSet};
+
+/// A structured-concurrency scope for homogeneous async tasks.
+///
+/// Dropping a task group aborts all child tasks that have not completed. join_all
+/// collects results in completion order; if one task panics or is cancelled, it returns
+/// the first JoinError and dropping the remaining scope aborts unfinished children.
+pub struct TaskGroup<T: Send + 'static> {
+    tasks: JoinSet<T>,
+}
+
+impl<T: Send + 'static> Default for TaskGroup<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: Send + 'static> TaskGroup<T> {
+    /// Create an empty child-task scope.
+    pub fn new() -> Self {
+        Self {
+            tasks: JoinSet::new(),
+        }
+    }
+
+    /// Spawn a child task owned by this scope.
+    pub fn spawn<F>(&mut self, future: F)
+    where
+        F: std::future::Future<Output = T> + Send + 'static,
+    {
+        self.tasks.spawn(future);
+    }
+
+    /// Return the number of tasks whose results have not been collected.
+    pub fn len(&self) -> usize {
+        self.tasks.len()
+    }
+
+    /// Return whether the scope has no outstanding task results.
+    pub fn is_empty(&self) -> bool {
+        self.tasks.is_empty()
+    }
+
+    /// Abort all child tasks. Join them with join_next or shutdown to observe exit.
+    pub fn abort_all(&mut self) {
+        self.tasks.abort_all();
+    }
+
+    /// Wait for and collect every child result in completion order.
+    ///
+    /// Returns the first task failure. Any still-running tasks are aborted when the
+    /// scope is dropped after this early return.
+    pub async fn join_all(mut self) -> Result<Vec<T>, JoinError> {
+        let mut results = Vec::with_capacity(self.tasks.len());
+        while let Some(result) = self.tasks.join_next().await {
+            results.push(result?);
+        }
+        Ok(results)
+    }
+
+    /// Abort all children and wait for them to exit.
+    pub async fn shutdown(&mut self) {
+        self.tasks.shutdown().await;
+    }
+}
+
 /// A TCP connection with a per-operation timeout.
 pub struct TcpConnection {
     stream: TcpStream,
@@ -158,6 +224,27 @@ where
 mod tests {
     use super::*;
     use tokio::net::TcpListener;
+
+
+    #[tokio::test]
+    async fn task_group_joins_child_tasks() {
+        let mut tasks = TaskGroup::new();
+        tasks.spawn(async { 20_u32 });
+        tasks.spawn(async { 22_u32 });
+
+        let mut results = tasks.join_all().await.unwrap();
+        results.sort_unstable();
+        assert_eq!(results, [20, 22]);
+    }
+
+    #[tokio::test]
+    async fn task_group_aborts_children_on_shutdown() {
+        let mut tasks = TaskGroup::new();
+        tasks.spawn(std::future::pending::<()>());
+        assert_eq!(tasks.len(), 1);
+        tasks.shutdown().await;
+        assert!(tasks.is_empty());
+    }
 
     #[tokio::test]
     async fn frame_round_trip_over_localhost() {
