@@ -65,7 +65,7 @@ jobs:
       - name: Compile and run signed integer boundary example
         run: |
           cargo run --release -- examples/integer_limits.ram -o target/integer-limits
-          expected="$(printf '%s\n%s\n%s' '-128' '-2147483648' '-9223372036854775808')"
+          expected="$(printf '%s\n%s\n%s\n%s' '-128' '-32768' '-2147483648' '-9223372036854775808')"
           test "$(target/integer-limits)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
