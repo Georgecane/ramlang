@@ -67,6 +67,11 @@ jobs:
           cargo run --release -- examples/integer_limits.ram -o target/integer-limits
           expected="$(printf '%s\n%s\n%s\n%s' '-128' '-32768' '-2147483648' '-9223372036854775808')"
           test "$(target/integer-limits)" = "$expected"
+      - name: Compile and run numeric-cast example
+        run: |
+          cargo run --release -- examples/casts.ram -o target/casts
+          expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s' '258' '2' '2' '1' '1' '0' '1')"
+          test "$(target/casts)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
