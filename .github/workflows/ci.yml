@@ -279,6 +279,11 @@ jobs:
         run: |
           cargo run --release -- examples/match_default.ram -o target/match-default
           test "$(target/match-default)" = "9"
+      - name: Compile and run exhaustive boolean match example
+        run: |
+          cargo run --release -- examples/boolean_match.ram -o target/boolean-match
+          expected="$(printf '%s\n%s\n%s' 'ready' '0' '1')"
+          test "$(target/boolean-match)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
