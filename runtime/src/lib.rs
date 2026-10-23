@@ -267,7 +267,6 @@ mod tests {
         server.await.unwrap();
     }
 
-
     #[tokio::test]
     async fn concurrent_tcp_clients_round_trip() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
