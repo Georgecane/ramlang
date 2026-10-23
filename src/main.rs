@@ -3228,9 +3228,8 @@ mod tests {
 
     #[test]
     fn lowers_atomic_load_store_and_read_modify_write() {
-        let source = "fn main() -> i32 { let mut value: i32 = 0; let address: ptr = &value; atomic_store_i32_release(address, 10); print(atomic_load_i32_acquire(address)); print(atomic_fetch_add_i32_acq_rel(address, 5)); print(atomic_fetch_sub_i32_relaxed(address, 1)); print(atomic_exchange_i32_seq_cst(address, 20)); print(atomic_fetch_and_i32(address, 7)); print(atomic_fetch_or_i32(address, 8); print(atomic_fetch_xor_i32(address, 1)); return 0; }";
-        let fixed_source = source.replace("atomic_fetch_or_i32(address, 8);", "atomic_fetch_or_i32(address, 8));");
-        let ir = compile(&fixed_source).unwrap();
+        let source = "fn main() -> i32 { let mut value: i32 = 0; let address: ptr = &value; atomic_store_i32_release(address, 10); print(atomic_load_i32_acquire(address)); print(atomic_fetch_add_i32_acq_rel(address, 5)); print(atomic_fetch_sub_i32_relaxed(address, 1)); print(atomic_exchange_i32_seq_cst(address, 20)); print(atomic_fetch_and_i32(address, 7)); print(atomic_fetch_or_i32(address, 8)); print(atomic_fetch_xor_i32(address, 1)); return 0; }";
+        let ir = compile(source).unwrap();
         assert!(ir.contains("store atomic i32 10, ptr"));
         assert!(ir.contains(" acquire, align 4"));
         assert!(ir.contains(" atomicrmw add ptr"));
@@ -3249,8 +3248,8 @@ mod tests {
         assert!(load_order.contains("atomic loads support relaxed, acquire, or seq_cst ordering"));
         let store_order = compile("fn main() -> i32 { let mut value: i32 = 0; let p: ptr = &value; atomic_store_i32_acquire(p, 1); return 0; }").unwrap_err();
         assert!(store_order.contains("atomic stores support relaxed, release, or seq_cst ordering"));
-        let type_error = compile("fn main() -> i32 { let mut value: i32 = 0; let p: ptr = &value; let x: i64 = atomic_load_i64(p); return 0; }").unwrap_err();
-        assert!(type_error.contains("initializer for 'x'"));
+        let type_error = compile("fn main() -> i32 { let mut value: i32 = 0; let p: ptr = &value; atomic_store_i32(p, true); return 0; }").unwrap_err();
+        assert!(type_error.contains("atomic_store value"));
     }
 
     #[test]
