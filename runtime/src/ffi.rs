@@ -1305,7 +1305,7 @@ fn write_stdout_line(write_value: impl FnOnce(&mut dyn std::io::Write) -> std::i
     let stdout = std::io::stdout();
     let mut output = stdout.lock();
     if write_value(&mut output).is_ok() {
-        let _ = output.write_all(b"\\n");
+        let _ = output.write_all(b"\n");
     }
 }
 
@@ -1355,7 +1355,7 @@ pub unsafe extern "C" fn ramlang_print_str(value: *const c_char) {
     let stdout = std::io::stdout();
     let mut output = stdout.lock();
     if output.write_all(bytes).is_ok() {
-        let _ = output.write_all(b"\\n");
+        let _ = output.write_all(b"\n");
         clear_last_error();
     } else {
         set_last_error("failed to write string to stdout");
