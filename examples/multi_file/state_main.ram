@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    ticks = ticks + 1;
+    print(ticks);
+    print(max_ticks);
+    return 0;
+}
