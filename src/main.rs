@@ -1421,6 +1421,13 @@ impl<'a> FunctionGenerator<'a> {
                 self.emit(format!("store {} {value}, ptr {slot}", ty.llvm()));
                 self.scopes.last_mut().unwrap().insert(name.clone(), Binding { ty, slot, mutable: *mutable });
             }
+            Stmt::IndexAssign { array, index, value } => {
+                let (element_ptr, element) = self.emit_array_element_ptr(array, index)?;
+                let element_type = element.ty();
+                let (stored_value, value_type) = self.emit_expr_expected(value, Some(element_type))?;
+                self.require_same(element_type, value_type, "array element assignment")?;
+                self.emit(format!("store {} {stored_value}, ptr {element_ptr}", element.llvm()));
+            }
             Stmt::Assign { name, value } => {
                 let binding = self.lookup(name).ok_or_else(|| format!("assignment to unknown variable '{name}'"))?;
                 if !binding.mutable {
@@ -1634,7 +1641,8 @@ fn compile_to_llvm(functions: &[Function]) -> Result<String, String> {
     module.push_str("@.fmt.str = private unnamed_addr constant [4 x i8] [i8 37, i8 115, i8 10, i8 0], align 1\n");
     module.push_str("declare i32 @printf(ptr, ...)\n\n");
     module.push_str("declare ptr @malloc(i64)\n");
-    module.push_str("declare void @free(ptr)\n\n");
+    module.push_str("declare void @free(ptr)\n");
+    module.push_str("declare void @llvm.trap() cold noreturn nounwind\n\n");
 
     for function in functions {
         if function.external {
