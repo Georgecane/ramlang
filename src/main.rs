@@ -1784,6 +1784,52 @@ mod tests {
     }
 
     #[test]
+    fn parses_object_and_assembly_emission_modes() {
+        let object = parse_args_from([
+            "example.ram".to_owned(),
+            "--emit-obj".to_owned(),
+            "-o".to_owned(),
+            "example.o".to_owned(),
+            "--target".to_owned(),
+            "x86_64-unknown-linux-gnu".to_owned(),
+            "--opt-level".to_owned(),
+            "0".to_owned(),
+        ]).unwrap();
+        assert!(object.emit_object);
+        assert!(!object.emit_assembly);
+        assert_eq!(object.output, Some(PathBuf::from("example.o")));
+        assert_eq!(object.opt_level, "0");
+
+        let assembly = parse_args_from([
+            "example.ram".to_owned(),
+            "--emit-asm".to_owned(),
+        ]).unwrap();
+        assert!(assembly.emit_assembly);
+        assert_eq!(assembly.sources[0], PathBuf::from("example.ram"));
+    }
+
+    #[test]
+    fn rejects_conflicting_emit_modes() {
+        let error = parse_args_from([
+            "example.ram".to_owned(),
+            "--emit-obj".to_owned(),
+            "--emit-asm".to_owned(),
+        ]).unwrap_err();
+        assert!(error.contains("mutually exclusive"));
+    }
+
+    #[test]
+    fn rejects_linking_options_when_emitting_object() {
+        let error = parse_args_from([
+            "example.ram".to_owned(),
+            "--emit-obj".to_owned(),
+            "--link-lib".to_owned(),
+            "m".to_owned(),
+        ]).unwrap_err();
+        assert!(error.contains("linker options require native linking"));
+    }
+
+    #[test]
     fn rejects_linker_options_for_ir_only_modes() {
         let error = parse_args_from([
             "example.ram".to_owned(),
