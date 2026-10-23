@@ -298,7 +298,7 @@ impl Type {
     }
 
     fn is_numeric(self) -> bool {
-        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::F64)
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::F64 | Self::Enum(_))
     }
 
     fn is_integer(self) -> bool {
@@ -3938,7 +3938,7 @@ mod tests {
         }
         let ir = compile_to_llvm(&main).unwrap();
         assert!(ir.contains("define i32 @read_color(i32"));
-        assert!(ir.contains("ret i32 2"));
+        assert!(ir.contains("sub i32"));
     }
 
     #[test]
