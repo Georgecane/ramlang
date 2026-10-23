@@ -119,10 +119,26 @@ The UDP request API starts a send and waits for one response on the shared Tokio
 The example uses the local echo service at 127.0.0.1:39872 and prints the response length and first byte. As with the TCP request API, this is handle-based background concurrency, not language-native async/await syntax.
 
 
+## Native timer Future
+
+The built-in `sleep_ms(delay)` returns `Future<void>`. Its argument must be unsigned milliseconds. Timer tasks run on the Tokio runtime and are cancelled when their Future handle is closed.
+
+    async fn finish_after_delay() -> i32 {
+        await sleep_ms(25);
+        return 42;
+    }
+
+    fn main() -> i32 {
+        print(await finish_after_delay());
+        return 0;
+    }
+
+In this initial implementation, `await` blocks the calling OS thread while the timer itself remains asynchronous on Tokio. Resumable compiler state-machine lowering is still the next milestone.
+
 ## Next async compiler milestones
 
 - Lower await to suspend/resume state machines instead of blocking the caller's OS thread.
 - Propagate cancellation from parent tasks into in-flight network operations and define drop semantics for unused futures.
 - Generalize Future<T> beyond the currently supported scalar and text-pointer results, including binary buffers with explicit lengths.
-- Add timers, async DNS, server/listener APIs, and typed errors as standard-library surface area rather than requiring raw handle management.
+- Add async DNS, server/listener APIs, and typed errors as standard-library surface area rather than requiring raw handle management.
 - Add compile-fail tests for invalid await contexts, lifetime tests for returned buffers, and stress tests for cancellation, concurrency, malformed responses, and timeouts.
