@@ -1435,9 +1435,17 @@ pub unsafe extern "C" fn ramlang_future_await_i64(future: *mut RamlangFuture) ->
     }
     // SAFETY: pointer validity is required by this function's contract.
     let future = unsafe { &*future };
-    let mut result = future.state.result.lock().unwrap_or_else(|e| e.into_inner());
+    let mut result = future
+        .state
+        .result
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     while result.is_none() {
-        result = future.state.ready.wait(result).unwrap_or_else(|e| e.into_inner());
+        result = future
+            .state
+            .ready
+            .wait(result)
+            .unwrap_or_else(|e| e.into_inner());
     }
     let value = result.expect("future result checked above");
     clear_last_error();
@@ -1455,7 +1463,12 @@ pub unsafe extern "C" fn ramlang_future_is_ready(future: *mut RamlangFuture) -> 
     }
     // SAFETY: pointer validity is required by this function's contract.
     let future = unsafe { &*future };
-    let ready = future.state.result.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+    let ready = future
+        .state
+        .result
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some();
     clear_last_error();
     i32::from(ready)
 }
