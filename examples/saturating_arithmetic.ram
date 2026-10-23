@@ -1,0 +1,12 @@
+fn main() -> i32 {
+    let signed_max: i32 = sadd_sat_i32(2147483647, 1);
+    let signed_min: i32 = ssub_sat_i32(-2147483648, 1);
+    let unsigned_max: u16 = uadd_sat_u16(65535, 1);
+    let unsigned_min: u16 = usub_sat_u16(0, 1);
+
+    print(signed_max);
+    print(signed_min);
+    print(unsigned_max);
+    print(unsigned_min);
+    return 0;
+}
