@@ -1,0 +1,14 @@
+fn main() -> i32 {
+    let mut shared_value: u32 = 0;
+    let address: ptr = &shared_value;
+
+    fence_release();
+    volatile_store_u32(address, 42 as u32);
+    fence_seq_cst();
+
+    let observed: u32 = volatile_load_u32(address);
+    fence_acquire();
+
+    print(observed);
+    return 0;
+}
