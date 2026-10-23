@@ -366,7 +366,7 @@ fn main() -> i32 {
 
 An integer-initialized raw pointer is target-specific and unsafe; do not run or dereference such a pointer unless the address is valid on the selected machine.
 
-Mutable statics are shared process-wide state. They are not automatically synchronized across threads or interrupt contexts, and taking a raw pointer bypasses assignment mutability checks. Complex initializers such as global struct literals and array literals are not supported yet.
+Mutable statics are shared process-wide state. They are not automatically synchronized across threads or interrupt contexts, and taking a raw pointer bypasses assignment mutability checks. A mutable static array can be initialized with a literal such as `static mut VALUES: [i32; 3] = [10, 20, 30];`. Its backing storage is emitted as a true LLVM global array, while the named variable remains a pointer-like array view. Static array literal initializers currently require `static mut`; immutable static array literals and global struct literals are not implemented yet.
 
 ## Global constants
 
