@@ -966,6 +966,7 @@ struct Binding {
 struct FunctionGenerator<'a> {
     signatures: &'a HashMap<String, Signature>,
     structs: &'a HashMap<u64, StructDef>,
+    globals: &'a HashMap<String, (Type, String)>,
     return_type: Type,
     allocas: Vec<String>,
     lines: Vec<String>,
@@ -985,11 +986,12 @@ impl<'a> FunctionGenerator<'a> {
     fn new(
         signatures: &'a HashMap<String, Signature>,
         structs: &'a HashMap<u64, StructDef>,
+        globals: &'a HashMap<String, (Type, String)>,
         return_type: Type,
         function_name: &str,
     ) -> Self {
         Self {
-            signatures, structs, return_type, allocas: Vec::new(), lines: Vec::new(),
+            signatures, structs, globals, return_type, allocas: Vec::new(), lines: Vec::new(),
             scopes: vec![HashMap::new()], current_block: "entry".to_owned(),
             function_name: function_name.to_owned(), string_counter: 0,
             string_globals: Vec::new(), loop_stack: Vec::new(),
@@ -1327,10 +1329,15 @@ impl<'a> FunctionGenerator<'a> {
             Expr::Bool(value) => Ok((if *value { "true" } else { "false" }.to_owned(), Type::Bool)),
             Expr::Null => Ok(("null".to_owned(), Type::Ptr)),
             Expr::Variable(name) => {
-                let binding = self.lookup(name).ok_or_else(|| format!("unknown variable '{name}'"))?;
-                let result = self.fresh_value();
-                self.emit(format!("{result} = load {}, ptr {}", binding.ty.llvm(), binding.slot));
-                Ok((result, binding.ty))
+                if let Some(binding) = self.lookup(name) {
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = load {}, ptr {}", binding.ty.llvm(), binding.slot));
+                    Ok((result, binding.ty))
+                } else if let Some((ty, value)) = self.globals.get(name) {
+                    Ok((value.clone(), *ty))
+                } else {
+                    Err(format!("unknown variable or constant '{name}'"))
+                }
             }
             Expr::Index { array, index } => {
                 let (element_ptr, element) = self.emit_array_element_ptr(array, index)?;
