@@ -560,13 +560,14 @@ impl Parser {
         self.type_references.insert(id, name.clone());
         self.expect_symbol("{")?;
         let mut variants = Vec::new();
-        let mut next_value: i32 = 0;
+        let mut next_value: Option<i32> = Some(0);
         while !self.check_symbol("}") && !self.at_end() {
             let variant = self.expect_ident("enum variant name")?;
             if variants.iter().any(|(existing, _)| existing == &variant) {
                 return Err(self.error(format!("duplicate variant '{variant}' in enum '{name}'")));
             }
-            let value = if self.match_symbol("=") {
+            let explicit_value = self.match_symbol("=");
+            let value = if explicit_value {
                 let negative = self.match_symbol("-");
                 if !matches!(self.current().kind, TokenKind::Number) || self.current().text.contains('.') {
                     return Err(self.error("enum discriminant must be an integer literal".to_owned()));
@@ -579,10 +580,9 @@ impl Parser {
                 i32::try_from(parsed)
                     .map_err(|_| self.error("enum discriminant is outside the i32 range".to_owned()))?
             } else {
-                next_value
+                next_value.ok_or_else(|| self.error("enum discriminant overflow before implicit variant".to_owned()))?
             };
-            next_value = value.checked_add(1)
-                .ok_or_else(|| self.error("enum discriminant overflow after variant".to_owned()))?;
+            next_value = value.checked_add(1);
             variants.push((variant, value));
             if !self.match_symbol(",") {
                 break;
