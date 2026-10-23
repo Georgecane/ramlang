@@ -3915,7 +3915,7 @@ mod tests {
         let ir = compile(source).unwrap();
         let color_id = struct_type_id("Color");
         assert!(ir.contains("store i32 4, ptr"));
-        assert!(ir.contains("store i32 5, ptr"));
+        assert!(ir.contains("call i32 @color_code(i32 5)"));
         assert!(ir.contains("icmp eq i32"));
         assert!(ir.contains("icmp slt i32"));
         assert!(ir.contains("define i32 @color_code(i32"));
