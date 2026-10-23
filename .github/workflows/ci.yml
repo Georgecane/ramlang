@@ -62,6 +62,11 @@ jobs:
           cargo run --release -- examples/bitwise.ram -o target/bitwise
           expected="$(printf '%s\n%s' '-1' '10')"
           test "$(target/bitwise)" = "$expected"
+      - name: Compile and run signed integer boundary example
+        run: |
+          cargo run --release -- examples/integer_limits.ram -o target/integer-limits
+          expected="$(printf '%s\n%s\n%s' '-128' '-2147483648' '-9223372036854775808')"
+          test "$(target/integer-limits)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
