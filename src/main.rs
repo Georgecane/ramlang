@@ -5517,7 +5517,7 @@ mod tests {
         assert!(ir.contains("declare i32 @ramlang_strlen(ptr)"));
         assert!(ir.contains("declare i32 @ramlang_strncmp(ptr, ptr, i32)"));
         assert!(ir.contains("declare ptr @ramlang_memchr(ptr, i32, i32)"));
-        assert!(ir.contains("call ptr @calloc(i32"));
+        assert!(ir.contains("call ptr @ramlang_calloc(i32"));
         assert!(ir.contains("call i32 @ramlang_strlen(ptr"));
         assert!(ir.contains("zext i32"));
         assert!(ir.contains("trunc i64"));
@@ -5931,8 +5931,8 @@ mod tests {
     fn lowers_calloc_and_realloc() {
         let source = "fn main() -> i32 { let p: ptr = calloc(4, size_of(i32)); store_i32(p, 42); let q: ptr = realloc(p, 32); print(load_i32(q)); free(q); return 0; }";
         let ir = compile(source).unwrap();
-        assert!(ir.contains("declare ptr @calloc(i64, i64)"));
-        assert!(ir.contains("declare ptr @realloc(ptr, i64)"));
+        assert!(ir.contains("declare ptr @ramlang_calloc(i64, i64)"));
+        assert!(ir.contains("declare ptr @ramlang_realloc(ptr, i64)"));
         assert!(ir.contains("call ptr @ramlang_calloc(i64 4, i64 4)"));
         assert!(ir.contains("call ptr @ramlang_realloc(ptr"));
     }
@@ -5945,7 +5945,7 @@ mod tests {
         assert!(ir.contains("declare i32 @ramlang_strcmp(ptr, ptr)"));
         assert!(ir.contains("declare i32 @ramlang_strncmp(ptr, ptr, i64)"));
         assert!(ir.contains("declare ptr @ramlang_memchr(ptr, i32, i64)"));
-        assert!(ir.contains("call i64 @strlen(ptr"));
+        assert!(ir.contains("call i64 @ramlang_strlen(ptr"));
         assert!(ir.contains("call i32 @ramlang_strcmp(ptr"));
         assert!(ir.contains("call i32 @ramlang_strncmp(ptr"));
         assert!(ir.contains("call ptr @ramlang_memchr(ptr"));
@@ -6347,8 +6347,8 @@ mod tests {
     fn allows_explicit_enum_value_after_i32_maximum() {
         let ir = compile("enum Wide { Max = 2147483647, Reset = -3, Next } fn main() -> i32 { print(Wide.Max); print(Wide.Reset); print(Wide.Next); return 0; }").unwrap();
         assert!(ir.contains("call void @ramlang_print_i32(i32 2147483647)"));
-        assert!(ir.contains("printf(ptr @.fmt.i32, i32 -3)"));
-        assert!(ir.contains("printf(ptr @.fmt.i32, i32 -2)"));
+        assert!(ir.contains("call void @ramlang_print_i32(i32 -3)"));
+        assert!(ir.contains("call void @ramlang_print_i32(i32 -2)"));
     }
 
     #[test]
