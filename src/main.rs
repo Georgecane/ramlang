@@ -5806,6 +5806,29 @@ mod tests {
     }
 
     #[test]
+    fn supports_f32_literals_arithmetic_casts_arrays_and_variadic_promotion() {
+        let source = r#"const HALF: f32 = 0.5; extern fn printf(format: str, ...) -> i32; fn main() -> i32 { let values: [f32; 2] = [1.5, 2.25]; let result: f32 = values[0] * values[1] + HALF; print(result); let wide: f64 = result as f64; let narrow: f32 = wide as f32; print(narrow); printf("%.2f\n", narrow); let integer: i32 = narrow as i32; print(integer); print(size_of([f32; 2])); print(align_of(f32)); return 0; }"#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("@HALF = constant float"));
+        assert!(ir.contains("alloca [2 x float]"));
+        assert!(ir.contains("fmul float"));
+        assert!(ir.contains("fadd float"));
+        assert!(ir.contains("fpext float"));
+        assert!(ir.contains("fptrunc double"));
+        assert!(ir.contains("fptosi float"));
+        assert!(ir.contains("call i32 (ptr, ...) @printf(ptr"));
+        assert!(ir.contains("double"));
+        assert!(ir.contains("store i64 8, ptr"));
+        assert!(ir.contains("getelementptr { i8, float }, ptr null"));
+    }
+
+    #[test]
+    fn rejects_f32_non_finite_literals() {
+        let error = compile("fn main() -> i32 { let value: f32 = 1.0e100; return 0; }").unwrap_err();
+        assert!(error.contains("f32 finite range"));
+    }
+
+    #[test]
     fn lowers_unsigned_types_and_operations() {
         let source = "fn main() -> i32 { let a: u8 = 255; let b: u16 = 65535; let c: u32 = 4294967295; let d: u64 = 18446744073709551615; let gt: bool = a > 1 as u8; let quotient: u32 = c / 5; let shifted: u64 = d >> 63; let widened: u16 = a as u16; let as_float: f64 = d as f64; print(a); print(b); print(c); print(d); print(gt); print(quotient); print(shifted); print(widened); print(as_float); return 0; }";
         let ir = compile(source).unwrap();
