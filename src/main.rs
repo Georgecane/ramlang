@@ -5046,6 +5046,22 @@ mod tests {
     }
 
     #[test]
+    fn lowers_mutable_static_array_literals_to_global_storage() {
+        let source = "static mut VALUES: [i32; 3] = [10, 20, 30]; fn main() -> i32 { print(VALUES[1]); VALUES[1] = 42; print(VALUES[1]); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("@.ramlang.static.storage.VALUES = global [3 x i32] [i32 10, i32 20, i32 30]"));
+        assert!(ir.contains("@VALUES = constant ptr getelementptr inbounds ([3 x i32], ptr @.ramlang.static.storage.VALUES, i64 0, i64 0)"));
+        assert!(ir.contains("getelementptr inbounds i32"));
+        assert!(ir.contains("store i32 42"));
+    }
+
+    #[test]
+    fn rejects_immutable_static_array_literal_initializers() {
+        let error = compile("static VALUES: [i32; 2] = [10, 20]; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(error.contains("static array literal 'VALUES' currently requires 'static mut'"));
+    }
+
+    #[test]
     fn emits_extern_static_global_declarations() {
         let source = "extern static mut C_COUNTER: i32; extern static C_LIMIT: u32; fn main() -> i32 { C_COUNTER = C_COUNTER + 2; print(C_COUNTER); print(C_LIMIT); return 0; }";
         let ir = compile(source).unwrap();
