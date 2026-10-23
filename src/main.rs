@@ -806,7 +806,7 @@ impl Parser {
     }
 
     fn parse_unary(&mut self) -> Result<Expr, String> {
-        if self.check_symbol("-") || self.check_symbol("!") || self.check_symbol("~") {
+        if self.check_symbol("-") || self.check_symbol("!") || self.check_symbol("~") || self.check_symbol("&") {
             let op = self.current().text.clone();
             self.index += 1;
             return Ok(Expr::Unary { op, right: Box::new(self.parse_unary()?) });
@@ -1004,6 +1004,21 @@ impl<'a> FunctionGenerator<'a> {
             Ok(())
         } else {
             Err(format!("{context}: expected {}, found {}", expected.llvm(), actual.llvm()))
+        }
+    }
+
+    fn emit_lvalue_ptr(&mut self, expression: &Expr) -> Result<(String, Type), String> {
+        match expression {
+            Expr::Variable(name) => {
+                let binding = self.lookup(name).ok_or_else(|| format!("unknown variable '{name}'"))?;
+                Ok((binding.slot, binding.ty))
+            }
+            Expr::Index { array, index } => {
+                let (element_ptr, element) = self.emit_array_element_ptr(array, index)?;
+                Ok((element_ptr, element.ty()))
+            }
+            Expr::Field { base, field } => self.emit_struct_field_ptr(base, field),
+            _ => Err("address-of requires a variable, array element, or struct field".to_owned()),
         }
     }
 
@@ -1329,6 +1344,10 @@ impl<'a> FunctionGenerator<'a> {
                 Err(format!("cannot cast {} to {}", source_type.llvm(), target.llvm()))
             }
             Expr::Unary { op, right } => {
+                if op == "&" {
+                    let (address, _) = self.emit_lvalue_ptr(right)?;
+                    return Ok((address, Type::Ptr));
+                }
                 if op == "-" {
                     if let Expr::Number(text) = right.as_ref() {
                         if !text.contains('.') {
@@ -1388,6 +1407,7 @@ impl<'a> FunctionGenerator<'a> {
                     "-" => Err(format!("unary '-' requires a number, found {}", ty.llvm())),
                     "!" => Err(format!("unary '!' requires bool, found {}", ty.llvm())),
                     "~" => Err(format!("unary '~' requires an integer, found {}", ty.llvm())),
+                    "&" => Err("address-of requires a variable, array element, or struct field".to_owned()),
                     _ => Err(format!("unsupported unary operator '{op}'")),
                 }
             }
