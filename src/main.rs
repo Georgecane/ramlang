@@ -165,6 +165,7 @@ impl<'a> Lexer<'a> {
                 (b'>', Some(b'>')) => Some(">>"),
                 (b'-', Some(b'>')) => Some("->"),
                 (b'=', Some(b'=')) => Some("=="),
+                (b'=', Some(b'>')) => Some("=>"),
                 (b'!', Some(b'=')) => Some("!="),
                 (b'<', Some(b'=')) => Some("<="),
                 (b'>', Some(b'=')) => Some(">="),
@@ -388,6 +389,7 @@ enum Stmt {
     Continue,
     Expression(Expr),
     If { condition: Expr, then_branch: Box<Stmt>, else_branch: Option<Box<Stmt>> },
+    Match { value: Expr, arms: Vec<(Expr, Stmt)>, default: Option<Box<Stmt>> },
     While { condition: Expr, body: Box<Stmt> },
     For { initializer: Box<Stmt>, condition: Expr, increment: Box<Stmt>, body: Box<Stmt> },
 }
@@ -734,6 +736,38 @@ impl Parser {
         if self.match_keyword("continue") {
             self.expect_symbol(";")?;
             return Ok(Stmt::Continue);
+        }
+        if self.match_keyword("match") {
+            self.expect_symbol("(")?;
+            let value = self.parse_expression()?;
+            self.expect_symbol(")")?;
+            self.expect_symbol("{")?;
+            let mut arms = Vec::new();
+            let mut default = None;
+            while !self.check_symbol("}") && !self.at_end() {
+                if matches!(self.current().kind, TokenKind::Ident)
+                    && self.current().text == "_"
+                    && self.tokens.get(self.index + 1).is_some_and(|token| token.kind == TokenKind::Symbol("=>".to_owned()))
+                {
+                    self.index += 1;
+                    self.expect_symbol("=>")?;
+                    if default.is_some() {
+                        return Err(self.error("match statement contains more than one '_' fallback arm".to_owned()));
+                    }
+                    default = Some(Box::new(self.parse_block()?));
+                } else {
+                    let pattern = self.parse_expression()?;
+                    self.expect_symbol("=>")?;
+                    let body = self.parse_block()?;
+                    arms.push((pattern, body));
+                }
+                self.match_symbol(",");
+            }
+            self.expect_symbol("}")?;
+            if arms.is_empty() && default.is_none() {
+                return Err(self.error("match statement must contain at least one arm".to_owned()));
+            }
+            return Ok(Stmt::Match { value, arms, default });
         }
         if self.match_keyword("if") {
             self.expect_symbol("(")?;
