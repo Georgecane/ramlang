@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    let response: str = await udp_request("127.0.0.1:39875", "hello over UDP", 3000);
+    print(response);
+    free(response as ptr);
+    return 0;
+}
