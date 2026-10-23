@@ -4470,6 +4470,14 @@ fn compile_to_llvm_for_target(
 
     let mut signatures = HashMap::new();
     for function in functions {
+        if function.name == "ramlang_last_error"
+            && (!function.external
+                || !function.params.is_empty()
+                || function.variadic
+                || function.return_type != Type::Str)
+        {
+            return Err("ramlang_last_error is a reserved runtime symbol; declare it as extern fn ramlang_last_error() -> str".to_owned());
+        }
         if function.name == "printf"
             && (!function.external
                 || !function.variadic
