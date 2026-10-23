@@ -8,7 +8,7 @@ RamLang is a statically typed systems-language experiment written in Rust. Its R
 
 - Rust-based lexer, parser, compiler driver, and LLVM backend using Inkwell
 - In-process LLVM IR parsing, verification, target-machine code generation, object emission, assembly emission, and bitcode emission; the system linker driver is used only for final executable linking
-- LLVM 18-23 bindings selectable with Cargo features (default: LLVM 18.1)
+- LLVM 18-23 bindings selectable with Cargo features (default: LLVM 23.1)
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Optional Tokio-backed TCP and UDP runtime exposed as a C-compatible shared library, including non-blocking request handles, cancellation scopes, and a structured task-group API for Rust consumers
