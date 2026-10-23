@@ -200,6 +200,7 @@ impl<'a> Lexer<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Type {
     I8,
+    I16,
     I32,
     I64,
     F64,
@@ -213,6 +214,7 @@ impl Type {
     fn llvm(self) -> &'static str {
         match self {
             Self::I8 => "i8",
+            Self::I16 => "i16",
             Self::I32 => "i32",
             Self::I64 => "i64",
             Self::F64 => "double",
@@ -224,11 +226,11 @@ impl Type {
     }
 
     fn is_numeric(self) -> bool {
-        matches!(self, Self::I8 | Self::I32 | Self::I64 | Self::F64)
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::F64)
     }
 
     fn is_integer(self) -> bool {
-        matches!(self, Self::I8 | Self::I32 | Self::I64)
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64)
     }
 }
 
@@ -347,6 +349,7 @@ impl Parser {
         let name = self.expect_ident("type name")?;
         match name.as_str() {
             "i8" => Ok(Type::I8),
+            "i16" => Ok(Type::I16),
             "i32" => Ok(Type::I32),
             "i64" => Ok(Type::I64),
             "f64" => Ok(Type::F64),
@@ -354,7 +357,7 @@ impl Parser {
             "str" => Ok(Type::Str),
             "ptr" => Ok(Type::Ptr),
             "void" => Ok(Type::Void),
-            _ => Err(self.error(format!("unknown type '{name}'; expected i8, i32, i64, f64, bool, str, ptr, or void"))),
+            _ => Err(self.error(format!("unknown type '{name}'; expected i8, i16, i32, i64, f64, bool, str, ptr, or void"))),
         }
     }
 
@@ -775,6 +778,12 @@ impl<'a> FunctionGenerator<'a> {
                         } else {
                             Err(format!("integer literal '{text}' does not fit i8"))
                         }
+                    } else if expected == Some(Type::I16) {
+                        if (i16::MIN as i64..=i16::MAX as i64).contains(&value) {
+                            Ok((value.to_string(), Type::I16))
+                        } else {
+                            Err(format!("integer literal '{text}' does not fit i16"))
+                        }
                     } else if expected == Some(Type::I64) {
                         Ok((value.to_string(), Type::I64))
                     } else if expected == Some(Type::I32) {
@@ -808,9 +817,11 @@ impl<'a> FunctionGenerator<'a> {
                                 .ok_or_else(|| format!("integer literal '-{text}' is outside the supported range"))?;
                             let ty = match expected {
                                 Some(Type::I8) if (i8::MIN as i128..=i8::MAX as i128).contains(&signed) => Type::I8,
+                                Some(Type::I16) if (i16::MIN as i128..=i16::MAX as i128).contains(&signed) => Type::I16,
                                 Some(Type::I32) if (i32::MIN as i128..=i32::MAX as i128).contains(&signed) => Type::I32,
                                 Some(Type::I64) if (i64::MIN as i128..=i64::MAX as i128).contains(&signed) => Type::I64,
                                 Some(Type::I8) => return Err(format!("integer literal '-{text}' does not fit i8")),
+                                Some(Type::I16) => return Err(format!("integer literal '-{text}' does not fit i16")),
                                 Some(Type::I32) => return Err(format!("integer literal '-{text}' does not fit i32")),
                                 Some(Type::I64) if !(i64::MIN as i128..=i64::MAX as i128).contains(&signed) =>
                                     return Err(format!("integer literal '-{text}' does not fit i64")),
@@ -884,16 +895,16 @@ impl<'a> FunctionGenerator<'a> {
                     (Type::F64, "-") => format!("{result} = fsub double {lhs}, {rhs}"),
                     (Type::F64, "*") => format!("{result} = fmul double {lhs}, {rhs}"),
                     (Type::F64, "/") => format!("{result} = fdiv double {lhs}, {rhs}"),
-                    (Type::I8 | Type::I32 | Type::I64, "+") => format!("{result} = add {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I32 | Type::I64, "-") => format!("{result} = sub {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I32 | Type::I64, "*") => format!("{result} = mul {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I32 | Type::I64, "/") => format!("{result} = sdiv {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I32 | Type::I64, "%") => format!("{result} = srem {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I32 | Type::I64, "&") => format!("{result} = and {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I32 | Type::I64, "|") => format!("{result} = or {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I32 | Type::I64, "^") => format!("{result} = xor {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I32 | Type::I64, "<<") => format!("{result} = shl {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I32 | Type::I64, ">>") => format!("{result} = ashr {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "+") => format!("{result} = add {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "-") => format!("{result} = sub {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "*") => format!("{result} = mul {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "/") => format!("{result} = sdiv {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "%") => format!("{result} = srem {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "&") => format!("{result} = and {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "|") => format!("{result} = or {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "^") => format!("{result} = xor {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "<<") => format!("{result} = shl {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, ">>") => format!("{result} = ashr {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::F64, "==") => format!("{result} = fcmp oeq double {lhs}, {rhs}"),
                     (Type::F64, "!=") => format!("{result} = fcmp une double {lhs}, {rhs}"),
                     (Type::F64, "<") => format!("{result} = fcmp olt double {lhs}, {rhs}"),
@@ -902,10 +913,10 @@ impl<'a> FunctionGenerator<'a> {
                     (Type::F64, ">=") => format!("{result} = fcmp oge double {lhs}, {rhs}"),
                     (_, "==") => format!("{result} = icmp eq {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (_, "!=") => format!("{result} = icmp ne {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I32 | Type::I64, "<") => format!("{result} = icmp slt {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I32 | Type::I64, "<=") => format!("{result} = icmp sle {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I32 | Type::I64, ">") => format!("{result} = icmp sgt {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I32 | Type::I64, ">=") => format!("{result} = icmp sge {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "<") => format!("{result} = icmp slt {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "<=") => format!("{result} = icmp sle {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, ">") => format!("{result} = icmp sgt {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, ">=") => format!("{result} = icmp sge {} {lhs}, {rhs}", lhs_ty.llvm()),
                     _ => return Err(format!("operator '{op}' is not valid for {}", lhs_ty.llvm())),
                 };
                 self.emit(instruction);
@@ -922,6 +933,11 @@ impl<'a> FunctionGenerator<'a> {
                         Type::I8 => {
                             let promoted = self.fresh_value();
                             self.emit(format!("{promoted} = sext i8 {value} to i32"));
+                            self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 {promoted})"));
+                        }
+                        Type::I16 => {
+                            let promoted = self.fresh_value();
+                            self.emit(format!("{promoted} = sext i16 {value} to i32"));
                             self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 {promoted})"));
                         }
                         Type::I32 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 {value})")),
@@ -975,6 +991,7 @@ impl<'a> FunctionGenerator<'a> {
 
                 let loaded_type = match name.as_str() {
                     "load_i8" => Some(Type::I8),
+                    "load_i16" => Some(Type::I16),
                     "load_i32" => Some(Type::I32),
                     "load_i64" => Some(Type::I64),
                     "load_f64" => Some(Type::F64),
@@ -995,6 +1012,7 @@ impl<'a> FunctionGenerator<'a> {
 
                 let stored_type = match name.as_str() {
                     "store_i8" => Some(Type::I8),
+                    "store_i16" => Some(Type::I16),
                     "store_i32" => Some(Type::I32),
                     "store_i64" => Some(Type::I64),
                     "store_f64" => Some(Type::F64),
