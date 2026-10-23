@@ -322,7 +322,7 @@ Variants without an explicit value increment from the preceding discriminant, so
 
 ## Match statements
 
-Use `match (value)` to select a block from enum variants. An enum match without a `_` fallback must cover every distinct discriminant; otherwise the compiler reports a non-exhaustive match. Non-enum values require a wildcard fallback.
+Use `match (value)` to select a block from enum variants or scalar values. An enum match without a `_` fallback must cover every distinct discriminant; boolean matches without a fallback must include both `true` and `false`. Integer matches require a `_` fallback because their value domain is open-ended. Constant enum, integer, and boolean patterns use LLVM `switch`; dynamic patterns use an ordered comparison chain.
 
 ```rust
 enum Color {
