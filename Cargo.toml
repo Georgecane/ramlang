@@ -8,8 +8,17 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 
+[features]
+default = ["llvm18"]
+llvm18 = ["inkwell/llvm18-1"]
+llvm19 = ["inkwell/llvm19-1"]
+llvm20 = ["inkwell/llvm20-1"]
+llvm21 = ["inkwell/llvm21-1"]
+llvm22 = ["inkwell/llvm22-1"]
+llvm23 = ["inkwell/llvm23-1"]
+
 [dependencies]
-inkwell = { version = "0.6.0", features = ["llvm18-1"] }
+inkwell = { version = "0.11.0", default-features = false, features = ["target-all"] }
 
 [[bin]]
 name = "ramcomp"
