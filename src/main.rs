@@ -1629,6 +1629,26 @@ mod tests {
     }
 
     #[test]
+    fn lowers_numeric_and_boolean_casts() {
+        let source = "fn main() -> i32 { let a: i32 = 258.75 as i32; let b: i8 = a as i8; let c: i64 = b as i64; let d: f64 = c as f64; let flag: bool = b as bool; let truth: f64 = true as f64; print(a); print(b); print(c); print(d); print(flag); print(truth); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("fptosi double"));
+        assert!(ir.contains("trunc i32"));
+        assert!(ir.contains("sext i8"));
+        assert!(ir.contains("sitofp i64"));
+        assert!(ir.contains("icmp ne i8"));
+        assert!(ir.contains("uitofp i1"));
+    }
+
+    #[test]
+    fn rejects_casts_to_void_and_pointer_integer_casts() {
+        let void_cast = compile("fn main() -> i32 { let x: i32 = 1 as void; return 0; }").unwrap_err();
+        assert!(void_cast.contains("cast a value to void"));
+        let pointer_cast = compile("fn main() -> i32 { let x: i64 = 1 as ptr; return 0; }").unwrap_err();
+        assert!(pointer_cast.contains("cannot cast i32 to ptr"));
+    }
+
+    #[test]
     fn rejects_break_outside_loops() {
         let source = "fn main() -> i32 { break; return 0; }";
         assert!(compile(source).unwrap_err().contains("only be used inside a loop"));
