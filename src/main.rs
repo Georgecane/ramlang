@@ -299,6 +299,7 @@ enum Type {
     U16,
     U32,
     U64,
+    F32,
     F64,
     Bool,
     Str,
@@ -333,7 +334,7 @@ impl Type {
     }
 
     fn is_numeric(self) -> bool {
-        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::F64 | Self::Enum(_))
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::F32 | Self::F64 | Self::Enum(_))
     }
 
     fn is_float(self) -> bool {
