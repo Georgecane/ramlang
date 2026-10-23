@@ -1735,7 +1735,7 @@ pub unsafe extern "C" fn ramlang_future_spawn_i64(
 pub unsafe extern "C" fn ramlang_tcp_request_future(
     address: *const c_char,
     payload: *const c_char,
-    timeout_ms: u64,
+    timeout_ms: i64,
 ) -> *mut RamlangFuture {
     let address = match read_c_string(address, "TCP destination") {
         Ok(value) => value,
@@ -1751,7 +1751,7 @@ pub unsafe extern "C" fn ramlang_tcp_request_future(
             return ptr::null_mut();
         }
     };
-    if timeout_ms == 0 {
+    if timeout_ms <= 0 {
         set_last_error("TCP timeout must be greater than zero");
         return ptr::null_mut();
     }
@@ -1769,7 +1769,7 @@ pub unsafe extern "C" fn ramlang_tcp_request_future(
 
     let state = Arc::new(FutureState::new());
     let task_state = Arc::clone(&state);
-    let operation_timeout = Duration::from_millis(timeout_ms);
+    let operation_timeout = Duration::from_millis(timeout_ms as u64);
     runtime.spawn(async move {
         let result: Result<i64, String> = async {
             let mut connection =
