@@ -2648,6 +2648,7 @@ fn lower_global_constant(constant: &GlobalConst) -> Result<(String, Option<Strin
             Type::U16 => (0..=u16::MAX as i128).contains(&value),
             Type::U32 => (0..=u32::MAX as i128).contains(&value),
             Type::U64 => (0..=u64::MAX as i128).contains(&value),
+            Type::Enum(_) => (i32::MIN as i128..=i32::MAX as i128).contains(&value),
             _ => false,
         };
         if !fits {
@@ -2667,6 +2668,20 @@ fn resolve_enum_type(ty: &mut Type, enum_ids: &HashSet<u64>) {
             *ty = Type::Enum(*type_id);
         }
     }
+}
+
+fn resolve_global_enum_variant(expression: &mut Expr, enums: &[EnumDef]) -> Result<(), String> {
+    if let Expr::Field { base, field } = expression {
+        if let Expr::Variable(enum_name) = base.as_ref() {
+            if let Some(enumeration) = enums.iter().find(|enumeration| enumeration.name == *enum_name) {
+                let Some((_, value)) = enumeration.variants.iter().find(|(variant, _)| variant == field) else {
+                    return Err(format!("enum '{}' has no variant '{}'", enumeration.name, field));
+                };
+                *expression = Expr::Number(value.to_string());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn resolve_enum_expr(expression: &mut Expr, enum_ids: &HashSet<u64>) {
@@ -2801,11 +2816,13 @@ fn resolve_program_enum_types(source: &Program) -> Result<Program, String> {
     }
     for constant in &mut program.constants {
         resolve_enum_type(&mut constant.ty, &enum_ids);
+        resolve_global_enum_variant(&mut constant.value, &program.enums)?;
         resolve_enum_expr(&mut constant.value, &enum_ids);
     }
     for variable in &mut program.static_vars {
         resolve_enum_type(&mut variable.ty, &enum_ids);
         if let Some(value) = &mut variable.value {
+            resolve_global_enum_variant(value, &program.enums)?;
             resolve_enum_expr(value, &enum_ids);
         }
     }
