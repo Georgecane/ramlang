@@ -9,6 +9,7 @@ extern "C" {
 
 /* Opaque handle owned by the runtime. */
 typedef struct RamlangTcpConnection RamlangTcpConnection;
+typedef struct RamlangUdpEndpoint RamlangUdpEndpoint;
 
 /*
  * Blocking C ABI for the current RamLang compiler.
@@ -37,6 +38,32 @@ int64_t ramlang_tcp_read_frame(
     uint64_t capacity
 );
 void ramlang_tcp_close(RamlangTcpConnection *connection);
+
+/*
+ * UDP operations are also blocking at the RamLang call site.
+ * Datagram payloads are limited to 65,507 bytes. The peer buffer must be large enough
+ * for a NUL-terminated textual socket address; 64 bytes is sufficient for IPv4/IPv6.
+ */
+RamlangUdpEndpoint *ramlang_udp_bind(const char *local_address, uint64_t timeout_ms);
+int64_t ramlang_udp_local_addr(
+    RamlangUdpEndpoint *endpoint,
+    char *output,
+    uint64_t capacity
+);
+int64_t ramlang_udp_send_to(
+    RamlangUdpEndpoint *endpoint,
+    const uint8_t *data,
+    uint64_t length,
+    const char *destination
+);
+int64_t ramlang_udp_recv_from(
+    RamlangUdpEndpoint *endpoint,
+    uint8_t *output,
+    uint64_t capacity,
+    char *peer_output,
+    uint64_t peer_capacity
+);
+void ramlang_udp_close(RamlangUdpEndpoint *endpoint);
 
 #ifdef __cplusplus
 }
