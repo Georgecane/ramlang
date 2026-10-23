@@ -1448,6 +1448,13 @@ pub extern "C" fn ramlang_calloc(count: usize, size: usize) -> *mut c_void {
     pointer
 }
 
+/// Reallocate a pointer created by the RamLang allocator, preserving up to min(old, new) bytes.
+///
+/// # Safety
+///
+/// A non-null pointer must be a live allocation returned by ramlang_malloc/ramlang_alloc and
+/// must not have been freed or passed to another reallocation. No thread may access the
+/// allocation concurrently while it is being reallocated.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_realloc(pointer: *mut c_void, new_size: usize) -> *mut c_void {
     if pointer.is_null() {
@@ -1478,6 +1485,13 @@ pub unsafe extern "C" fn ramlang_realloc(pointer: *mut c_void, new_size: usize) 
     replacement
 }
 
+/// Copy count bytes from source to destination. The ranges must not overlap.
+///
+/// # Safety
+///
+/// When count is nonzero, source must be readable for count bytes and destination must be
+/// writable for count bytes. The two ranges must not overlap. Null pointers are permitted
+/// only when count is zero.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_memcpy(
     destination: *mut c_void,
@@ -1499,6 +1513,12 @@ pub unsafe extern "C" fn ramlang_memcpy(
     destination
 }
 
+/// Copy count bytes from source to destination; overlap is permitted.
+///
+/// # Safety
+///
+/// When count is nonzero, source must be readable for count bytes and destination must be
+/// writable for count bytes. Null pointers are permitted only when count is zero.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_memmove(
     destination: *mut c_void,
@@ -1518,6 +1538,12 @@ pub unsafe extern "C" fn ramlang_memmove(
     destination
 }
 
+/// Fill count destination bytes with the low eight bits of byte.
+///
+/// # Safety
+///
+/// When count is nonzero, destination must be writable for count bytes. A null pointer is
+/// permitted only when count is zero.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_memset(
     destination: *mut c_void,
@@ -1537,6 +1563,12 @@ pub unsafe extern "C" fn ramlang_memset(
     destination
 }
 
+/// Compare two byte ranges lexicographically.
+///
+/// # Safety
+///
+/// When count is nonzero, both pointers must be readable for count bytes. Null pointers are
+/// permitted only when count is zero.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_memcmp(
     left: *const c_void,
@@ -1563,6 +1595,11 @@ pub unsafe extern "C" fn ramlang_memcmp(
     0
 }
 
+/// Return the byte length of a NUL-terminated C string.
+///
+/// # Safety
+///
+/// A non-null value must point to a readable NUL-terminated byte sequence.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_strlen(value: *const c_char) -> usize {
     if value.is_null() {
@@ -1589,6 +1626,11 @@ fn compare_terminated_bytes(left: &[u8], right: &[u8], limit: usize) -> i32 {
     0
 }
 
+/// Compare two NUL-terminated byte strings lexicographically.
+///
+/// # Safety
+///
+/// Both pointers must point to readable NUL-terminated byte sequences.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_strcmp(left: *const c_char, right: *const c_char) -> i32 {
     if left.is_null() || right.is_null() {
@@ -1603,6 +1645,12 @@ pub unsafe extern "C" fn ramlang_strcmp(left: *const c_char, right: *const c_cha
     compare_terminated_bytes(left, right, usize::MAX)
 }
 
+/// Compare at most count bytes of two NUL-terminated byte strings.
+///
+/// # Safety
+///
+/// Both pointers must point to readable NUL-terminated byte sequences, even if count is
+/// smaller than either string's length.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_strncmp(
     left: *const c_char,
@@ -1624,6 +1672,12 @@ pub unsafe extern "C" fn ramlang_strncmp(
     compare_terminated_bytes(left, right, count)
 }
 
+/// Find the first matching byte in a readable memory range.
+///
+/// # Safety
+///
+/// When count is nonzero, value must be readable for count bytes. A null pointer is permitted
+/// only when count is zero.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_memchr(
     value: *const c_void,
@@ -1692,6 +1746,12 @@ pub struct RamlangFuture {
 ///
 /// The callback must have the signature extern C fn(context: ptr) -> i64. Generated wrappers
 /// own and release their context when they begin executing. This runtime never dereferences it.
+/// Schedule an unsafe RamLang entry callback on the runtime's blocking pool.
+///
+/// # Safety
+///
+/// If callback is Some, context must satisfy the callback's safety contract and remain valid
+/// until the callback begins. The callback must not unwind across the C ABI boundary.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_future_spawn_i64(
     callback: Option<unsafe extern "C" fn(*mut c_void) -> i64>,
@@ -1728,6 +1788,11 @@ pub unsafe extern "C" fn ramlang_future_spawn_i64(
 /// and the returned future resolves to a Rust-runtime-owned, NUL-terminated UTF-8 response.
 /// The caller owns that response allocation and must release it with ramlang_free.
 /// Transport errors and non-UTF-8 responses make await return -1 and set ramlang_last_error.
+/// Start a native TCP text request using valid C strings.
+///
+/// # Safety
+///
+/// address and payload must point to readable NUL-terminated UTF-8 C strings.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_tcp_request_future(
     address: *const c_char,
@@ -1815,6 +1880,11 @@ pub unsafe extern "C" fn ramlang_tcp_request_future(
 /// result is a Rust-runtime-owned NUL-terminated string that the caller must release using
 /// ramlang_free. Network and decoding errors are surfaced through ramlang_last_error when
 /// the future is awaited.
+/// Start a native UDP text request using valid C strings.
+///
+/// # Safety
+///
+/// address and payload must point to readable NUL-terminated UTF-8 C strings.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_udp_request_future(
     address: *const c_char,
@@ -1972,6 +2042,12 @@ pub unsafe extern "C" fn ramlang_future_is_ready(future: *mut RamlangFuture) -> 
 ///
 /// Started work is not cancelled by closing the handle; the result state remains alive until
 /// the runtime task completes.
+/// Release the caller's future handle. Passing null is a no-op.
+///
+/// # Safety
+///
+/// A non-null future must be a live handle returned by a RamLang future API. It must not be
+/// used again or closed concurrently. Closing the handle does not cancel its running task.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_future_close(future: *mut RamlangFuture) {
     if !future.is_null() {
