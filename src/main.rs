@@ -1030,6 +1030,7 @@ struct FunctionGenerator<'a> {
     structs: &'a HashMap<u64, StructDef>,
     globals: &'a HashMap<String, (Type, String)>,
     global_bindings: &'a HashMap<String, Binding>,
+    target_pointer_width: u32,
     return_type: Type,
     allocas: Vec<String>,
     lines: Vec<String>,
@@ -1051,11 +1052,12 @@ impl<'a> FunctionGenerator<'a> {
         structs: &'a HashMap<u64, StructDef>,
         globals: &'a HashMap<String, (Type, String)>,
         global_bindings: &'a HashMap<String, Binding>,
+        target_pointer_width: u32,
         return_type: Type,
         function_name: &str,
     ) -> Self {
         Self {
-            signatures, structs, globals, global_bindings, return_type, allocas: Vec::new(), lines: Vec::new(),
+            signatures, structs, globals, global_bindings, target_pointer_width, return_type, allocas: Vec::new(), lines: Vec::new(),
             scopes: vec![HashMap::new()], current_block: "entry".to_owned(),
             function_name: function_name.to_owned(), string_counter: 0,
             string_globals: Vec::new(), loop_stack: Vec::new(),
@@ -1179,6 +1181,44 @@ impl<'a> FunctionGenerator<'a> {
             "{field_ptr} = getelementptr inbounds %struct.{type_id:016x}, ptr {base_value}, i32 0, i32 {field_index}"
         ));
         Ok((field_ptr, *field_type, structure.packed))
+    }
+
+    fn size_t_llvm_type(&self) -> &'static str {
+        if self.target_pointer_width == 32 { "i32" } else { "i64" }
+    }
+
+    fn emit_size_t_count(&mut self, value: &str, context: &str) -> Result<String, String> {
+        if self.target_pointer_width == 64 {
+            return Ok(value.to_owned());
+        }
+        let nonnegative = self.fresh_value();
+        self.emit(format!("{nonnegative} = icmp sge i64 {value}, 0"));
+        let fits = self.fresh_value();
+        self.emit(format!("{fits} = icmp ule i64 {value}, 4294967295"));
+        let valid = self.fresh_value();
+        self.emit(format!("{valid} = and i1 {nonnegative}, {fits}"));
+        let ok_label = self.fresh_label("size_t.ok");
+        let trap_label = self.fresh_label("size_t.trap");
+        self.emit(format!("br i1 {valid}, label %{ok_label}, label %{trap_label}"));
+        self.terminated = true;
+        self.label(&trap_label);
+        self.emit("call void @llvm.trap()");
+        self.emit("unreachable");
+        self.terminated = true;
+        self.label(&ok_label);
+        let converted = self.fresh_value();
+        self.emit(format!("{converted} = trunc i64 {value} to i32"));
+        let _ = context;
+        Ok(converted)
+    }
+
+    fn widen_size_t_to_i64(&mut self, value: &str) -> String {
+        if self.target_pointer_width == 64 {
+            return value.to_owned();
+        }
+        let widened = self.fresh_value();
+        self.emit(format!("{widened} = zext i32 {value} to i64"));
+        widened
     }
 
     fn emit_raw_pointer_expr(&mut self, expression: &Expr, context: &str) -> Result<String, String> {
