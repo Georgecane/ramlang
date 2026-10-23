@@ -1455,6 +1455,38 @@ impl<'a> FunctionGenerator<'a> {
         widened
     }
 
+    fn emit_shift_guard(&mut self, rhs: &str, ty: Type) -> Result<(), String> {
+        let Some(width) = ty.integer_width() else {
+            return Err("shift guard requires an integer type".to_owned());
+        };
+        let llvm_type = ty.llvm();
+        let below_width = self.fresh_value();
+        let relation = if ty.is_unsigned() { "ult" } else { "slt" };
+        self.emit(format!("{below_width} = icmp {relation} {llvm_type} {rhs}, {width}"));
+        let valid = if ty.is_unsigned() {
+            below_width
+        } else {
+            let nonnegative = self.fresh_value();
+            self.emit(format!("{nonnegative} = icmp sge {llvm_type} {rhs}, 0"));
+            let both = self.fresh_value();
+            self.emit(format!("{both} = and i1 {nonnegative}, {below_width}"));
+            both
+        };
+
+        let ok_label = self.fresh_label("shift.ok");
+        let trap_label = self.fresh_label("shift.trap");
+        self.emit(format!("br i1 {valid}, label %{ok_label}, label %{trap_label}"));
+        self.terminated = true;
+
+        self.label(&trap_label);
+        self.emit("call void @llvm.trap()");
+        self.emit("unreachable");
+        self.terminated = true;
+
+        self.label(&ok_label);
+        Ok(())
+    }
+
     fn emit_integer_division_guard(&mut self, lhs: &str, rhs: &str, ty: Type) -> Result<(), String> {
         let Some(width) = ty.integer_width() else {
             return Err("division guard requires an integer type".to_owned());
@@ -2265,6 +2297,11 @@ impl<'a> FunctionGenerator<'a> {
                     && matches!(lhs_ty, Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64)
                 {
                     self.emit_integer_division_guard(&lhs, &rhs, lhs_ty)?;
+                }
+                if matches!(op.as_str(), "<<" | ">>")
+                    && matches!(lhs_ty, Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64)
+                {
+                    self.emit_shift_guard(&rhs, lhs_ty)?;
                 }
 
                 let result = self.fresh_value();
