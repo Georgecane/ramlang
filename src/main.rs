@@ -759,6 +759,9 @@ impl Parser {
         if variadic && !external {
             return Err(self.error("variadic functions must be declared with 'extern fn'".to_owned()));
         }
+        if variadic && params.is_empty() {
+            return Err(self.error("variadic extern functions must declare at least one fixed parameter".to_owned()));
+        }
         let return_type = if self.match_symbol("->") { self.parse_type()? } else { Type::Void };
         let body = if external {
             self.expect_symbol(";")?;
@@ -5593,6 +5596,8 @@ mod tests {
     fn rejects_invalid_variadic_declarations_and_calls() {
         let definition = parse_source("fn not_extern(value: i32, ...) -> i32 { return value; } fn main() -> i32 { return 0; }").unwrap_err();
         assert!(definition.contains("variadic functions must be declared with 'extern fn'"));
+        let no_fixed = parse_source("extern fn invalid(...) -> i32; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(no_fixed.contains("at least one fixed parameter"));
 
         let too_few = compile("extern fn variadic_sum(base: i32, ...) -> i32; fn main() -> i32 { return variadic_sum() ; }").unwrap_err();
         assert!(too_few.contains("expects at least 1 argument(s), got 0"));
