@@ -2493,39 +2493,39 @@ impl<'a> FunctionGenerator<'a> {
                         Type::I8 => {
                             let promoted = self.fresh_value();
                             self.emit(format!("{promoted} = sext i8 {value} to i32"));
-                            self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 {promoted})"));
+                            self.emit(format!("call void @ramlang_print_i32(i32 {promoted})"));
                         }
                         Type::I16 => {
                             let promoted = self.fresh_value();
                             self.emit(format!("{promoted} = sext i16 {value} to i32"));
-                            self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 {promoted})"));
+                            self.emit(format!("call void @ramlang_print_i32(i32 {promoted})"));
                         }
                         Type::U8 => {
                             let promoted = self.fresh_value();
                             self.emit(format!("{promoted} = zext i8 {value} to i32"));
-                            self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.u32, i32 {promoted})"));
+                            self.emit(format!("call void @ramlang_print_u32(i32 {promoted})"));
                         }
                         Type::U16 => {
                             let promoted = self.fresh_value();
                             self.emit(format!("{promoted} = zext i16 {value} to i32"));
-                            self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.u32, i32 {promoted})"));
+                            self.emit(format!("call void @ramlang_print_u32(i32 {promoted})"));
                         }
-                        Type::I32 | Type::Enum(_) => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 {value})")),
-                        Type::I64 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i64, i64 {value})")),
-                        Type::U32 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.u32, i32 {value})")),
-                        Type::U64 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.u64, i64 {value})")),
+                        Type::I32 | Type::Enum(_) => self.emit(format!("call void @ramlang_print_i32(i32 {value})")),
+                        Type::I64 => self.emit(format!("call void @ramlang_print_i64(i64 {value})")),
+                        Type::U32 => self.emit(format!("call void @ramlang_print_u32(i32 {value})")),
+                        Type::U64 => self.emit(format!("call void @ramlang_print_u64(i64 {value})")),
                         Type::F32 => {
                             let promoted = self.fresh_value();
                             self.emit(format!("{promoted} = fpext float {value} to double"));
-                            self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.f64, double {promoted})"));
+                            self.emit(format!("call void @ramlang_print_f64(double {promoted})"));
                         }
-                        Type::F64 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.f64, double {value})")),
+                        Type::F64 => self.emit(format!("call void @ramlang_print_f64(double {value})")),
                         Type::Bool => {
                             let promoted = self.fresh_value();
                             self.emit(format!("{promoted} = zext i1 {value} to i32"));
-                            self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 {promoted})"));
+                            self.emit(format!("call void @ramlang_print_i32(i32 {promoted})"));
                         }
-                        Type::Str => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.str, ptr {value})")),
+                        Type::Str => self.emit(format!("call void @ramlang_print_str(ptr {value})")),
                         Type::Ptr => return Err("print does not accept raw pointers".to_owned()),
                         Type::Future(_) => return Err("print does not accept Future values directly".to_owned()),
                         Type::Array(_, _) => return Err("print does not accept arrays directly".to_owned()),
@@ -2569,7 +2569,7 @@ impl<'a> FunctionGenerator<'a> {
                     }
                     let (message, message_type) = self.emit_expr_expected(&args[0], Some(Type::Str))?;
                     self.require_same(Type::Str, message_type, "panic message")?;
-                    self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.str, ptr {message})"));
+                    self.emit(format!("call void @ramlang_print_str(ptr {message})"));
                     self.emit("call void @llvm.trap()");
                     self.emit("unreachable");
                     self.terminated = true;
@@ -4612,6 +4612,12 @@ fn compile_to_llvm_for_target(
     module.push_str("@.fmt.u64 = private unnamed_addr constant [6 x i8] [i8 37, i8 108, i8 108, i8 117, i8 10, i8 0], align 1\n");
     module.push_str("@.fmt.f64 = private unnamed_addr constant [4 x i8] [i8 37, i8 103, i8 10, i8 0], align 1\n");
     module.push_str("@.fmt.str = private unnamed_addr constant [4 x i8] [i8 37, i8 115, i8 10, i8 0], align 1\n");
+    module.push_str("declare void @ramlang_print_i32(i32)\n");
+    module.push_str("declare void @ramlang_print_i64(i64)\n");
+    module.push_str("declare void @ramlang_print_u32(i32)\n");
+    module.push_str("declare void @ramlang_print_u64(i64)\n");
+    module.push_str("declare void @ramlang_print_f64(double)\n");
+    module.push_str("declare void @ramlang_print_str(ptr)\n");
     module.push_str("declare i32 @printf(ptr, ...)\n\n");
     let size_t = if target_pointer_width == 32 { "i32" } else { "i64" };
     module.push_str(&format!("declare ptr @malloc({size_t})\n"));
