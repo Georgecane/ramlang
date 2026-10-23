@@ -1,0 +1,26 @@
+fn main() -> i32 {
+    let source: ptr = alloc(8);
+    let destination: ptr = alloc(8);
+
+    memset(source, 0, 8);
+    store_i32(source, 42);
+    memcpy(destination, source, 8);
+
+    print(load_i32(destination));
+    print(memcmp(source, destination, 8));
+
+    store_i32(destination, 7);
+    let comparison: i32 = memcmp(source, destination, 4);
+    if (comparison > 0) {
+        print(1);
+    } else {
+        print(0);
+    }
+
+    memmove(destination, source, 4);
+    print(load_i32(destination));
+
+    free(source);
+    free(destination);
+    return 0;
+}
