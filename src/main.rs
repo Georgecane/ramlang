@@ -4676,7 +4676,7 @@ fn compile_to_llvm_for_target(
     module.push_str("declare i64 @ramlang_future_await_i64(ptr)\n");
     module.push_str("declare void @ramlang_future_close(ptr)\n");
     module.push_str("declare ptr @ramlang_tcp_request_future(ptr, ptr, i64)\n");
-    module.push_str("declare ptr @ramlang_udp_request_future(ptr, ptr, i64)\\n");
+    module.push_str("declare ptr @ramlang_udp_request_future(ptr, ptr, i64)\n");
     module.push_str("declare void @llvm.trap() cold noreturn nounwind\n");
     module.push_str("declare void @llvm.assume(i1) nounwind\n");
 
