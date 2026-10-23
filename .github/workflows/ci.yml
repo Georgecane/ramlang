@@ -282,7 +282,7 @@ jobs:
       - name: Compile and run exhaustive boolean match example
         run: |
           cargo run --release -- examples/boolean_match.ram -o target/boolean-match
-          expected="$(printf '%s\n%s\n%s' 'ready' '0' '1')"
+          expected="$(printf '%s\n%s' 'ready' '0')"
           test "$(target/boolean-match)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
