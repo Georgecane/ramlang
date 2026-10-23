@@ -876,6 +876,96 @@ mod tests {
     }
 
     #[test]
+    fn c_abi_async_tcp_requests_run_concurrently() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server_address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            // Accept both connections before replying. This verifies that starting the
+            // first request does not block the caller waiting for its response.
+            let mut connections = Vec::new();
+            for _ in 0..2 {
+                let (stream, _) = listener.accept().unwrap();
+                connections.push(stream);
+            }
+
+            let handlers = connections
+                .into_iter()
+                .map(|mut stream| {
+                    thread::spawn(move || {
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(2)))
+                            .unwrap();
+                        let mut header = [0_u8; 4];
+                        stream.read_exact(&mut header).unwrap();
+                        let length = u32::from_be_bytes(header) as usize;
+                        let mut payload = vec![0_u8; length];
+                        stream.read_exact(&mut payload).unwrap();
+                        thread::sleep(Duration::from_millis(20));
+                        stream.write_all(&header).unwrap();
+                        stream.write_all(&payload).unwrap();
+                    })
+                })
+                .collect::<Vec<_>>();
+            for handler in handlers {
+                handler.join().unwrap();
+            }
+        });
+
+        let address = CString::new(server_address.to_string()).unwrap();
+        let first_payload = b"first";
+        let second_payload = b"second";
+        // SAFETY: address and both payload slices remain valid for the calls; inputs are
+        // copied synchronously before the API returns.
+        let first = unsafe {
+            ramlang_tcp_request_start(
+                address.as_ptr(),
+                first_payload.as_ptr(),
+                first_payload.len() as u64,
+                2_000,
+            )
+        };
+        let second = unsafe {
+            ramlang_tcp_request_start(
+                address.as_ptr(),
+                second_payload.as_ptr(),
+                second_payload.len() as u64,
+                2_000,
+            )
+        };
+        assert!(!first.is_null(), "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+        assert!(!second.is_null(), "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+
+        // SAFETY: both handles are live and each wait timeout is expressed in milliseconds.
+        assert_eq!(unsafe { ramlang_tcp_request_wait(first, 2_000) }, 1);
+        assert_eq!(unsafe { ramlang_tcp_request_wait(second, 2_000) }, 1);
+
+        let mut first_output = [0_u8; 64];
+        let mut second_output = [0_u8; 64];
+        // SAFETY: both handles are live and the output buffers have 64 writable bytes.
+        let first_length = unsafe {
+            ramlang_tcp_request_read_result(first, first_output.as_mut_ptr(), 64)
+        };
+        let second_length = unsafe {
+            ramlang_tcp_request_read_result(second, second_output.as_mut_ptr(), 64)
+        };
+        assert_eq!(first_length, first_payload.len() as i64);
+        assert_eq!(second_length, second_payload.len() as i64);
+        assert_eq!(&first_output[..first_length as usize], first_payload);
+        assert_eq!(&second_output[..second_length as usize], second_payload);
+
+        // SAFETY: each handle is live and has not been closed.
+        unsafe {
+            ramlang_tcp_request_close(first);
+            ramlang_tcp_request_close(second);
+        }
+        server.join().unwrap();
+    }
+
+    #[test]
     fn c_abi_udp_datagram_round_trip() {
         let server = UdpSocket::bind("127.0.0.1:0").unwrap();
         server
