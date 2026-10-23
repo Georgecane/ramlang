@@ -1,0 +1,15 @@
+fn main() -> i32 {
+    let mut signed_value: i32 = 0;
+    let mut unsigned_value: u32 = 0;
+    let signed_address: ptr = &signed_value;
+    let unsigned_address: ptr = &unsigned_value;
+
+    print(atomic_fetch_nand_i32(signed_address, 255));
+    print(atomic_fetch_max_i32(signed_address, 0));
+    print(atomic_fetch_min_i32(signed_address, 1));
+
+    print(atomic_fetch_umax_u32(unsigned_address, 5));
+    print(atomic_fetch_umin_u32(unsigned_address, 3));
+    print(unsigned_value);
+    return 0;
+}
