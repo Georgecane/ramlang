@@ -2,7 +2,7 @@ fn main() -> i32 {
     let mut register_shadow: u32 = 0;
     let register: ptr = &register_shadow;
 
-    volatile_store_u32(register, 0x2a as u32);
+    volatile_store_u32(register, 42 as u32);
     let value: u32 = volatile_load_u32(register);
 
     print(value);
