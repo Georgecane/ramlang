@@ -314,6 +314,71 @@ impl ArrayElement {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FutureOutput {
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+    F32,
+    F64,
+    Bool,
+    Str,
+    Ptr,
+    Void,
+    Enum(u64),
+    Named(u64),
+}
+
+impl FutureOutput {
+    fn from_type(ty: Type) -> Option<Self> {
+        match ty {
+            Type::I8 => Some(Self::I8),
+            Type::I16 => Some(Self::I16),
+            Type::I32 => Some(Self::I32),
+            Type::I64 => Some(Self::I64),
+            Type::U8 => Some(Self::U8),
+            Type::U16 => Some(Self::U16),
+            Type::U32 => Some(Self::U32),
+            Type::U64 => Some(Self::U64),
+            Type::F32 => Some(Self::F32),
+            Type::F64 => Some(Self::F64),
+            Type::Bool => Some(Self::Bool),
+            Type::Str => Some(Self::Str),
+            Type::Ptr => Some(Self::Ptr),
+            Type::Void => Some(Self::Void),
+            Type::Enum(id) => Some(Self::Enum(id)),
+            Type::Struct(id) => Some(Self::Named(id)),
+            Type::Array(_, _) | Type::Future(_) => None,
+        }
+    }
+
+    fn ty(self) -> Type {
+        match self {
+            Self::I8 => Type::I8,
+            Self::I16 => Type::I16,
+            Self::I32 => Type::I32,
+            Self::I64 => Type::I64,
+            Self::U8 => Type::U8,
+            Self::U16 => Type::U16,
+            Self::U32 => Type::U32,
+            Self::U64 => Type::U64,
+            Self::F32 => Type::F32,
+            Self::F64 => Type::F64,
+            Self::Bool => Type::Bool,
+            Self::Str => Type::Str,
+            Self::Ptr => Type::Ptr,
+            Self::Void => Type::Void,
+            Self::Enum(id) => Type::Enum(id),
+            Self::Named(id) => Type::Struct(id),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Type {
     I8,
     I16,
@@ -328,6 +393,7 @@ enum Type {
     Bool,
     Str,
     Ptr,
+    Future(FutureOutput),
     Array(ArrayElement, u32),
     Struct(u64),
     Enum(u64),
@@ -349,7 +415,7 @@ impl Type {
             Self::F64 => "double",
             Self::Bool => "i1",
             Self::Str => "ptr",
-            Self::Ptr => "ptr",
+            Self::Ptr | Self::Future(_) => "ptr",
             Self::Array(_, _) => "ptr",
             Self::Struct(_) => "ptr",
             Self::Enum(_) => "i32",
@@ -392,6 +458,7 @@ struct Function {
     body: Option<Stmt>,
     external: bool,
     variadic: bool,
+    asynchronous: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -594,15 +661,22 @@ impl Parser {
                 program.static_vars.push(self.parse_global_var(false)?);
                 continue;
             }
+            let asynchronous = self.match_keyword("async");
             let external = self.match_keyword("extern");
+            if asynchronous && external {
+                return Err(self.error("'async extern fn' is not supported; async functions must have a RamLang body".to_owned()));
+            }
             if external && self.match_keyword("static") {
+                if asynchronous {
+                    return Err(self.error("'async extern static' is invalid".to_owned()));
+                }
                 program.static_vars.push(self.parse_global_var(true)?);
                 continue;
             }
             if !self.match_keyword("fn") {
-                return Err(self.error("expected an import, struct, enum, type alias, const, static, function declaration, 'extern static', or 'extern fn'".to_owned()));
+                return Err(self.error("expected an import, struct, enum, type alias, const, static, function declaration, 'extern static', 'extern fn', or 'async fn'".to_owned()));
             }
-            program.functions.push(self.parse_function(external)?);
+            program.functions.push(self.parse_function(external, asynchronous)?);
         }
         if program.functions.is_empty() && program.structs.is_empty() && program.enums.is_empty()
             && program.type_aliases.is_empty() && program.constants.is_empty()
@@ -758,6 +832,14 @@ impl Parser {
             "bool" => Ok(Type::Bool),
             "str" => Ok(Type::Str),
             "ptr" => Ok(Type::Ptr),
+            "Future" => {
+                self.expect_symbol("<")?;
+                let output = self.parse_type()?;
+                self.expect_symbol(">")?;
+                let output = FutureOutput::from_type(output)
+                    .ok_or_else(|| self.error("Future output must be a scalar, pointer, string, enum, or void type".to_owned()))?;
+                Ok(Type::Future(output))
+            }
             "void" => Ok(Type::Void),
             _ => {
                 let id = struct_type_id(&name);
@@ -767,7 +849,7 @@ impl Parser {
         }
     }
 
-    fn parse_function(&mut self, external: bool) -> Result<Function, String> {
+    fn parse_function(&mut self, external: bool, asynchronous: bool) -> Result<Function, String> {
         let name = self.expect_ident("function name")?;
         self.expect_symbol("(")?;
         let mut params = Vec::new();
@@ -794,6 +876,9 @@ impl Parser {
         if variadic && !external {
             return Err(self.error("variadic functions must be declared with 'extern fn'".to_owned()));
         }
+        if asynchronous && variadic {
+            return Err(self.error("async functions cannot be variadic".to_owned()));
+        }
         if variadic && params.is_empty() {
             return Err(self.error("variadic extern functions must declare at least one fixed parameter".to_owned()));
         }
@@ -804,7 +889,7 @@ impl Parser {
         } else {
             Some(self.parse_block()?)
         };
-        Ok(Function { name, params, return_type, body, external, variadic })
+        Ok(Function { name, params, return_type, body, external, variadic, asynchronous })
     }
 
     fn parse_block(&mut self) -> Result<Stmt, String> {
@@ -1113,6 +1198,13 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Result<Expr, String> {
+        if self.match_keyword("await") {
+            let operand = self.parse_unary()?;
+            return Ok(Expr::Call {
+                name: "__ramlang_await".to_owned(),
+                args: vec![operand],
+            });
+        }
         if self.match_keyword("match") {
             self.expect_symbol("(")?;
             let value = Box::new(self.parse_expression()?);
@@ -1250,6 +1342,7 @@ struct Signature {
     params: Vec<Type>,
     return_type: Type,
     variadic: bool,
+    asynchronous: bool,
 }
 
 #[derive(Debug, Clone)]
