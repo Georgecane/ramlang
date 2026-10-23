@@ -22,7 +22,7 @@ jobs:
           echo "LLVM_CONFIG_PATH=$LLVM_CONFIG" >> "$GITHUB_ENV"
           echo "LLVM_SYS_231_PREFIX=$("$LLVM_CONFIG" --prefix)" >> "$GITHUB_ENV"
           echo "RAMLANG_CLANG=clang" >> "$GITHUB_ENV"
-          echo "$LLVM_VERSION" | grep -E '^23\\.'
+          test "${LLVM_VERSION%%.*}" = "23"
       - name: Format check
         run: cargo fmt --manifest-path runtime/Cargo.toml -- --check
       - name: Test workspace
