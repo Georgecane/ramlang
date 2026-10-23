@@ -2676,6 +2676,32 @@ mod tests {
     }
 
     #[test]
+    fn lowers_mutable_and_immutable_static_variables() {
+        let source = r#"static mut COUNTER: i32 = 40; static LIMIT: u32 = 42; static MESSAGE: str = "ready"; fn main() -> i32 { COUNTER = COUNTER + 2; print(COUNTER); print(LIMIT); print(MESSAGE); let p: ptr = &COUNTER; store_i32(p, 43); print(COUNTER); return 0; }"#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("@COUNTER = global i32 40"));
+        assert!(ir.contains("@LIMIT = constant i32 42"));
+        assert!(ir.contains("@.ramlang.static.MESSAGE = private unnamed_addr constant [6 x i8]"));
+        assert!(ir.contains("@MESSAGE = constant ptr getelementptr inbounds ([6 x i8], ptr @.ramlang.static.MESSAGE"));
+        assert!(ir.contains("store i32"));
+        assert!(ir.contains("load i32, ptr @COUNTER"));
+    }
+
+    #[test]
+    fn rejects_assignment_to_immutable_static_variables() {
+        let error = compile("static VALUE: i32 = 1; fn main() -> i32 { VALUE = 2; return 0; }").unwrap_err();
+        assert!(error.contains("cannot assign to immutable variable 'VALUE'"));
+    }
+
+    #[test]
+    fn rejects_duplicate_or_conflicting_global_symbols() {
+        let duplicate = compile("static mut VALUE: i32 = 1; const VALUE: i32 = 2; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(duplicate.contains("duplicate global symbol 'VALUE'"));
+        let function_collision = compile("static mut run: i32 = 1; fn run() -> i32 { return 0; } fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(function_collision.contains("static variable 'run' conflicts with a function"));
+    }
+
+    #[test]
     fn lowers_assertions_and_optimizer_assumptions() {
         let source = "fn main() -> i32 { let value: i32 = 42; assert(value == 42); assume(value > 0); print(value); return 0; }";
         let ir = compile(source).unwrap();
