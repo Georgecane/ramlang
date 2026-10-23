@@ -1420,7 +1420,6 @@ mod tests {
         thread,
     };
 
-
     unsafe extern "C" fn return_context_address(context: *mut c_void) -> i64 {
         context as usize as i64
     }
