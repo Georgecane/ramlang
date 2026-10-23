@@ -15,6 +15,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Static global storage with immutable `static` and mutable `static mut` variables
 - Target-aware `size_of(Type)`, `align_of(Type)`, and `offset_of(Type, field)` layout queries, including `packed struct` layouts
 - LLVM bit intrinsics for population count, leading/trailing zero counts, byte swap, and bit reversal
+- Typed atomic integer loads, stores, exchanges, and read-modify-write operations with explicit memory ordering
 - Runtime `assert(bool)` with a trap on failure, `panic(str)` for non-returning errors, `assume(bool)` lowered to `llvm.assume`, volatile memory access built-ins, and LLVM memory-order fences
 - Immutable local variables with `let` and mutable locals with `let mut`
 - Explicit casts with `as` between signed integer widths, integers and `f64`, integers and `bool`, `bool` and `f64`, and `str` / `ptr`
@@ -398,6 +399,31 @@ fn main() -> i32 {
 ```
 
 The count-leading/trailing-zero intrinsics pass LLVM's defined-zero mode, so a zero input returns the bit width rather than making the result undefined. An input's integer width must match the suffix; cast literals explicitly when a narrower width is intended.
+
+## Atomic memory operations
+
+RamLang exposes typed atomic operations for integer widths 8, 16, 32, and 64:
+
+- `atomic_load_i32(ptr)` and `atomic_load_i32_acquire(ptr)`
+- `atomic_store_i32(ptr, value)` and `atomic_store_i32_release(ptr, value)`
+- `atomic_exchange_i32(ptr, value)`
+- `atomic_fetch_add_i32(ptr, value)`, `atomic_fetch_sub_i32`, `atomic_fetch_and_i32`, `atomic_fetch_or_i32`, and `atomic_fetch_xor_i32`
+
+All operations default to sequentially consistent ordering when no ordering suffix is supplied. Supported explicit suffixes are `relaxed`, `acquire`, `release`, `acq_rel`, and `seq_cst`, subject to LLVM's ordering rules: loads do not accept release semantics, and stores do not accept acquire semantics. `relaxed` maps to LLVM's `monotonic` ordering. Read-modify-write operations return the previous value.
+
+```rust
+fn main() -> i32 {
+    let mut value: i32 = 0;
+    let address: ptr = &value;
+    atomic_store_i32_release(address, 10);
+    print(atomic_load_i32_acquire(address));
+    print(atomic_fetch_add_i32_acq_rel(address, 5));
+    print(atomic_load_i32(address));
+    return 0;
+}
+```
+
+Atomic addresses must be valid and aligned for the selected integer type. These operations do not make arbitrary surrounding non-atomic accesses race-free. Use a complete synchronization protocol and appropriate ownership of shared state; atomic operations are currently provided for integer types, not floats or aggregate values.
 
 ## Memory-order fences
 
