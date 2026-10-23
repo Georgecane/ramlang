@@ -24,7 +24,10 @@ impl TcpConnection {
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "TCP connect timed out"))??;
         stream.set_nodelay(true)?;
-        Ok(Self { stream, operation_timeout })
+        Ok(Self {
+            stream,
+            operation_timeout,
+        })
     }
 
     /// Read one big-endian u32 length-prefixed frame, enforcing a maximum size.
@@ -34,7 +37,10 @@ impl TcpConnection {
             self.stream.read_exact(&mut header).await?;
             let length = u32::from_be_bytes(header) as usize;
             if length > max_frame_size {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "frame exceeds configured maximum"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "frame exceeds configured maximum",
+                ));
             }
             let mut payload = vec![0_u8; length];
             self.stream.read_exact(&mut payload).await?;
@@ -68,13 +74,81 @@ pub async fn accept(listener: &TcpListener) -> io::Result<(TcpStream, SocketAddr
     listener.accept().await
 }
 
+/// A UDP endpoint with bounded datagram reads and per-operation timeouts.
+pub struct UdpEndpoint {
+    socket: tokio::net::UdpSocket,
+    operation_timeout: Duration,
+}
+
+impl UdpEndpoint {
+    /// Bind a local UDP socket without blocking the executor thread.
+    pub async fn bind(address: &str, operation_timeout: Duration) -> io::Result<Self> {
+        let socket = timeout(operation_timeout, tokio::net::UdpSocket::bind(address))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "UDP bind timed out"))??;
+        Ok(Self {
+            socket,
+            operation_timeout,
+        })
+    }
+
+    /// Return the local socket address.
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.socket.local_addr()
+    }
+
+    /// Send one UDP datagram, rejecting payloads above the maximum supported datagram size.
+    pub async fn send_to(&self, payload: &[u8], address: &str) -> io::Result<usize> {
+        const MAX_UDP_PAYLOAD: usize = 65_507;
+        if payload.len() > MAX_UDP_PAYLOAD {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "UDP payload exceeds maximum supported datagram size",
+            ));
+        }
+
+        timeout(self.operation_timeout, self.socket.send_to(payload, address))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "UDP send timed out"))?
+    }
+
+    /// Receive one datagram, rejecting it if it exceeds the configured maximum.
+    ///
+    /// One extra byte is read so oversized datagrams can be detected instead of silently
+    /// accepting a truncated payload. The maximum buffer is bounded to the UDP payload limit.
+    pub async fn recv_from(
+        &self,
+        max_datagram_size: usize,
+    ) -> io::Result<(Vec<u8>, SocketAddr)> {
+        const MAX_UDP_PAYLOAD: usize = 65_507;
+        let buffer_size = max_datagram_size.saturating_add(1).min(MAX_UDP_PAYLOAD + 1);
+        let mut buffer = vec![0_u8; buffer_size];
+
+        let (length, peer) = timeout(self.operation_timeout, self.socket.recv_from(&mut buffer))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "UDP receive timed out"))??;
+
+        if length > max_datagram_size {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "UDP datagram exceeds configured maximum",
+            ));
+        }
+
+        buffer.truncate(length);
+        Ok((buffer, peer))
+    }
+}
+
 /// Run a future on a managed multi-thread Tokio runtime.
 /// Do not call from inside an existing Tokio runtime.
 pub fn run<F>(future: F) -> io::Result<F::Output>
 where
     F: std::future::Future,
 {
-    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
     Ok(runtime.block_on(future))
 }
 
@@ -97,10 +171,49 @@ mod tests {
             stream.write_all(&header).await.unwrap();
             stream.write_all(&payload).await.unwrap();
         });
-        let mut client = TcpConnection::connect(&address.to_string(), Duration::from_secs(2)).await.unwrap();
+        let mut client = TcpConnection::connect(&address.to_string(), Duration::from_secs(2))
+            .await
+            .unwrap();
         client.write_frame(b"RamLang async").await.unwrap();
         assert_eq!(client.read_frame(1024).await.unwrap(), b"RamLang async");
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn udp_datagram_round_trip_over_localhost() {
+        let receiver = UdpEndpoint::bind("127.0.0.1:0", Duration::from_secs(2))
+            .await
+            .unwrap();
+        let sender = UdpEndpoint::bind("127.0.0.1:0", Duration::from_secs(2))
+            .await
+            .unwrap();
+        let receiver_address = receiver.local_addr().unwrap();
+
+        sender
+            .send_to(b"RamLang UDP", &receiver_address.to_string())
+            .await
+            .unwrap();
+        let (payload, peer) = receiver.recv_from(1024).await.unwrap();
+
+        assert_eq!(payload, b"RamLang UDP");
+        assert_eq!(peer, sender.local_addr().unwrap());
+    }
+
+    #[tokio::test]
+    async fn rejects_oversized_udp_datagram() {
+        let receiver = UdpEndpoint::bind("127.0.0.1:0", Duration::from_secs(2))
+            .await
+            .unwrap();
+        let sender = UdpEndpoint::bind("127.0.0.1:0", Duration::from_secs(2))
+            .await
+            .unwrap();
+
+        sender
+            .send_to(b"too large", &receiver.local_addr().unwrap().to_string())
+            .await
+            .unwrap();
+        let error = receiver.recv_from(4).await.unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 
     #[tokio::test]
