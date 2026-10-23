@@ -5996,6 +5996,18 @@ mod tests {
     }
 
     #[test]
+    fn guards_negative_and_out_of_range_shift_counts() {
+        let negative = compile("fn main() -> i32 { let value: i32 = 1; let amount: i32 = -1; return value << amount; }").unwrap();
+        assert!(negative.contains("icmp sge i32"));
+        assert!(negative.contains("shift.trap"));
+        assert!(negative.contains("call void @llvm.trap()"));
+
+        let too_large = compile("fn main() -> i32 { let value: u32 = 1; let amount: u32 = 32; return (value << amount) as i32; }").unwrap();
+        assert!(too_large.contains("icmp ult i32"));
+        assert!(too_large.contains("shift.trap"));
+    }
+
+    #[test]
     fn accepts_signed_minimum_integer_literals() {
         let source = "fn main() -> i32 { let a: i8 = -128; let b: i16 = -32768; let c: i32 = -2147483648; let d: i64 = -9223372036854775808; print(a); print(b); print(c); print(d); return 0; }";
         let ir = compile(source).unwrap();
