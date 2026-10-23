@@ -352,7 +352,7 @@ match (status_code) {
 }
 ```
 
-Match bodies are statements (usually blocks), not expressions, so this feature does not yet return a value from each arm. The lowered default edge for an exhaustive enum match traps if the underlying integer contains an invalid discriminant.
+Match bodies are statements (usually blocks), not expressions, so this feature does not yet return a value from each arm. Constant enum, integer, and boolean patterns lower to an LLVM `switch` terminator; dynamic patterns retain an ordered comparison chain. The lowered default edge for an exhaustive enum match traps if the underlying integer contains an invalid discriminant.
 
 ## Named structs
 
