@@ -143,6 +143,48 @@ pub async fn accept(listener: &TcpListener) -> io::Result<(TcpStream, SocketAddr
     listener.accept().await
 }
 
+/// A Tokio TCP server with timeout-bounded accept operations.
+///
+/// Accepted streams use the same bounded four-byte big-endian framing as outbound
+/// TcpConnection values, making the type usable by native RamLang server built-ins.
+pub struct TcpServer {
+    listener: TcpListener,
+    operation_timeout: Duration,
+}
+
+impl TcpServer {
+    /// Bind a TCP listener asynchronously and enforce a timeout for bind/accept operations.
+    pub async fn bind(address: &str, operation_timeout: Duration) -> io::Result<Self> {
+        let listener = timeout(operation_timeout, TcpListener::bind(address))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "TCP bind timed out"))??;
+        Ok(Self {
+            listener,
+            operation_timeout,
+        })
+    }
+
+    /// Return the actual local socket address, including an ephemeral assigned port.
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.listener.local_addr()
+    }
+
+    /// Accept one connection without blocking the executor thread.
+    pub async fn accept(&self) -> io::Result<(TcpConnection, SocketAddr)> {
+        let (stream, peer) = timeout(self.operation_timeout, self.listener.accept())
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "TCP accept timed out"))??;
+        stream.set_nodelay(true)?;
+        Ok((
+            TcpConnection {
+                stream,
+                operation_timeout: self.operation_timeout,
+            },
+            peer,
+        ))
+    }
+}
+
 /// A UDP endpoint with bounded datagram reads and per-operation timeouts.
 pub struct UdpEndpoint {
     socket: tokio::net::UdpSocket,
