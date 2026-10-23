@@ -1,0 +1,38 @@
+extern fn ramlang_last_error() -> str;
+extern fn ramlang_udp_bind(local_address: str, timeout_ms: u64) -> ptr;
+extern fn ramlang_udp_send_to(endpoint: ptr, data: ptr, length: u64, destination: str) -> i64;
+extern fn ramlang_udp_recv_from(endpoint: ptr, output: ptr, capacity: u64, peer_output: ptr, peer_capacity: u64) -> i64;
+extern fn ramlang_udp_close(endpoint: ptr);
+
+fn main() -> i32 {
+    let endpoint: ptr = ramlang_udp_bind("127.0.0.1:0", 2000);
+    if (endpoint == null) {
+        print(ramlang_last_error());
+        return 1;
+    }
+
+    let sent: i64 = ramlang_udp_send_to(endpoint, "ping" as ptr, 4, "127.0.0.1:39872");
+    if (sent < 0) {
+        print(ramlang_last_error());
+        ramlang_udp_close(endpoint);
+        return 2;
+    }
+
+    let buffer: ptr = alloc(128);
+    let peer: ptr = alloc(64);
+    let received: i64 = ramlang_udp_recv_from(endpoint, buffer, 128, peer, 64);
+    if (received < 0) {
+        print(ramlang_last_error());
+        free(buffer);
+        free(peer);
+        ramlang_udp_close(endpoint);
+        return 3;
+    }
+
+    print(received);
+    print(load_u8(buffer));
+    free(buffer);
+    free(peer);
+    ramlang_udp_close(endpoint);
+    return 0;
+}
