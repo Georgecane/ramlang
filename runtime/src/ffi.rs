@@ -1705,17 +1705,38 @@ pub unsafe extern "C" fn ramlang_memchr(
     result
 }
 
+/// Mutable state shared between a RamLang Future handle and its runtime task.
+struct FutureResultSlot {
+    result: Option<Result<i64, String>>,
+    consumed: bool,
+    closed: bool,
+    pointer_result_transferred: bool,
+    abort_handle: Option<tokio::task::AbortHandle>,
+}
+
 /// Result slot shared with a generated RamLang async-function wrapper.
+///
+/// Pointer-result futures produced by network built-ins own their result allocation until
+/// await transfers that pointer to the caller. If the handle is dropped first, the runtime
+/// releases that allocation. Each Future is one-shot: awaiting a consumed result is an error.
 struct FutureState {
-    result: Mutex<Option<Result<i64, String>>>,
+    data: Mutex<FutureResultSlot>,
     ready: Condvar,
+    pointer_result_owned: bool,
 }
 
 impl FutureState {
-    fn new() -> Self {
+    fn new(pointer_result_owned: bool) -> Self {
         Self {
-            result: Mutex::new(None),
+            data: Mutex::new(FutureResultSlot {
+                result: None,
+                consumed: false,
+                closed: false,
+                pointer_result_transferred: false,
+                abort_handle: None,
+            }),
             ready: Condvar::new(),
+            pointer_result_owned,
         }
     }
 
@@ -1723,11 +1744,65 @@ impl FutureState {
         self.complete_result(Ok(value));
     }
 
+    fn set_abort_handle(&self, handle: tokio::task::AbortHandle) {
+        let abort_now = {
+            let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
+            if data.closed {
+                true
+            } else {
+                data.abort_handle = Some(handle.clone());
+                false
+            }
+        };
+        if abort_now {
+            handle.abort();
+        }
+    }
+
     fn complete_result(&self, value: Result<i64, String>) {
-        let mut result = self.result.lock().unwrap_or_else(|e| e.into_inner());
-        if result.is_none() {
-            *result = Some(value);
-            self.ready.notify_all();
+        let mut value_to_release = None;
+        {
+            let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
+            if data.result.is_some() {
+                return;
+            }
+            if data.closed {
+                if self.pointer_result_owned {
+                    value_to_release = value.ok().map(|encoded| encoded as usize as *mut c_void);
+                }
+            } else {
+                data.result = Some(value);
+                self.ready.notify_all();
+            }
+        }
+        if let Some(pointer) = value_to_release {
+            // SAFETY: pointer-result futures own a ramlang_alloc allocation until await
+            // transfers it to the caller. This path runs only if the handle closed first.
+            unsafe { ramlang_free(pointer) };
+        }
+    }
+
+    fn close_handle(&self) {
+        let (abort_handle, value_to_release) = {
+            let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
+            data.closed = true;
+            let result_to_release = if self.pointer_result_owned && !data.pointer_result_transferred {
+                data.result.take().and_then(Result::ok)
+            } else {
+                None
+            };
+            (data.abort_handle.take(), result_to_release)
+        };
+        if let Some(handle) = abort_handle {
+            handle.abort();
+        }
+        if let Some(encoded) = value_to_release {
+            let pointer = encoded as usize as *mut c_void;
+            if !pointer.is_null() {
+                // SAFETY: pointer-result futures hold runtime-owned allocations until await
+                // transfers ownership to the caller or this close path releases them.
+                unsafe { ramlang_free(pointer) };
+            }
         }
     }
 }
@@ -1769,15 +1844,17 @@ pub unsafe extern "C" fn ramlang_future_spawn_i64(
         }
     };
 
-    let state = Arc::new(FutureState::new());
+    let state = Arc::new(FutureState::new(false));
     let task_state = Arc::clone(&state);
     let context_address = context as usize;
-    runtime.spawn_blocking(move || {
+    let task = runtime.spawn_blocking(move || {
         // Convert through usize so the task closure is Send. The generated callback wrapper
         // owns the opaque context and guarantees its lifetime until invocation.
         let value = unsafe { callback(context_address as *mut c_void) };
         task_state.complete(value);
     });
+    state.set_abort_handle(task.abort_handle());
+    drop(task);
     clear_last_error();
     Box::into_raw(Box::new(RamlangFuture { state }))
 }
@@ -1829,10 +1906,10 @@ pub unsafe extern "C" fn ramlang_tcp_request_future(
         }
     };
 
-    let state = Arc::new(FutureState::new());
+    let state = Arc::new(FutureState::new(true));
     let task_state = Arc::clone(&state);
     let operation_timeout = Duration::from_millis(timeout_ms as u64);
-    runtime.spawn(async move {
+    let task = runtime.spawn(async move {
         let result: Result<i64, String> = async {
             let mut connection = TcpConnection::connect(&address, operation_timeout)
                 .await
@@ -1868,6 +1945,8 @@ pub unsafe extern "C" fn ramlang_tcp_request_future(
         .await;
         task_state.complete_result(result);
     });
+    state.set_abort_handle(task.abort_handle());
+    drop(task);
 
     clear_last_error();
     Box::into_raw(Box::new(RamlangFuture { state }))
@@ -1921,7 +2000,7 @@ pub unsafe extern "C" fn ramlang_udp_request_future(
         }
     };
 
-    let state = Arc::new(FutureState::new());
+    let state = Arc::new(FutureState::new(true));
     let task_state = Arc::clone(&state);
     let operation_timeout = Duration::from_millis(timeout_ms as u64);
     runtime.spawn(async move {
@@ -1992,21 +2071,25 @@ pub unsafe extern "C" fn ramlang_future_await_i64(future: *mut RamlangFuture) ->
     }
     // SAFETY: pointer validity is required by this function's contract.
     let future = unsafe { &*future };
-    let mut result = future
-        .state
-        .result
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    while result.is_none() {
-        result = future
+    let mut data = future.state.data.lock().unwrap_or_else(|e| e.into_inner());
+    while data.result.is_none() {
+        data = future
             .state
             .ready
-            .wait(result)
+            .wait(data)
             .unwrap_or_else(|e| e.into_inner());
     }
-    match result.as_ref().expect("future result checked above") {
+    if data.consumed {
+        set_last_error("Future result has already been consumed");
+        return -1;
+    }
+    data.consumed = true;
+    match data.result.as_ref().expect("Future result checked above") {
         Ok(value) => {
             let value = *value;
+            if future.state.pointer_result_owned {
+                data.pointer_result_transferred = true;
+            }
             clear_last_error();
             value
         }
@@ -2030,9 +2113,10 @@ pub unsafe extern "C" fn ramlang_future_is_ready(future: *mut RamlangFuture) -> 
     let future = unsafe { &*future };
     let ready = future
         .state
-        .result
+        .data
         .lock()
         .unwrap_or_else(|e| e.into_inner())
+        .result
         .is_some();
     clear_last_error();
     i32::from(ready)
@@ -2052,7 +2136,9 @@ pub unsafe extern "C" fn ramlang_future_is_ready(future: *mut RamlangFuture) -> 
 pub unsafe extern "C" fn ramlang_future_close(future: *mut RamlangFuture) {
     if !future.is_null() {
         // SAFETY: pointer validity is required by this function's contract.
-        drop(unsafe { Box::from_raw(future) });
+        let future = unsafe { Box::from_raw(future) };
+        future.state.close_handle();
+        drop(future);
     }
 }
 
