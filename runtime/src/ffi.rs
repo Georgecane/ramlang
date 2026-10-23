@@ -1510,8 +1510,10 @@ mod tests {
         assert_eq!(unsafe { ramlang_task_scope_track_udp(scope, udp_request) }, 0);
         assert_eq!(unsafe { ramlang_task_scope_len(scope) }, 2);
 
-        let mut seen = [ready_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
-                        ready_rx.recv_timeout(Duration::from_secs(2)).unwrap()];
+        let mut seen = [
+            ready_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+            ready_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+        ];
         seen.sort_unstable();
         assert_eq!(seen, ["tcp", "udp"]);
 
