@@ -5173,6 +5173,14 @@ fn compile(options: Options) -> Result<(), String> {
         .or_else(|| env::var_os("RAMLANG_CLANG"))
         .unwrap_or_else(|| "clang".into());
     let mut command = Command::new(&linker);
+    let requires_async_runtime = program.functions.iter().any(|function| function.asynchronous);
+    let runtime_library_dir = if requires_async_runtime {
+        env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(Path::to_path_buf))
+    } else {
+        None
+    };
     if let Some(target) = &options.target {
         command.arg("-target").arg(target);
     }
@@ -5188,12 +5196,22 @@ fn compile(options: Options) -> Result<(), String> {
     for argument in &options.link_args {
         command.arg(argument);
     }
-
-    let result = command
-        .arg(&object_path)
-        .arg("-o")
-        .arg(&output)
-        .output();
+    if let Some(directory) = &runtime_library_dir {
+        command.arg("-L").arg(directory);
+        let target_triple = options.target.as_deref().unwrap_or("");
+        if target_triple.contains("linux")
+            || target_triple.contains("freebsd")
+            || (target_triple.is_empty() && cfg!(unix))
+        {
+            command.arg(format!("-Wl,-rpath,{}", directory.display()));
+        }
+    }
+    let runtime_library_is_explicit = options.link_libs.iter().any(|library| library == "ramlang_runtime");
+    command.arg(&object_path);
+    if requires_async_runtime && !runtime_library_is_explicit {
+        command.arg("-lramlang_runtime");
+    }
+    let result = command.arg("-o").arg(&output).output();
     let _ = fs::remove_file(&object_path);
     let result = result.map_err(|error| {
         format!(
