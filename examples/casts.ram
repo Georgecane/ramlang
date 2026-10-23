@@ -1,0 +1,19 @@
+fn main() -> i32 {
+    let fractional: f64 = 258.75;
+    let integer: i32 = fractional as i32;
+    let byte: i8 = integer as i8;
+    let widened: i64 = byte as i64;
+    let converted_back: f64 = widened as f64;
+    let truth: bool = byte as bool;
+    let false_value: bool = 0 as bool;
+    let bool_float: f64 = true as f64;
+
+    print(integer);
+    print(byte);
+    print(widened);
+    print(converted_back / 2.0);
+    print(truth);
+    print(false_value);
+    print(bool_float);
+    return 0;
+}
