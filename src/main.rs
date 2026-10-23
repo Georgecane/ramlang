@@ -1440,6 +1440,7 @@ fn parse_source(source: &str) -> Result<Vec<Function>, String> {
     Parser::new(tokens).parse_program()
 }
 
+#[derive(Debug)]
 struct Options {
     source: PathBuf,
     output: Option<PathBuf>,
