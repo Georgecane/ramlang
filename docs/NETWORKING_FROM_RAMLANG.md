@@ -22,7 +22,7 @@ tcp_request(address, payload, timeout_ms) and udp_request(address, payload, time
     print(udp_response);
     free(udp_response as ptr);
 
-The caller owns each response and must free it exactly once. A network, timeout, allocation, or UTF-8 error makes await yield a null pointer for Future<str> and records a diagnostic in the runtime's last-error slot. The TCP protocol uses a four-byte big-endian length prefix. The UDP protocol sends and receives one datagram and has the standard 65,507-byte payload limit. The examples in examples/async/tcp_request.ram and examples/async/udp_request.ram are compiled and run against local echo servers in CI.
+The caller owns each successful response and must free it exactly once. A network, timeout, allocation, or UTF-8 error makes await yield a null pointer for Future<str> and records a diagnostic in the runtime's last-error slot. Read the most recent diagnostic with the native `last_error()` built-in. The returned diagnostic string is borrowed from thread-local runtime storage and must not be freed; consume or copy it before making another runtime call that can change the last error. The TCP protocol uses a four-byte big-endian length prefix. The UDP protocol sends and receives one datagram and has the standard 65,507-byte payload limit. The examples in examples/async/tcp_request.ram and examples/async/udp_request.ram are compiled and run against local echo servers in CI.
 
 
 ## Available C ABI
