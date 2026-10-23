@@ -1,0 +1,73 @@
+extern fn ramlang_last_error() -> str;
+extern fn ramlang_tcp_request_start(address: str, data: ptr, length: u64, timeout_ms: u64) -> ptr;
+extern fn ramlang_tcp_request_is_ready(request: ptr) -> i32;
+extern fn ramlang_tcp_request_wait(request: ptr, wait_timeout_ms: u64) -> i32;
+extern fn ramlang_tcp_request_read_result(request: ptr, output: ptr, capacity: u64) -> i64;
+extern fn ramlang_tcp_request_cancel(request: ptr) -> i32;
+extern fn ramlang_tcp_request_close(request: ptr);
+
+fn main() -> i32 {
+    let first: ptr = ramlang_tcp_request_start("127.0.0.1:39873", "first" as ptr, 5, 2000);
+    if (first == null) {
+        print(ramlang_last_error());
+        return 1;
+    }
+
+    let second: ptr = ramlang_tcp_request_start("127.0.0.1:39873", "second" as ptr, 6, 2000);
+    if (second == null) {
+        print(ramlang_last_error());
+        ramlang_tcp_request_close(first);
+        return 2;
+    }
+
+    let first_wait: i32 = ramlang_tcp_request_wait(first, 3000);
+    if (first_wait != 1) {
+        print("first TCP request did not complete");
+        ramlang_tcp_request_cancel(first);
+        ramlang_tcp_request_close(first);
+        ramlang_tcp_request_close(second);
+        return 3;
+    }
+
+    let second_wait: i32 = ramlang_tcp_request_wait(second, 3000);
+    if (second_wait != 1) {
+        print("second TCP request did not complete");
+        ramlang_tcp_request_cancel(second);
+        ramlang_tcp_request_close(first);
+        ramlang_tcp_request_close(second);
+        return 4;
+    }
+
+    let first_buffer: ptr = alloc(64);
+    let second_buffer: ptr = alloc(64);
+    let first_length: i64 = ramlang_tcp_request_read_result(first, first_buffer, 64);
+    if (first_length < 0) {
+        print(ramlang_last_error());
+        free(first_buffer);
+        free(second_buffer);
+        ramlang_tcp_request_close(first);
+        ramlang_tcp_request_close(second);
+        return 5;
+    }
+
+    let second_length: i64 = ramlang_tcp_request_read_result(second, second_buffer, 64);
+    if (second_length < 0) {
+        print(ramlang_last_error());
+        free(first_buffer);
+        free(second_buffer);
+        ramlang_tcp_request_close(first);
+        ramlang_tcp_request_close(second);
+        return 6;
+    }
+
+    print(first_length);
+    print(load_u8(first_buffer));
+    print(second_length);
+    print(load_u8(second_buffer));
+
+    free(first_buffer);
+    free(second_buffer);
+    ramlang_tcp_request_close(first);
+    ramlang_tcp_request_close(second);
+    return 0;
+}
