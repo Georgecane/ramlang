@@ -1,0 +1,16 @@
+enum State {
+    Idle,
+    Running = 4,
+    Halted,
+}
+
+const START: State = State.Running;
+static mut CURRENT: State = State.Idle;
+
+fn main() -> i32 {
+    print(START);
+    print(CURRENT);
+    CURRENT = State.Halted;
+    print(CURRENT);
+    return 0;
+}
