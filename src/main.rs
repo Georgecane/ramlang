@@ -892,8 +892,13 @@ impl<'a> FunctionGenerator<'a> {
                     (source_type.integer_width(), target.integer_width())
                 {
                     let result = self.fresh_value();
+                    if source_width == target_width {
+                        return Ok((source, *target));
+                    }
                     if source_width > target_width {
                         self.emit(format!("{result} = trunc {} {source} to {}", source_type.llvm(), target.llvm()));
+                    } else if source_type.is_unsigned() {
+                        self.emit(format!("{result} = zext {} {source} to {}", source_type.llvm(), target.llvm()));
                     } else {
                         self.emit(format!("{result} = sext {} {source} to {}", source_type.llvm(), target.llvm()));
                     }
@@ -902,12 +907,18 @@ impl<'a> FunctionGenerator<'a> {
 
                 if source_type.is_integer() && *target == Type::F64 {
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = sitofp {} {source} to double", source_type.llvm()));
+                    let instruction = if source_type.is_unsigned() {
+                        "uitofp"
+                    } else {
+                        "sitofp"
+                    };
+                    self.emit(format!("{result} = {instruction} {} {source} to double", source_type.llvm()));
                     return Ok((result, Type::F64));
                 }
                 if source_type == Type::F64 && target.is_integer() {
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = fptosi double {source} to {}", target.llvm()));
+                    let instruction = if target.is_unsigned() { "fptoui" } else { "fptosi" };
+                    self.emit(format!("{result} = {instruction} double {source} to {}", target.llvm()));
                     return Ok((result, *target));
                 }
 
@@ -931,6 +942,8 @@ impl<'a> FunctionGenerator<'a> {
                                 Some(Type::I32) => return Err(format!("integer literal '-{text}' does not fit i32")),
                                 Some(Type::I64) if !(i64::MIN as i128..=i64::MAX as i128).contains(&signed) =>
                                     return Err(format!("integer literal '-{text}' does not fit i64")),
+                                Some(Type::U8 | Type::U16 | Type::U32 | Type::U64) =>
+                                    return Err("negative integer literals cannot initialize unsigned types directly; use an explicit cast".to_owned()),
                                 Some(_) => {
                                     if (i32::MIN as i128..=i32::MAX as i128).contains(&signed) { Type::I32 }
                                     else if (i64::MIN as i128..=i64::MAX as i128).contains(&signed) { Type::I64 }
