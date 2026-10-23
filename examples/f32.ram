@@ -1,4 +1,5 @@
 const HALF: f32 = 0.5;
+const TINY: f32 = 1.25e-2;
 
 extern fn printf(format: str, ...) -> i32;
 
@@ -18,5 +19,6 @@ fn main() -> i32 {
     print(integer);
     print(size_of([f32; 2]));
     print(align_of(f32));
+    print(TINY);
     return 0;
 }
