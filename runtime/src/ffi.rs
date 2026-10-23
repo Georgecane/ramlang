@@ -5,7 +5,7 @@
 //! async fn / await integration remains a separate compiler milestone.
 
 use std::{
-    ffi::{CStr, CString, c_char},
+    ffi::{CStr, CString, c_char, c_void},
     io, ptr, slice,
     sync::{Arc, Condvar, Mutex, OnceLock},
     time::{Duration, Instant},
@@ -1294,6 +1294,123 @@ pub unsafe extern "C" fn ramlang_udp_close(endpoint: *mut RamlangUdpEndpoint) {
     clear_last_error();
 }
 
+
+/// Result slot shared with a generated RamLang async-function wrapper.
+struct FutureState {
+    result: Mutex<Option<i64>>,
+    ready: Condvar,
+}
+
+impl FutureState {
+    fn new() -> Self {
+        Self {
+            result: Mutex::new(None),
+            ready: Condvar::new(),
+        }
+    }
+
+    fn complete(&self, value: i64) {
+        let mut result = self.result.lock().unwrap_or_else(|e| e.into_inner());
+        if result.is_none() {
+            *result = Some(value);
+            self.ready.notify_all();
+        }
+    }
+}
+
+/// Opaque future handle returned by native async-function calls in generated RamLang programs.
+///
+/// Async function wrappers execute on Tokio's blocking pool, so multiple functions can make
+/// progress concurrently while callers retain ordinary typed Rust/LLVM call frames. Awaiting
+/// this initial backend blocks the calling OS thread. A later compiler milestone will replace
+/// this bridge with resumable state-machine lowering so await can yield without blocking.
+pub struct RamlangFuture {
+    state: Arc<FutureState>,
+}
+
+/// Schedule a generated RamLang async-function entry point in the runtime.
+///
+/// The callback must have the signature extern C fn(context: ptr) -> i64. Generated wrappers
+/// own and release their context when they begin executing. This runtime never dereferences it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_future_spawn_i64(
+    callback: Option<unsafe extern "C" fn(*mut c_void) -> i64>,
+    context: *mut c_void,
+) -> *mut RamlangFuture {
+    let Some(callback) = callback else {
+        set_last_error("async callback must not be null");
+        return ptr::null_mut();
+    };
+    let runtime = match async_request_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+
+    let state = Arc::new(FutureState::new());
+    let task_state = Arc::clone(&state);
+    let context_address = context as usize;
+    runtime.spawn_blocking(move || {
+        // Convert through usize so the task closure is Send. The generated callback wrapper
+        // owns the opaque context and guarantees its lifetime until invocation.
+        let value = unsafe { callback(context_address as *mut c_void) };
+        task_state.complete(value);
+    });
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangFuture { state }))
+}
+
+/// Block until a future produces its i64 payload.
+///
+/// # Safety
+/// A non-null handle must point to a live RamlangFuture and must not be closed concurrently.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_future_await_i64(future: *mut RamlangFuture) -> i64 {
+    if future.is_null() {
+        return fail_i64("future handle must not be null");
+    }
+    // SAFETY: pointer validity is required by this function's contract.
+    let future = unsafe { &*future };
+    let mut result = future.state.result.lock().unwrap_or_else(|e| e.into_inner());
+    while result.is_none() {
+        result = future.state.ready.wait(result).unwrap_or_else(|e| e.into_inner());
+    }
+    let value = result.expect("future result checked above");
+    clear_last_error();
+    value
+}
+
+/// Query completion without waiting: 1 ready, 0 pending, -1 invalid handle.
+///
+/// # Safety
+/// A non-null handle must point to a live RamlangFuture and must not be closed concurrently.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_future_is_ready(future: *mut RamlangFuture) -> i32 {
+    if future.is_null() {
+        return fail_i32("future handle must not be null");
+    }
+    // SAFETY: pointer validity is required by this function's contract.
+    let future = unsafe { &*future };
+    let ready = future.state.result.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+    clear_last_error();
+    i32::from(ready)
+}
+
+/// Release the caller's future handle. Passing null is a no-op.
+///
+/// Started work is not cancelled by closing the handle; the result state remains alive until
+/// the runtime task completes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_future_close(future: *mut RamlangFuture) {
+    if !future.is_null() {
+        // SAFETY: pointer validity is required by this function's contract.
+        drop(unsafe { Box::from_raw(future) });
+    }
+    clear_last_error();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1302,6 +1419,24 @@ mod tests {
         net::{TcpListener, UdpSocket},
         thread,
     };
+
+
+    unsafe extern "C" fn return_context_address(context: *mut c_void) -> i64 {
+        context as usize as i64
+    }
+
+    #[test]
+    fn native_future_runs_callback_and_await_returns_typed_payload_bits() {
+        // No dereference is performed; this integer is used solely as opaque test data.
+        let context = 42_usize as *mut c_void;
+        let future = unsafe { ramlang_future_spawn_i64(Some(return_context_address), context) };
+        assert!(!future.is_null());
+
+        let value = unsafe { ramlang_future_await_i64(future) };
+        assert_eq!(value, 42);
+        assert_eq!(unsafe { ramlang_future_is_ready(future) }, 1);
+        unsafe { ramlang_future_close(future) };
+    }
 
     #[test]
     fn c_abi_tcp_frame_round_trip() {
