@@ -37,7 +37,8 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 
 ## Requirements
 
-- Rust stable (edition 2024; Rust 1.85 or newer)
+- Rust 1.99.1 stable (edition 2024; pinned by `rust-toolchain.toml`)
+- Cargo manifest declares Rust 1.99 as the minimum supported version
 - LLVM/Clang 15 or newer for producing native executables
 - A native C toolchain/runtime provided by the operating system
 
