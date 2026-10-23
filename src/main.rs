@@ -1778,6 +1778,7 @@ impl<'a> FunctionGenerator<'a> {
                             ArrayElement::I32 | ArrayElement::U32 => Some(4_u64),
                             ArrayElement::I64 | ArrayElement::U64 | ArrayElement::F64 => Some(8_u64),
                             ArrayElement::Ptr | ArrayElement::Str => None,
+                            ArrayElement::Alias(_) => return Err("unresolved array element alias reached LLVM lowering".to_owned()),
                             ArrayElement::Alias(type_id) => return Err(format!("unresolved array element alias {type_id:016x} in size_of")),
                         };
                         if let Some(element_size) = element_size {
