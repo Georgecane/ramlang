@@ -14,6 +14,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Global scalar, boolean, null-pointer, and UTF-8 string constants, available across source files
 - Static global storage with immutable `static` and mutable `static mut` variables
 - Target-aware `size_of(Type)`, `align_of(Type)`, and `offset_of(Type, field)` layout queries, including `packed struct` layouts
+- Target-ABI-aware `size_t` calls for allocation, string, and memory routines, with checked 64-to-32-bit byte-count conversion
 - LLVM bit intrinsics for population count, leading/trailing zero counts, byte swap, and bit reversal
 - Typed atomic integer loads, stores, exchanges, and read-modify-write operations with explicit memory ordering
 - Runtime `assert(bool)` with a trap on failure, `panic(str)` for non-returning errors, `assume(bool)` lowered to `llvm.assume`, volatile memory access built-ins, and LLVM memory-order fences
@@ -169,7 +170,7 @@ ramcomp examples/ffi_math.ram -o math-demo --target x86_64-unknown-linux-gnu --o
 ./math-demo
 ```
 
-The example calls `sqrt` from the system math library. `--target` forwards a target triple to Clang, and `--opt-level` accepts `0`, `1`, `2`, `3`, `s`, or `z` (default `2`). Cross-compiling may require a matching linker, sysroot, and target libraries. Target, optimization, and linker options apply only to native compilation and are rejected with `--check` and `--emit-llvm`.
+The example calls `sqrt` from the system math library. `--target` selects a compilation target, and `--opt-level` accepts `0`, `1`, `2`, `3`, `s`, or `z` (default `2`). Supported common 32-bit and 64-bit triples drive target-sized `size_t` declarations and are embedded in emitted LLVM IR; `--target` can be combined with `--check` and `--emit-llvm` to validate or inspect ABI-specific lowering. Optimization levels are rejected with `--check` and `--emit-llvm`, because those modes do not invoke code-generation optimization. Cross-compiling may require a matching linker, sysroot, and target libraries. Linker options are rejected in check and emit-only modes.
 
 
 External functions can be declared using `extern fn`. Calls use the platform's default C ABI, and the final native link must be able to resolve the referenced symbol.
