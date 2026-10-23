@@ -1,0 +1,9 @@
+extern static mut C_COUNTER: i32;
+extern static C_LIMIT: u32;
+
+fn main() -> i32 {
+    C_COUNTER = C_COUNTER + 2;
+    print(C_COUNTER);
+    print(C_LIMIT);
+    return 0;
+}
