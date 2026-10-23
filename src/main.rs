@@ -1,3 +1,5 @@
+mod llvm_backend;
+
 use std::{
     collections::{HashMap, HashSet},
     env, fs,
@@ -4824,6 +4826,7 @@ fn compile(options: Options) -> Result<(), String> {
     }
 
     if options.emit_llvm {
+        llvm_backend::verify_ir(&llvm_ir)?;
         let output = options.output.unwrap_or_else(|| options.sources[0].with_extension("ll"));
         fs::write(&output, llvm_ir)
             .map_err(|error| format!("cannot write {}: {error}", output.display()))?;
@@ -4851,53 +4854,75 @@ fn compile(options: Options) -> Result<(), String> {
     } else {
         options.sources[0].with_extension("")
     };
-    let ir_path = env::temp_dir().join(format!("ramlang-{}.ll", process::id()));
-    fs::write(&ir_path, llvm_ir)
-        .map_err(|error| format!("cannot write temporary LLVM IR: {error}"))?;
-    let clang = env::var_os("RAMLANG_CLANG").unwrap_or_else(|| "clang".into());
-    let mut command = Command::new(&clang);
-    command.arg(format!("-O{}", options.opt_level)).arg("-Wno-override-module");
+    if options.emit_object || options.emit_assembly || options.emit_bitcode {
+        let kind = if options.emit_object {
+            llvm_backend::OutputKind::Object
+        } else if options.emit_assembly {
+            llvm_backend::OutputKind::Assembly
+        } else {
+            llvm_backend::OutputKind::Bitcode
+        };
+        llvm_backend::emit_file(
+            &llvm_ir,
+            &output,
+            kind,
+            options.target.as_deref(),
+            options.target_cpu.as_deref(),
+            &options.target_features,
+            &options.opt_level,
+        )?;
+        println!("built {}", output.display());
+        return Ok(());
+    }
+
+    // LLVM code generation happens in-process in Rust. The platform driver is used
+    // only to link the resulting object with the system runtime and requested libraries.
+    let object_path = env::temp_dir().join(format!("ramlang-{}-linked.o", process::id()));
+    llvm_backend::emit_file(
+        &llvm_ir,
+        &object_path,
+        llvm_backend::OutputKind::Object,
+        options.target.as_deref(),
+        options.target_cpu.as_deref(),
+        &options.target_features,
+        &options.opt_level,
+    )?;
+
+    let linker = env::var_os("RAMLANG_LINKER")
+        .or_else(|| env::var_os("RAMLANG_CLANG"))
+        .unwrap_or_else(|| "clang".into());
+    let mut command = Command::new(&linker);
     if let Some(target) = &options.target {
         command.arg("-target").arg(target);
-    }
-    if let Some(cpu) = &options.target_cpu {
-        command.args(["-Xclang", "-target-cpu", "-Xclang"]).arg(cpu);
-    }
-    for feature in &options.target_features {
-        command.args(["-Xclang", "-target-feature", "-Xclang"]).arg(feature);
     }
     if let Some(sysroot) = &options.sysroot {
         command.arg("--sysroot").arg(sysroot);
     }
-    if options.emit_object {
-        command.arg("-c");
-    } else if options.emit_assembly {
-        command.arg("-S");
-    } else if options.emit_bitcode {
-        command.arg("-emit-llvm").arg("-c");
+    for path in &options.link_search_paths {
+        command.arg("-L").arg(path);
     }
-    command.arg(&ir_path);
-    if !options.emit_object && !options.emit_assembly && !options.emit_bitcode {
-        for path in &options.link_search_paths {
-            command.arg("-L").arg(path);
-        }
-        for library in &options.link_libs {
-            command.arg(format!("-l{library}"));
-        }
-        for argument in &options.link_args {
-            command.arg(argument);
-        }
+    for library in &options.link_libs {
+        command.arg(format!("-l{library}"));
     }
+    for argument in &options.link_args {
+        command.arg(argument);
+    }
+
     let result = command
+        .arg(&object_path)
         .arg("-o")
         .arg(&output)
-        .output()
-        .map_err(|error| format!("could not launch clang ({:?}): {error}; install LLVM/Clang 15+ or set RAMLANG_CLANG", clang));
-    let _ = fs::remove_file(&ir_path);
-    let result = result?;
+        .output();
+    let _ = fs::remove_file(&object_path);
+    let result = result.map_err(|error| {
+        format!(
+            "could not launch native linker ({:?}): {error}; install a compatible linker driver or set RAMLANG_LINKER",
+            linker
+        )
+    })?;
     if !result.status.success() {
         let stderr = String::from_utf8_lossy(&result.stderr);
-        return Err(format!("clang failed to compile the generated LLVM IR:\n{stderr}\nInstall LLVM/Clang 15+ and verify that clang accepts opaque-pointer IR."));
+        return Err(format!("native linker failed to link LLVM object:\n{stderr}"));
     }
     println!("built {}", output.display());
     Ok(())
