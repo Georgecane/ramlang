@@ -6,9 +6,7 @@
 
 use std::{
     ffi::{CStr, CString, c_char},
-    io,
-    ptr,
-    slice,
+    io, ptr, slice,
     sync::Mutex,
     time::Duration,
 };
@@ -268,9 +266,7 @@ mod tests {
         let payload = b"ramlang";
         // SAFETY: the handle is live and payload points to payload.len() readable bytes.
         assert_eq!(
-            unsafe {
-                ramlang_tcp_write_frame(connection, payload.as_ptr(), payload.len() as u64)
-            },
+            unsafe { ramlang_tcp_write_frame(connection, payload.as_ptr(), payload.len() as u64) },
             0,
             "{}",
             unsafe { CStr::from_ptr(ramlang_last_error()).to_string_lossy() }
