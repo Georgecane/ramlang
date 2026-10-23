@@ -5520,16 +5520,16 @@ mod tests {
         let program = parse_source(source).unwrap();
         let ir = compile_to_llvm_for_target(&program, 32, Some("i386-unknown-linux-gnu")).unwrap();
         assert!(ir.contains("target triple = \"i386-unknown-linux-gnu\""));
-        assert!(ir.contains("declare ptr @malloc(i32)"));
-        assert!(ir.contains("declare ptr @calloc(i32, i32)"));
-        assert!(ir.contains("declare ptr @realloc(ptr, i32)"));
-        assert!(ir.contains("declare ptr @memcpy(ptr, ptr, i32)"));
-        assert!(ir.contains("declare ptr @memset(ptr, i32, i32)"));
-        assert!(ir.contains("declare i32 @strlen(ptr)"));
-        assert!(ir.contains("declare i32 @strncmp(ptr, ptr, i32)"));
-        assert!(ir.contains("declare ptr @memchr(ptr, i32, i32)"));
+        assert!(ir.contains("declare ptr @ramlang_malloc(i32)"));
+        assert!(ir.contains("declare ptr @ramlang_calloc(i32, i32)"));
+        assert!(ir.contains("declare ptr @ramlang_realloc(ptr, i32)"));
+        assert!(ir.contains("declare ptr @ramlang_memcpy(ptr, ptr, i32)"));
+        assert!(ir.contains("declare ptr @ramlang_memset(ptr, i32, i32)"));
+        assert!(ir.contains("declare i64 @ramlang_strlen(ptr)"));
+        assert!(ir.contains("declare i32 @ramlang_strncmp(ptr, ptr, i32)"));
+        assert!(ir.contains("declare ptr @ramlang_memchr(ptr, i32, i32)"));
         assert!(ir.contains("call ptr @calloc(i32"));
-        assert!(ir.contains("call i32 @strlen(ptr"));
+        assert!(ir.contains("call i64 @ramlang_strlen(ptr"));
         assert!(ir.contains("zext i32"));
         assert!(ir.contains("trunc i64"));
         assert!(ir.contains("size_t.trap"));
@@ -5917,10 +5917,10 @@ mod tests {
     fn emits_explicit_memory_operations() {
         let source = "fn main() -> i32 { let p: ptr = alloc(8); store_i32(p, 7); let q: ptr = ptr_offset(p, 4); store_i32(q, 42); print(load_i32(q)); free(p); return 0; }";
         let ir = compile(source).unwrap();
-        assert!(ir.contains("call ptr @malloc(i64 8)"));
+        assert!(ir.contains("call ptr @ramlang_malloc(i64 8)"));
         assert!(ir.contains("store i32 42"));
         assert!(ir.contains("load i32, ptr"));
-        assert!(ir.contains("call void @free(ptr"));
+        assert!(ir.contains("call void @ramlang_free(ptr"));
         assert!(ir.contains("getelementptr i8, ptr"));
     }
 
@@ -5928,14 +5928,14 @@ mod tests {
     fn lowers_bulk_memory_copy_move_fill_and_compare() {
         let source = "fn main() -> i32 { let src: ptr = alloc(8); let dst: ptr = alloc(8); memset(src, 0, 8); store_i32(src, 42); memcpy(dst, src, 8); print(load_i32(dst)); print(memcmp(src, dst, 8)); store_i32(dst, 7); let order: i32 = memcmp(src, dst, 4); if (order > 0) { print(1); } else { print(0); } memmove(dst, src, 4); print(load_i32(dst)); free(src); free(dst); return 0; }";
         let ir = compile(source).unwrap();
-        assert!(ir.contains("declare ptr @memcpy(ptr, ptr, i64)"));
-        assert!(ir.contains("declare ptr @memmove(ptr, ptr, i64)"));
-        assert!(ir.contains("declare ptr @memset(ptr, i32, i64)"));
-        assert!(ir.contains("declare i32 @memcmp(ptr, ptr, i64)"));
-        assert!(ir.contains("call ptr @memcpy(ptr"));
-        assert!(ir.contains("call ptr @memmove(ptr"));
-        assert!(ir.contains("call ptr @memset(ptr"));
-        assert!(ir.contains("call i32 @memcmp(ptr"));
+        assert!(ir.contains("declare ptr @ramlang_memcpy(ptr, ptr, i64)"));
+        assert!(ir.contains("declare ptr @ramlang_memmove(ptr, ptr, i64)"));
+        assert!(ir.contains("declare ptr @ramlang_memset(ptr, i32, i64)"));
+        assert!(ir.contains("declare i32 @ramlang_memcmp(ptr, ptr, i64)"));
+        assert!(ir.contains("call ptr @ramlang_memcpy(ptr"));
+        assert!(ir.contains("call ptr @ramlang_memmove(ptr"));
+        assert!(ir.contains("call ptr @ramlang_memset(ptr"));
+        assert!(ir.contains("call i32 @ramlang_memcmp(ptr"));
     }
 
     #[test]
@@ -5944,22 +5944,22 @@ mod tests {
         let ir = compile(source).unwrap();
         assert!(ir.contains("declare ptr @calloc(i64, i64)"));
         assert!(ir.contains("declare ptr @realloc(ptr, i64)"));
-        assert!(ir.contains("call ptr @calloc(i64 4, i64 4)"));
-        assert!(ir.contains("call ptr @realloc(ptr"));
+        assert!(ir.contains("call ptr @ramlang_calloc(i64 4, i64 4)"));
+        assert!(ir.contains("call ptr @ramlang_realloc(ptr"));
     }
 
     #[test]
     fn lowers_c_string_and_byte_search_builtins() {
         let source = "fn main() -> i32 { print(strlen(\"RamLang\")); print(strcmp(\"RamLang\", \"RamLang\")); print(strncmp(\"RamLang\", \"Ram\", 3)); let found: ptr = memchr(\"RamLang\", 76, 7); print(load_u8(found)); return 0; }";
         let ir = compile(source).unwrap();
-        assert!(ir.contains("declare i64 @strlen(ptr)"));
-        assert!(ir.contains("declare i32 @strcmp(ptr, ptr)"));
-        assert!(ir.contains("declare i32 @strncmp(ptr, ptr, i64)"));
-        assert!(ir.contains("declare ptr @memchr(ptr, i32, i64)"));
+        assert!(ir.contains("declare i64 @ramlang_strlen(ptr)"));
+        assert!(ir.contains("declare i32 @ramlang_strcmp(ptr, ptr)"));
+        assert!(ir.contains("declare i32 @ramlang_strncmp(ptr, ptr, i64)"));
+        assert!(ir.contains("declare ptr @ramlang_memchr(ptr, i32, i64)"));
         assert!(ir.contains("call i64 @strlen(ptr"));
-        assert!(ir.contains("call i32 @strcmp(ptr"));
-        assert!(ir.contains("call i32 @strncmp(ptr"));
-        assert!(ir.contains("call ptr @memchr(ptr"));
+        assert!(ir.contains("call i32 @ramlang_strcmp(ptr"));
+        assert!(ir.contains("call i32 @ramlang_strncmp(ptr"));
+        assert!(ir.contains("call ptr @ramlang_memchr(ptr"));
     }
 
     #[test]
@@ -6220,7 +6220,7 @@ mod tests {
         assert!(ir.contains("icmp slt i32"));
         assert!(ir.contains("define i32 @color_code(i32"));
         assert!(ir.contains("sub i32"));
-        assert!(ir.contains("@.fmt.i64, i64 4"));
+        assert!(ir.contains("call void @ramlang_print_i64(i64 4)"));
         assert!(!ir.contains(&format!("%struct.{color_id:016x} = type")));
     }
 
@@ -6304,7 +6304,7 @@ mod tests {
         let source = "fn main() -> i32 { let value: i32 = 5; match (value) { 1 => { print(1); }, 2 => { print(2); }, _ => { print(9); } } return 0; }";
         let ir = compile(source).unwrap();
         assert!(ir.contains("match.arm"));
-        assert!(ir.contains("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 9)"));
+        assert!(ir.contains("call void @ramlang_print_i32(i32 9)"));
     }
 
     #[test]
@@ -6357,7 +6357,7 @@ mod tests {
     #[test]
     fn allows_explicit_enum_value_after_i32_maximum() {
         let ir = compile("enum Wide { Max = 2147483647, Reset = -3, Next } fn main() -> i32 { print(Wide.Max); print(Wide.Reset); print(Wide.Next); return 0; }").unwrap();
-        assert!(ir.contains("printf(ptr @.fmt.i32, i32 2147483647)"));
+        assert!(ir.contains("call void @ramlang_print_i32(i32 2147483647)"));
         assert!(ir.contains("printf(ptr @.fmt.i32, i32 -3)"));
         assert!(ir.contains("printf(ptr @.fmt.i32, i32 -2)"));
     }
@@ -6653,7 +6653,7 @@ mod tests {
         assert!(ir.contains("fptosi float"));
         assert!(ir.contains("call i32 (ptr, ...) @printf(ptr"));
         assert!(ir.contains("double"));
-        assert!(ir.contains("call i32 (ptr, ...) @printf(ptr @.fmt.i64, i64 8)"));
+        assert!(ir.contains("call void @ramlang_print_i64(i64 8)"));
         assert!(ir.contains("getelementptr { i8, float }, ptr null"));
     }
 
