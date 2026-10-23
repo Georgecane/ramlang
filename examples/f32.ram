@@ -1,8 +1,6 @@
 const HALF: f32 = 0.5;
 const TINY: f32 = 1.25e-2;
 
-extern fn printf(format: str, ...) -> i32;
-
 fn main() -> i32 {
     let values: [f32; 2] = [1.5, 2.25];
     let result: f32 = values[0] * values[1] + HALF;
@@ -12,8 +10,8 @@ fn main() -> i32 {
     let narrow: f32 = wide as f32;
     print(narrow);
 
-    // C's default argument promotions convert f32 to double in varargs.
-    printf("%.2f\n", narrow);
+    // Narrowing and printing stay inside the native RamLang runtime.
+    print(narrow);
 
     let integer: i32 = narrow as i32;
     print(integer);
