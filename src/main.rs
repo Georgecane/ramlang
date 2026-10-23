@@ -1609,6 +1609,34 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((String::new(), Type::Void));
                 }
 
+                if name == "assert" {
+                    if args.len() != 1 {
+                        return Err("assert expects exactly one bool argument".to_owned());
+                    }
+                    let (condition, condition_type) = self.emit_expr_expected(&args[0], Some(Type::Bool))?;
+                    self.require_same(Type::Bool, condition_type, "assert condition")?;
+                    let ok_label = self.fresh_label("assert.ok");
+                    let trap_label = self.fresh_label("assert.trap");
+                    self.emit(format!("br i1 {condition}, label %{ok_label}, label %{trap_label}"));
+                    self.terminated = true;
+                    self.label(&trap_label);
+                    self.emit("call void @llvm.trap()");
+                    self.emit("unreachable");
+                    self.terminated = true;
+                    self.label(&ok_label);
+                    return Ok((String::new(), Type::Void));
+                }
+
+                if name == "assume" {
+                    if args.len() != 1 {
+                        return Err("assume expects exactly one bool argument".to_owned());
+                    }
+                    let (condition, condition_type) = self.emit_expr_expected(&args[0], Some(Type::Bool))?;
+                    self.require_same(Type::Bool, condition_type, "assume condition")?;
+                    self.emit(format!("call void @llvm.assume(i1 {condition})"));
+                    return Ok((String::new(), Type::Void));
+                }
+
                 if name == "alloc" {
                     if args.len() != 1 {
                         return Err("alloc expects one byte-count argument".to_owned());
@@ -2149,7 +2177,8 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
     module.push_str("declare i32 @printf(ptr, ...)\n\n");
     module.push_str("declare ptr @malloc(i64)\n");
     module.push_str("declare void @free(ptr)\n");
-    module.push_str("declare void @llvm.trap() cold noreturn nounwind\n\n");
+    module.push_str("declare void @llvm.trap() cold noreturn nounwind\n");
+    module.push_str("declare void @llvm.assume(i1) nounwind\n\n");
 
     for function in functions {
         if function.external {
