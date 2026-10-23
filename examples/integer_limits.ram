@@ -1,8 +1,10 @@
 fn main() -> i32 {
     let byte_min: i8 = -128;
+    let half_min: i16 = -32768;
     let word_min: i32 = -2147483648;
     let wide_min: i64 = -9223372036854775808;
     print(byte_min);
+    print(half_min);
     print(word_min);
     print(wide_min);
     return 0;
