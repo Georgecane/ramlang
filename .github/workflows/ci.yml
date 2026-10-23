@@ -120,6 +120,10 @@ jobs:
         run: |
           cargo run --release -- examples/multi_file/point_main.ram examples/multi_file/point.ram -o target/point-multi
           test "$(target/point-multi)" = "42"
+      - name: Compile and run address-of example
+        run: |
+          cargo run --release -- examples/address_of.ram -o target/address-of
+          test "$(target/address-of)" = "42"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
