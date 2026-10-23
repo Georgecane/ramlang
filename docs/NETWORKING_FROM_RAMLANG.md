@@ -23,7 +23,7 @@ The shared library is written to target/release/libramlang_runtime.so on Linux. 
 - ramlang_udp_recv_from(handle, output, capacity, peer_output, peer_capacity): receive one datagram and copy the sender address into the peer buffer.
 - ramlang_udp_close(handle): release a UDP handle.
 
-Frames use a four-byte unsigned length prefix in big-endian byte order, followed by the payload. Reads reject frames larger than the supplied buffer capacity. If a read fails, close that connection because a partial frame may already have been consumed. A timeout greater than zero is required when connecting; it also bounds each read/write operation on that connection.
+Frames use a four-byte unsigned length prefix in big-endian byte order, followed by the payload. The C ABI caps each TCP frame and read-buffer capacity at 16 MiB; reads also reject frames larger than the supplied buffer capacity. If a read fails, close that connection because a partial frame may already have been consumed. A timeout greater than zero is required when connecting; it also bounds each read/write operation on that connection.
 
 Pass valid NUL-terminated UTF-8 endpoint addresses. Buffers passed to write/read must be valid for the declared length/capacity. Do not use or close a handle concurrently with another operation on that same handle. Always close successful connections. Network input should be treated as untrusted.
 
