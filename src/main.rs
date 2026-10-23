@@ -1358,7 +1358,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_string_escapes() {
-        let error = parse_source(r#"fn main() -> i32 { print("bad\\q"); return 0; }"#).unwrap_err();
+        let error = parse_source(r#"fn main() -> i32 { print("bad\q"); return 0; }"#).unwrap_err();
         assert!(error.contains("unsupported string escape"));
     }
 
