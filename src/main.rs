@@ -244,6 +244,8 @@ enum Stmt {
     Let { name: String, declared_type: Option<Type>, mutable: bool, value: Expr },
     Assign { name: String, value: Expr },
     Return(Option<Expr>),
+    Break,
+    Continue,
     Expression(Expr),
     If { condition: Expr, then_branch: Box<Stmt>, else_branch: Option<Box<Stmt>> },
     While { condition: Expr, body: Box<Stmt> },
@@ -415,6 +417,14 @@ impl Parser {
             let value = if self.check_symbol(";") { None } else { Some(self.parse_expression()?) };
             self.expect_symbol(";")?;
             return Ok(Stmt::Return(value));
+        }
+        if self.match_keyword("break") {
+            self.expect_symbol(";")?;
+            return Ok(Stmt::Break);
+        }
+        if self.match_keyword("continue") {
+            self.expect_symbol(";")?;
+            return Ok(Stmt::Continue);
         }
         if self.match_keyword("if") {
             self.expect_symbol("(")?;
@@ -599,6 +609,7 @@ struct FunctionGenerator<'a> {
     function_name: String,
     string_counter: usize,
     string_globals: Vec<String>,
+    loop_stack: Vec<(String, String)>,
     next_value: usize,
     next_label: usize,
     terminated: bool,
@@ -611,8 +622,8 @@ impl<'a> FunctionGenerator<'a> {
             signatures, return_type, allocas: Vec::new(), lines: Vec::new(),
             scopes: vec![HashMap::new()], current_block: "entry".to_owned(),
             function_name: function_name.to_owned(), string_counter: 0,
-            string_globals: Vec::new(), next_value: 0, next_label: 0,
-            terminated: false, uses_printf: false,
+            string_globals: Vec::new(), loop_stack: Vec::new(),
+            next_value: 0, next_label: 0, terminated: false, uses_printf: false,
         }
     }
 
@@ -993,6 +1004,18 @@ impl<'a> FunctionGenerator<'a> {
                 }
                 self.terminated = true;
             }
+            Stmt::Break => {
+                let (_, break_target) = self.loop_stack.last().cloned()
+                    .ok_or_else(|| "'break' can only be used inside a loop".to_owned())?;
+                self.emit(format!("br label %{break_target}"));
+                self.terminated = true;
+            }
+            Stmt::Continue => {
+                let (continue_target, _) = self.loop_stack.last().cloned()
+                    .ok_or_else(|| "'continue' can only be used inside a loop".to_owned())?;
+                self.emit(format!("br label %{continue_target}"));
+                self.terminated = true;
+            }
             Stmt::Expression(expression) => {
                 self.emit_expr(expression)?;
             }
@@ -1043,7 +1066,9 @@ impl<'a> FunctionGenerator<'a> {
                 self.terminated = true;
 
                 self.label(&body_label);
+                self.loop_stack.push((condition_label.clone(), end_label.clone()));
                 self.emit_stmt(body)?;
+                self.loop_stack.pop();
                 if !self.terminated {
                     self.emit(format!("br label %{condition_label}"));
                     self.terminated = true;
