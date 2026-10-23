@@ -257,11 +257,11 @@ fn main() -> i32 {
 }
 ```
 
-This example links against the host C runtime and prints `42`. At present, FFI uses the supported scalar and raw-pointer types; variadic declarations and per-library link metadata inside source files are not implemented. Pass library search paths and link flags on the compiler command line.
+This example links against the host C runtime and prints `42`. FFI supports the implemented scalar and raw-pointer types, including fixed-signature `f32` parameters and returns; `examples/f32_ffi.ram` is linked with a C implementation in CI. Passing aggregate values by value through the C ABI, variadic declarations with aggregate arguments, and per-library link metadata inside source files are not implemented. Pass library search paths and link flags on the compiler command line.
 
 ### Variadic C ABI functions
 
-Declare an external C function with a trailing `...` in its parameter list. Calls must provide all fixed parameters, then may pass additional supported scalar/pointer arguments. For the extra arguments, RamLang applies C default argument promotions: `bool`, `i8`, `u8`, `i16`, and `u16` are promoted to `i32`; `f64` is passed as C `double`.
+Declare an external C function with a trailing `...` in its parameter list. Calls must provide all fixed parameters, then may pass additional supported scalar/pointer arguments. For the extra arguments, RamLang applies C default argument promotions: `bool`, `i8`, `u8`, `i16`, and `u16` are promoted to `i32`; `f32` is promoted to C `double`, and `f64` is already passed as C `double`.
 
 ```rust
 extern fn variadic_sum(base: i32, ...) -> i32;
