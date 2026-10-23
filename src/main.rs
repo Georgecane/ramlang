@@ -1483,6 +1483,16 @@ mod tests {
     }
 
     #[test]
+    fn emits_bitwise_and_shift_instructions() {
+        let source = "fn main() -> i32 { let value: i32 = (6 & 3) | (1 << 3); print(~0); print(value); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("and i32 6, 3"));
+        assert!(ir.contains("shl i32 1, 3"));
+        assert!(ir.contains("or i32"));
+        assert!(ir.contains("xor i32 0, -1"));
+    }
+
+    #[test]
     fn rejects_break_outside_loops() {
         let source = "fn main() -> i32 { break; return 0; }";
         assert!(compile(source).unwrap_err().contains("only be used inside a loop"));
