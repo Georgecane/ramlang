@@ -414,6 +414,11 @@ jobs:
           cargo run --release -- examples/static_arrays.ram -o target/static-arrays
           expected="$(printf '%s\n%s' '20' '42')"
           test "$(target/static-arrays)" = "$expected"
+      - name: Compile and run immutable static lookup table example
+        run: |
+          cargo run --release -- examples/static_array_table.ram -o target/static-array-table
+          expected="$(printf '%s\n%s' '10' '30')"
+          test "$(target/static-array-table)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
