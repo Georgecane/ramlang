@@ -1367,12 +1367,7 @@ fn format_general_float(value: f64) -> String {
         .to_owned();
     }
     if value == 0.0 {
-        return if value.is_sign_negative() {
-            "-0"
-        } else {
-            "0"
-        }
-        .to_owned();
+        return if value.is_sign_negative() { "-0" } else { "0" }.to_owned();
     }
 
     // Round first, then select fixed/scientific notation from the rounded exponent. This
