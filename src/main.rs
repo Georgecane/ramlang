@@ -984,6 +984,7 @@ fn compile(options: Options) -> Result<(), String> {
         .map_err(|error| format!("cannot write temporary LLVM IR: {error}"))?;
     let clang = env::var_os("RAMLANG_CLANG").unwrap_or_else(|| "clang".into());
     let result = Command::new(&clang)
+        .arg("-O2")
         .arg("-Wno-override-module")
         .arg(&ir_path)
         .arg("-o")
@@ -1074,5 +1075,21 @@ mod tests {
         let ir = compile(source).unwrap();
         assert!(ir.contains("mul i32"));
         assert!(ir.contains("add i32"));
+    }
+
+    #[test]
+    fn uses_expected_type_for_integer_literals() {
+        let source = "fn wide(x: i64) -> i64 { return x + 1; } fn main() -> i32 { let value: i64 = wide(41); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("add i64"));
+        assert!(ir.contains("call i64 @wide(i64 41)"));
+    }
+
+    #[test]
+    fn emits_floating_point_operations() {
+        let source = "fn main() -> i32 { let value: f64 = 1.5 + 2.0; print(value); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("fadd double"));
+        assert!(ir.contains("@.fmt.f64"));
     }
 }
