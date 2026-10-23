@@ -2484,7 +2484,8 @@ mod tests {
         let source = r#"fn main() -> i32 { panic("fatal error"); return 0; }"#;
         let ir = compile(source).unwrap();
         assert!(ir.contains("@.fmt.str"));
-        assert!(ir.contains("fatal error"));
+        assert!(ir.contains("@.str.main.0"));
+        assert!(ir.contains(r#"\66\61\74"#));
         assert!(ir.contains("call void @llvm.trap()"));
         assert!(ir.contains("unreachable"));
         assert!(!ir.contains("ret i32 0"));
