@@ -5409,6 +5409,30 @@ mod tests {
     }
 
     #[test]
+    fn lowers_checked_arithmetic_for_all_integer_widths_and_operations() {
+        let source = "fn main() -> i32 { let mut a8: i8 = 0; let p8: ptr = &a8; let x1: bool = sadd_overflow_i8(127, 1, p8); let x2: bool = ssub_overflow_i8(-128, 1, p8); let x3: bool = smul_overflow_i8(100, 2, p8); let mut a16: i16 = 0; let p16: ptr = &a16; let y1: bool = sadd_overflow_i16(32767, 1, p16); let y2: bool = ssub_overflow_i16(-32768, 1, p16); let y3: bool = smul_overflow_i16(20000, 2, p16); let mut a32: i32 = 0; let p32: ptr = &a32; let z1: bool = sadd_overflow_i32(2147483647, 1, p32); let z2: bool = ssub_overflow_i32(-2147483648, 1, p32); let z3: bool = smul_overflow_i32(2000000000, 2, p32); let mut a64: i64 = 0; let p64: ptr = &a64; let w1: bool = sadd_overflow_i64(9223372036854775807, 1, p64); let w2: bool = ssub_overflow_i64(-9223372036854775808, 1, p64); let w3: bool = smul_overflow_i64(4000000000000000000, 3, p64); let mut b8: u8 = 0; let q8: ptr = &b8; let u1: bool = uadd_overflow_u8(255, 1, q8); let u2: bool = usub_overflow_u8(0, 1, q8); let u3: bool = umul_overflow_u8(200, 2, q8); let mut b16: u16 = 0; let q16: ptr = &b16; let v1: bool = uadd_overflow_u16(65535, 1, q16); let v2: bool = usub_overflow_u16(0, 1, q16); let v3: bool = umul_overflow_u16(50000, 2, q16); let mut b32: u32 = 0; let q32: ptr = &b32; let r1: bool = uadd_overflow_u32(4294967295, 1, q32); let r2: bool = usub_overflow_u32(0, 1, q32); let r3: bool = umul_overflow_u32(3000000000, 2, q32); let mut b64: u64 = 0; let q64: ptr = &b64; let s1: bool = uadd_overflow_u64(18446744073709551615, 1, q64); let s2: bool = usub_overflow_u64(0, 1, q64); let s3: bool = umul_overflow_u64(10000000000000000000, 2, q64); return 0; }";
+        let ir = compile(source).unwrap();
+        for llvm_type in ["i8", "i16", "i32", "i64"] {
+            for operation in ["sadd", "ssub", "smul", "uadd", "usub", "umul"] {
+                assert!(ir.contains(&format!("@llvm.{operation}.with.overflow.{llvm_type}")),
+                    "missing checked arithmetic intrinsic {operation}.{llvm_type}");
+            }
+        }
+    }
+
+    #[test]
+    fn lowers_saturating_arithmetic_for_all_integer_widths() {
+        let source = "fn main() -> i32 { let a8: i8 = sadd_sat_i8(127, 1); let b8: i8 = ssub_sat_i8(-128, 1); let c8: u8 = uadd_sat_u8(255, 1); let d8: u8 = usub_sat_u8(0, 1); let a16: i16 = sadd_sat_i16(32767, 1); let b16: i16 = ssub_sat_i16(-32768, 1); let c16: u16 = uadd_sat_u16(65535, 1); let d16: u16 = usub_sat_u16(0, 1); let a32: i32 = sadd_sat_i32(2147483647, 1); let b32: i32 = ssub_sat_i32(-2147483648, 1); let c32: u32 = uadd_sat_u32(4294967295, 1); let d32: u32 = usub_sat_u32(0, 1); let a64: i64 = sadd_sat_i64(9223372036854775807, 1); let b64: i64 = ssub_sat_i64(-9223372036854775808, 1); let c64: u64 = uadd_sat_u64(18446744073709551615, 1); let d64: u64 = usub_sat_u64(0, 1); return 0; }";
+        let ir = compile(source).unwrap();
+        for llvm_type in ["i8", "i16", "i32", "i64"] {
+            for operation in ["sadd.sat", "ssub.sat", "uadd.sat", "usub.sat"] {
+                assert!(ir.contains(&format!("@llvm.{operation}.{llvm_type}")),
+                    "missing saturating arithmetic intrinsic {operation}.{llvm_type}");
+            }
+        }
+    }
+
+    #[test]
     fn lowers_signed_and_unsigned_saturating_add_sub() {
         let source = "fn main() -> i32 { let a: i32 = sadd_sat_i32(2147483647, 1); let b: i32 = ssub_sat_i32(-2147483648, 1); let c: u16 = uadd_sat_u16(65535, 1); let d: u16 = usub_sat_u16(0, 1); print(a); print(b); print(c); print(d); return 0; }";
         let ir = compile(source).unwrap();
