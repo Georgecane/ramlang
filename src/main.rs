@@ -5913,7 +5913,7 @@ mod tests {
 
     #[test]
     fn rejects_f32_non_finite_literals() {
-        let error = compile("fn main() -> i32 { let value: f32 = 1.0e100; return 0; }").unwrap_err();
+        let error = compile("fn main() -> i32 { let value: f32 = 3402824000000000000000000000000000000000.0; return 0; }").unwrap_err();
         assert!(error.contains("f32 finite range"), "unexpected error: {error}");
     }
 
