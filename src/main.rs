@@ -1778,6 +1778,7 @@ impl<'a> FunctionGenerator<'a> {
                             ArrayElement::I32 | ArrayElement::U32 => Some(4_u64),
                             ArrayElement::I64 | ArrayElement::U64 | ArrayElement::F64 => Some(8_u64),
                             ArrayElement::Ptr | ArrayElement::Str => None,
+                            ArrayElement::Alias(type_id) => return Err(format!("unresolved array element alias {type_id:016x} in size_of")),
                         };
                         if let Some(element_size) = element_size {
                             Ok(((element_size * u64::from(*length)).to_string(), Type::I64))
@@ -3602,11 +3603,11 @@ fn resolve_enum_expr(
     expression: &mut Expr,
     enum_ids: &HashSet<u64>,
     alias_types: &HashMap<u64, Type>,
-) {
+) -> Result<(), String> {
     match expression {
         Expr::ArrayLiteral(elements) => {
             for element in elements {
-                resolve_enum_expr(element, enum_ids, alias_types);
+                resolve_enum_expr(element, enum_ids, alias_types)?;
             }
         }
         Expr::StructLiteral { type_id, fields } => {
@@ -3614,106 +3615,108 @@ fn resolve_enum_expr(
                 *type_id = *resolved_id;
             }
             for (_, value) in fields {
-                resolve_enum_expr(value, enum_ids, alias_types);
+                resolve_enum_expr(value, enum_ids, alias_types)?;
             }
         }
-        Expr::SizeOf(ty) | Expr::AlignOf(ty) => resolve_enum_type(ty, enum_ids, alias_types),
-        Expr::OffsetOf(ty, _) => resolve_enum_type(ty, enum_ids, alias_types),
-        Expr::Field { base, .. } => resolve_enum_expr(base, enum_ids, alias_types),
-        Expr::Unary { right, .. } => resolve_enum_expr(right, enum_ids, alias_types),
+        Expr::SizeOf(ty) | Expr::AlignOf(ty) => resolve_enum_type(ty, enum_ids, alias_types)?,
+        Expr::OffsetOf(ty, _) => resolve_enum_type(ty, enum_ids, alias_types)?,
+        Expr::Field { base, .. } => resolve_enum_expr(base, enum_ids, alias_types)?,
+        Expr::Unary { right, .. } => resolve_enum_expr(right, enum_ids, alias_types)?,
         Expr::Cast { value, target } => {
-            resolve_enum_expr(value, enum_ids, alias_types);
-            resolve_enum_type(target, enum_ids, alias_types);
+            resolve_enum_expr(value, enum_ids, alias_types)?;
+            resolve_enum_type(target, enum_ids, alias_types)?;
         }
         Expr::Index { array, index } => {
-            resolve_enum_expr(array, enum_ids, alias_types);
-            resolve_enum_expr(index, enum_ids, alias_types);
+            resolve_enum_expr(array, enum_ids, alias_types)?;
+            resolve_enum_expr(index, enum_ids, alias_types)?;
         }
         Expr::Binary { left, right, .. } => {
-            resolve_enum_expr(left, enum_ids, alias_types);
-            resolve_enum_expr(right, enum_ids, alias_types);
+            resolve_enum_expr(left, enum_ids, alias_types)?;
+            resolve_enum_expr(right, enum_ids, alias_types)?;
         }
         Expr::Call { args, .. } => {
             for arg in args {
-                resolve_enum_expr(arg, enum_ids, alias_types);
+                resolve_enum_expr(arg, enum_ids, alias_types)?;
             }
         }
         Expr::Match { value, arms, default } => {
-            resolve_enum_expr(value, enum_ids, alias_types);
+            resolve_enum_expr(value, enum_ids, alias_types)?;
             for (pattern, result) in arms {
-                resolve_enum_expr(pattern, enum_ids, alias_types);
-                resolve_enum_expr(result, enum_ids, alias_types);
+                resolve_enum_expr(pattern, enum_ids, alias_types)?;
+                resolve_enum_expr(result, enum_ids, alias_types)?;
             }
             if let Some(default) = default {
-                resolve_enum_expr(default, enum_ids, alias_types);
+                resolve_enum_expr(default, enum_ids, alias_types)?;
             }
         }
         Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null | Expr::Variable(_) => {}
     }
+    Ok(())
 }
 
 fn resolve_enum_stmt(
     statement: &mut Stmt,
     enum_ids: &HashSet<u64>,
     alias_types: &HashMap<u64, Type>,
-) {
+) -> Result<(), String> {
     match statement {
         Stmt::Block(statements) => {
             for statement in statements {
-                resolve_enum_stmt(statement, enum_ids, alias_types);
+                resolve_enum_stmt(statement, enum_ids, alias_types)?;
             }
         }
         Stmt::Let { declared_type, value, .. } => {
             if let Some(ty) = declared_type {
-                resolve_enum_type(ty, enum_ids, alias_types);
+                resolve_enum_type(ty, enum_ids, alias_types)?;
             }
-            resolve_enum_expr(value, enum_ids, alias_types);
+            resolve_enum_expr(value, enum_ids, alias_types)?;
         }
-        Stmt::Assign { value, .. } => resolve_enum_expr(value, enum_ids, alias_types),
+        Stmt::Assign { value, .. } => resolve_enum_expr(value, enum_ids, alias_types)?,
         Stmt::FieldAssign { base, value, .. } => {
-            resolve_enum_expr(base, enum_ids, alias_types);
-            resolve_enum_expr(value, enum_ids, alias_types);
+            resolve_enum_expr(base, enum_ids, alias_types)?;
+            resolve_enum_expr(value, enum_ids, alias_types)?;
         }
         Stmt::IndexAssign { array, index, value } => {
-            resolve_enum_expr(array, enum_ids, alias_types);
-            resolve_enum_expr(index, enum_ids, alias_types);
-            resolve_enum_expr(value, enum_ids, alias_types);
+            resolve_enum_expr(array, enum_ids, alias_types)?;
+            resolve_enum_expr(index, enum_ids, alias_types)?;
+            resolve_enum_expr(value, enum_ids, alias_types)?;
         }
         Stmt::Return(value) => {
             if let Some(value) = value {
-                resolve_enum_expr(value, enum_ids, alias_types);
+                resolve_enum_expr(value, enum_ids, alias_types)?;
             }
         }
-        Stmt::Expression(expression) => resolve_enum_expr(expression, enum_ids, alias_types),
+        Stmt::Expression(expression) => resolve_enum_expr(expression, enum_ids, alias_types)?,
         Stmt::If { condition, then_branch, else_branch } => {
-            resolve_enum_expr(condition, enum_ids, alias_types);
-            resolve_enum_stmt(then_branch, enum_ids, alias_types);
+            resolve_enum_expr(condition, enum_ids, alias_types)?;
+            resolve_enum_stmt(then_branch, enum_ids, alias_types)?;
             if let Some(else_branch) = else_branch {
-                resolve_enum_stmt(else_branch, enum_ids, alias_types);
+                resolve_enum_stmt(else_branch, enum_ids, alias_types)?;
             }
         }
         Stmt::Match { value, arms, default } => {
-            resolve_enum_expr(value, enum_ids, alias_types);
+            resolve_enum_expr(value, enum_ids, alias_types)?;
             for (pattern, body) in arms {
-                resolve_enum_expr(pattern, enum_ids, alias_types);
-                resolve_enum_stmt(body, enum_ids, alias_types);
+                resolve_enum_expr(pattern, enum_ids, alias_types)?;
+                resolve_enum_stmt(body, enum_ids, alias_types)?;
             }
             if let Some(default) = default {
-                resolve_enum_stmt(default, enum_ids, alias_types);
+                resolve_enum_stmt(default, enum_ids, alias_types)?;
             }
         }
         Stmt::While { condition, body } => {
-            resolve_enum_expr(condition, enum_ids, alias_types);
-            resolve_enum_stmt(body, enum_ids, alias_types);
+            resolve_enum_expr(condition, enum_ids, alias_types)?;
+            resolve_enum_stmt(body, enum_ids, alias_types)?;
         }
         Stmt::For { initializer, condition, increment, body } => {
-            resolve_enum_stmt(initializer, enum_ids, alias_types);
-            resolve_enum_expr(condition, enum_ids, alias_types);
-            resolve_enum_stmt(increment, enum_ids, alias_types);
-            resolve_enum_stmt(body, enum_ids, alias_types);
+            resolve_enum_stmt(initializer, enum_ids, alias_types)?;
+            resolve_enum_expr(condition, enum_ids, alias_types)?;
+            resolve_enum_stmt(increment, enum_ids, alias_types)?;
+            resolve_enum_stmt(body, enum_ids, alias_types)?;
         }
         Stmt::Break | Stmt::Continue => {}
     }
+    Ok(())
 }
 
 fn resolve_alias_target(
@@ -3819,7 +3822,7 @@ fn resolve_program_enum_types(source: &Program) -> Result<Program, String> {
     let enum_ids = enums.keys().copied().collect::<HashSet<_>>();
     for structure in &mut program.structs {
         for (_, ty) in &mut structure.fields {
-            resolve_enum_type(ty, &enum_ids, &alias_types);
+            resolve_enum_type(ty, &enum_ids, &alias_types)?;
         }
     }
     for function in &mut program.functions {
@@ -3828,19 +3831,19 @@ fn resolve_program_enum_types(source: &Program) -> Result<Program, String> {
         }
         resolve_enum_type(&mut function.return_type, &enum_ids, &alias_types);
         if let Some(body) = &mut function.body {
-            resolve_enum_stmt(body, &enum_ids, &alias_types);
+            resolve_enum_stmt(body, &enum_ids, &alias_types)?;
         }
     }
     for constant in &mut program.constants {
         resolve_enum_type(&mut constant.ty, &enum_ids, &alias_types);
         resolve_global_enum_variant(&mut constant.value, &program.enums)?;
-        resolve_enum_expr(&mut constant.value, &enum_ids, &alias_types);
+        resolve_enum_expr(&mut constant.value, &enum_ids, &alias_types)?;
     }
     for variable in &mut program.static_vars {
         resolve_enum_type(&mut variable.ty, &enum_ids, &alias_types);
         if let Some(value) = &mut variable.value {
             resolve_global_enum_variant(value, &program.enums)?;
-            resolve_enum_expr(value, &enum_ids, &alias_types);
+            resolve_enum_expr(value, &enum_ids, &alias_types)?;
         }
     }
     // Alias references have already been replaced in every type position; they are
