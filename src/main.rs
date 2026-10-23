@@ -1336,7 +1336,7 @@ impl<'a> FunctionGenerator<'a> {
                 } else if let Some((ty, value)) = self.globals.get(name) {
                     Ok((value.clone(), *ty))
                 } else {
-                    Err(format!("unknown variable or constant '{name}'"))
+                    Err(format!("unknown variable '{name}'"))
                 }
             }
             Expr::Index { array, index } => {
