@@ -1199,7 +1199,7 @@ mod tests {
     fn emits_explicit_memory_operations() {
         let source = "fn main() -> i32 { let p: ptr = alloc(8); store_i32(p, 7); let q: ptr = ptr_offset(p, 4); store_i32(q, 42); print(load_i32(q)); free(p); return 0; }";
         let ir = compile(source).unwrap();
-        assert!(ir.contains("call ptr @malloc(i64 4)"));
+        assert!(ir.contains("call ptr @malloc(i64 8)"));
         assert!(ir.contains("store i32 42"));
         assert!(ir.contains("load i32, ptr"));
         assert!(ir.contains("call void @free(ptr"));
