@@ -175,6 +175,11 @@ jobs:
           cargo run --release -- examples/unaligned_memory.ram -o target/unaligned-memory
           expected="$(printf '%s\n%s' '42' '7')"
           test "$(target/unaligned-memory)" = "$expected"
+      - name: Compile and run static globals example
+        run: |
+          cargo run --release -- examples/static_globals.ram -o target/static-globals
+          expected="$(printf '%s\n%s\n%s\n%s' '1' '15' 'device-ready' '7')"
+          test "$(target/static-globals)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
