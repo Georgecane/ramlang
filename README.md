@@ -170,7 +170,7 @@ fn main() -> i32 {
 Do not dereference arbitrary integer-derived addresses. On targets with pointers wider than the chosen integer type, an integer round-trip may lose information; prefer the target's native pointer-width integer type when adding platform abstractions.
 
 ## Assertions and optimizer assumptions
-`panic(message)` writes a string message to stderr-like console output through the current C `printf` runtime and then traps. It is treated as a non-returning operation by the function code generator.
+`panic(message)` writes a string message to standard output through the current C `printf` runtime and then traps. It is treated as a non-returning operation by the function code generator.
 
 ```rust
 fn fail(message: str) -> void {
