@@ -1523,6 +1523,15 @@ mod tests {
     }
 
     #[test]
+    fn accepts_signed_minimum_integer_literals() {
+        let source = "fn main() -> i32 { let a: i8 = -128; let b: i32 = -2147483648; let c: i64 = -9223372036854775808; print(a); print(b); print(c); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("store i8 -128"));
+        assert!(ir.contains("store i32 -2147483648"));
+        assert!(ir.contains("store i64 -9223372036854775808"));
+    }
+
+    #[test]
     fn rejects_break_outside_loops() {
         let source = "fn main() -> i32 { break; return 0; }";
         assert!(compile(source).unwrap_err().contains("only be used inside a loop"));
