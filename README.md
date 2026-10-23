@@ -121,6 +121,17 @@ fn main() -> i32 {
 String values currently follow C-string behavior: embedded NUL bytes terminate output, strings are immutable, and there is no string concatenation, slicing, or managed lifetime system yet.
 
 ## C ABI interoperability
+### Linking external native libraries
+
+Use `--link-lib` (or `-l`) to link a library, `--link-search` (or `-L`) to add a library search directory, and `--link-arg` to pass an additional Clang argument:
+
+```sh
+ramcomp examples/ffi_math.ram -o math-demo --link-search /usr/lib/x86_64-linux-gnu --link-lib m
+./math-demo
+```
+
+The example calls `sqrt` from the system math library. Link options apply only to native compilation and are rejected with `--check` and `--emit-llvm`.
+
 
 External functions can be declared using `extern fn`. Calls use the platform's default C ABI, and the final native link must be able to resolve the referenced symbol.
 
@@ -133,7 +144,7 @@ fn main() -> i32 {
 }
 ```
 
-This example links against the host C runtime and prints `42`. At present, FFI uses the supported scalar and raw-pointer types; variadic declarations, string literals, and per-library link flags are not implemented.
+This example links against the host C runtime and prints `42`. At present, FFI uses the supported scalar and raw-pointer types; variadic declarations and per-library link metadata inside source files are not implemented. Pass library search paths and link flags on the compiler command line.
 
 ## Explicit memory management
 
