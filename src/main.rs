@@ -4380,6 +4380,7 @@ struct Options {
     emit_object: bool,
     emit_assembly: bool,
     emit_bitcode: bool,
+    emit_header: bool,
     check_only: bool,
     link_libs: Vec<String>,
     link_search_paths: Vec<PathBuf>,
@@ -4402,10 +4403,10 @@ where
 {
     let mut args = arguments.into_iter().peekable();
     let Some(source) = args.next() else {
-        return Err("usage: ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc] [-o output] [--target TRIPLE] [--target-cpu CPU] [--target-feature FEATURE ...] [--sysroot PATH] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
+        return Err("usage: ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc | --emit-header] [-o output] [--target TRIPLE] [--target-cpu CPU] [--target-feature FEATURE ...] [--sysroot PATH] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
     };
     if source == "--help" || source == "-h" {
-        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --emit-obj              Emit a native object file without linking\n  --emit-asm              Emit target assembly without linking\n  --emit-bc               Emit LLVM bitcode without linking\n  --target <triple>       Select the Clang compilation target\n  --target-cpu <name>    Select the LLVM target CPU\n  --target-feature <f>   Enable (+) or disable (-) an LLVM target feature; repeatable\n  --sysroot <path>       Use a target sysroot when invoking Clang\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
+        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --emit-obj              Emit a native object file without linking\n  --emit-asm              Emit target assembly without linking\n  --emit-bc               Emit LLVM bitcode without linking\n  --emit-header           Generate a C header for callable functions and global symbols\n  --target <triple>       Select the Clang compilation target\n  --target-cpu <name>    Select the LLVM target CPU\n  --target-feature <f>   Enable (+) or disable (-) an LLVM target feature; repeatable\n  --sysroot <path>       Use a target sysroot when invoking Clang\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
         process::exit(0);
     }
 
@@ -4416,6 +4417,7 @@ where
         emit_object: false,
         emit_assembly: false,
         emit_bitcode: false,
+        emit_header: false,
         check_only: false,
         link_libs: Vec::new(),
         link_search_paths: Vec::new(),
@@ -4433,6 +4435,12 @@ where
             "--emit-obj" | "--emit-object" => options.emit_object = true,
             "--emit-asm" => options.emit_assembly = true,
             "--emit-bc" | "--emit-bitcode" => options.emit_bitcode = true,
+            "--emit-header" => {
+                options.emit_header = true;
+                if args.peek().is_some_and(|next| !next.starts_with('-')) {
+                    options.output = args.next().map(PathBuf::from);
+                }
+            }
             "--emit-llvm" => {
                 options.emit_llvm = true;
                 if args.peek().is_some_and(|next| !next.starts_with('-')) {
@@ -4504,9 +4512,10 @@ where
     let output_mode_count = usize::from(options.emit_llvm)
         + usize::from(options.emit_object)
         + usize::from(options.emit_assembly)
-        + usize::from(options.emit_bitcode);
+        + usize::from(options.emit_bitcode)
+        + usize::from(options.emit_header);
     if output_mode_count > 1 {
-        return Err("--emit-llvm, --emit-obj, --emit-asm, and --emit-bc are mutually exclusive".to_owned());
+        return Err("--emit-llvm, --emit-obj, --emit-asm, --emit-bc, and --emit-header are mutually exclusive".to_owned());
     }
     if options.check_only && output_mode_count > 0 {
         return Err("--check cannot be combined with an output mode".to_owned());
@@ -4605,6 +4614,152 @@ fn load_source_recursive(
     Ok(programs)
 }
 
+fn is_c_keyword(name: &str) -> bool {
+    matches!(name,
+        "auto" | "break" | "case" | "char" | "const" | "continue" | "default" |
+        "do" | "double" | "else" | "enum" | "extern" | "float" | "for" |
+        "goto" | "if" | "inline" | "int" | "long" | "register" | "restrict" |
+        "return" | "short" | "signed" | "sizeof" | "static" | "struct" |
+        "switch" | "typedef" | "union" | "unsigned" | "void" | "volatile" |
+        "while" | "_Alignas" | "_Alignof" | "_Atomic" | "_Bool" | "_Complex" |
+        "_Generic" | "_Imaginary" | "_Noreturn" | "_Static_assert" | "_Thread_local"
+    )
+}
+
+fn validate_c_identifier(name: &str, context: &str) -> Result<(), String> {
+    let mut chars = name.chars();
+    let valid_start = chars.next().is_some_and(|ch| ch == '_' || ch.is_ascii_alphabetic());
+    let valid_rest = chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric());
+    if !valid_start || !valid_rest || is_c_keyword(name) {
+        return Err(format!("cannot generate C header: {context} name '{name}' is not a valid C identifier"));
+    }
+    Ok(())
+}
+
+fn c_array_element_type(element: ArrayElement, program: &Program, depth: usize) -> Result<String, String> {
+    if depth > 32 {
+        return Err("cannot generate C header: recursive type alias".to_owned());
+    }
+    let ty = match element {
+        ArrayElement::I8 => Type::I8,
+        ArrayElement::I16 => Type::I16,
+        ArrayElement::I32 => Type::I32,
+        ArrayElement::I64 => Type::I64,
+        ArrayElement::U8 => Type::U8,
+        ArrayElement::U16 => Type::U16,
+        ArrayElement::U32 => Type::U32,
+        ArrayElement::U64 => Type::U64,
+        ArrayElement::F32 => Type::F32,
+        ArrayElement::F64 => Type::F64,
+        ArrayElement::Bool => Type::Bool,
+        ArrayElement::Ptr => Type::Ptr,
+        ArrayElement::Str => Type::Str,
+        ArrayElement::Alias(id) => Type::Struct(id),
+    };
+    c_type_name(ty, program, depth + 1)
+}
+
+fn c_type_name(ty: Type, program: &Program, depth: usize) -> Result<String, String> {
+    if depth > 32 {
+        return Err("cannot generate C header: recursive type alias".to_owned());
+    }
+    match ty {
+        Type::I8 => Ok("int8_t".to_owned()),
+        Type::I16 => Ok("int16_t".to_owned()),
+        Type::I32 => Ok("int32_t".to_owned()),
+        Type::I64 => Ok("int64_t".to_owned()),
+        Type::U8 => Ok("uint8_t".to_owned()),
+        Type::U16 => Ok("uint16_t".to_owned()),
+        Type::U32 => Ok("uint32_t".to_owned()),
+        Type::U64 => Ok("uint64_t".to_owned()),
+        Type::F32 => Ok("float".to_owned()),
+        Type::F64 => Ok("double".to_owned()),
+        Type::Bool => Ok("bool".to_owned()),
+        Type::Str => Ok("const char *".to_owned()),
+        Type::Ptr => Ok("void *".to_owned()),
+        Type::Array(element, _) => Ok(format!("{} *", c_array_element_type(element, program, depth + 1)?)),
+        Type::Enum(_) => Ok("int32_t".to_owned()),
+        Type::Struct(id) => {
+            if let Some(alias) = program.type_aliases.iter().find(|alias| alias.id == id) {
+                c_type_name(alias.target, program, depth + 1)
+            } else if program.enums.iter().any(|enumeration| enumeration.id == id) {
+                Ok("int32_t".to_owned())
+            } else if program.structs.iter().any(|structure| structure.id == id) {
+                Ok("void *".to_owned())
+            } else {
+                Err(format!("cannot generate C header: unknown type identifier {id:016x}"))
+            }
+        }
+        Type::Void => Ok("void".to_owned()),
+    }
+}
+
+fn c_global_declaration_type(ty: Type, immutable: bool, program: &Program) -> Result<String, String> {
+    let base = c_type_name(ty, program, 0)?;
+    if !immutable {
+        Ok(base)
+    } else if base.contains('*') {
+        Ok(format!("{base} const"))
+    } else {
+        Ok(format!("const {base}"))
+    }
+}
+
+fn generate_c_header(program: &Program) -> Result<String, String> {
+    let mut output = String::from(
+        "#ifndef RAMLANG_GENERATED_API_H\n#define RAMLANG_GENERATED_API_H\n\n#include <stdbool.h>\n#include <stdint.h>\n\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n\n"
+    );
+    for enumeration in &program.enums {
+        for (variant, value) in &enumeration.variants {
+            let macro_name = format!("RAMLANG_{}_{}", enumeration.name.to_ascii_uppercase(), variant.to_ascii_uppercase());
+            output.push_str(&format!("#define {macro_name} ({value})\n"));
+        }
+    }
+    if !program.enums.is_empty() {
+        output.push('\n');
+    }
+
+    for function in &program.functions {
+        if function.name == "main" {
+            continue;
+        }
+        validate_c_identifier(&function.name, "function")?;
+        let return_type = c_type_name(function.return_type, program, 0)?;
+        let mut parameters = Vec::new();
+        for (name, ty) in &function.params {
+            validate_c_identifier(name, "parameter")?;
+            if *ty == Type::Void {
+                return Err(format!("cannot generate C header: parameter '{name}' of '{}' has type void", function.name));
+            }
+            parameters.push(format!("{} {name}", c_type_name(*ty, program, 0)?));
+        }
+        if function.variadic {
+            parameters.push("...".to_owned());
+        }
+        if parameters.is_empty() {
+            parameters.push("void".to_owned());
+        }
+        output.push_str(&format!("extern {return_type} {}({});\n", function.name, parameters.join(", ")));
+    }
+
+    if !program.functions.is_empty() {
+        output.push('\n');
+    }
+    for constant in &program.constants {
+        validate_c_identifier(&constant.name, "constant")?;
+        let ty = c_global_declaration_type(constant.ty, true, program)?;
+        output.push_str(&format!("extern {ty} {};\n", constant.name));
+    }
+    for variable in &program.static_vars {
+        validate_c_identifier(&variable.name, "global variable")?;
+        let ty = c_global_declaration_type(variable.ty, !variable.mutable, program)?;
+        output.push_str(&format!("extern {ty} {};\n", variable.name));
+    }
+
+    output.push_str("\n#ifdef __cplusplus\n}\n#endif\n\n#endif /* RAMLANG_GENERATED_API_H */\n");
+    Ok(output)
+}
+
 fn compile(options: Options) -> Result<(), String> {
     let mut program = Program::default();
     let mut visited = HashSet::<PathBuf>::new();
@@ -4629,6 +4784,15 @@ fn compile(options: Options) -> Result<(), String> {
     if options.emit_llvm {
         let output = options.output.unwrap_or_else(|| options.sources[0].with_extension("ll"));
         fs::write(&output, llvm_ir)
+            .map_err(|error| format!("cannot write {}: {error}", output.display()))?;
+        println!("wrote {}", output.display());
+        return Ok(());
+    }
+
+    if options.emit_header {
+        let output = options.output.unwrap_or_else(|| options.sources[0].with_extension("h"));
+        let header = generate_c_header(&program)?;
+        fs::write(&output, header)
             .map_err(|error| format!("cannot write {}: {error}", output.display()))?;
         println!("wrote {}", output.display());
         return Ok(());
@@ -5131,7 +5295,33 @@ mod tests {
     }
 
     #[test]
-    fn parses_object_assembly_and_bitcode_emission_modes() {
+    fn generates_c_header_for_functions_globals_and_enums() {
+        let source = "enum Mode { Idle = 0, Active = 2 } static mut counter: i32 = 0; static limit: u32 = 100; const ratio: f32 = 0.5; extern static C_LIMIT: u64; extern fn printf(format: str, ...) -> i32; fn add(left: i32, right: i32) -> i32 { return left + right; } fn convert(value: f32) -> f64 { return value as f64; } fn main() -> i32 { return 0; }";
+        let program = parse_source(source).unwrap();
+        let header = generate_c_header(&program).unwrap();
+        assert!(header.contains("#include <stdbool.h>"));
+        assert!(header.contains("#include <stdint.h>"));
+        assert!(header.contains("#define RAMLANG_MODE_IDLE (0)"));
+        assert!(header.contains("#define RAMLANG_MODE_ACTIVE (2)"));
+        assert!(header.contains("extern int32_t add(int32_t left, int32_t right);"));
+        assert!(header.contains("extern double convert(float value);"));
+        assert!(header.contains("extern int32_t printf(const char * format, ...);"));
+        assert!(header.contains("extern int32_t counter;"));
+        assert!(header.contains("extern const uint32_t limit;"));
+        assert!(header.contains("extern const float ratio;"));
+        assert!(header.contains("extern uint64_t C_LIMIT;"));
+        assert!(!header.contains("main("));
+    }
+
+    #[test]
+    fn rejects_c_header_names_that_are_c_keywords() {
+        let program = parse_source("fn switch(value: i32) -> i32 { return value; } fn main() -> i32 { return 0; }").unwrap();
+        let error = generate_c_header(&program).unwrap_err();
+        assert!(error.contains("function name 'switch' is not a valid C identifier"));
+    }
+
+    #[test]
+    fn parses_object_assembly_bitcode_and_header_emission_modes() {
         let object = parse_args_from([
             "example.ram".to_owned(),
             "--emit-obj".to_owned(),
@@ -5165,6 +5355,14 @@ mod tests {
         ]).unwrap();
         assert!(bitcode.emit_bitcode);
         assert_eq!(bitcode.opt_level, "3");
+
+        let header = parse_args_from([
+            "api.ram".to_owned(),
+            "--emit-header".to_owned(),
+            "api.h".to_owned(),
+        ]).unwrap();
+        assert!(header.emit_header);
+        assert_eq!(header.output, Some(PathBuf::from("api.h")));
     }
 
     #[test]
