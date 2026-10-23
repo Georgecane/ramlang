@@ -9,7 +9,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Rust-based lexer, parser, compiler driver, and LLVM IR backend
 - Native compilation through Clang (LLVM 15 or newer, using opaque pointers)
 - Static types: `i32`, `i64`, `f64`, `bool`, and `void`
-- Functions, typed parameters, return values, recursive calls
+- Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Immutable local variables with `let` and mutable locals with `let mut`
 - Arithmetic, comparisons, unary `-` and `!`
 - `if` / `else`, `while`, nested blocks, line and block comments
@@ -65,6 +65,21 @@ Expected output:
 ```text
 49
 ```
+
+## C ABI interoperability
+
+External functions can be declared using `extern fn`. Calls use the platform's default C ABI, and the final native link must be able to resolve the referenced symbol.
+
+```rust
+extern fn abs(value: i32) -> i32;
+
+fn main() -> i32 {
+    print(abs(-42));
+    return 0;
+}
+```
+
+This example links against the host C runtime and prints `42`. At present, FFI uses the supported scalar and raw-pointer types; variadic declarations, string literals, and per-library link flags are not implemented.
 
 ## Explicit memory management
 
@@ -127,7 +142,7 @@ fn main() -> i32 {
 
 ## Current limitations
 
-This is an early, intentionally small compiler. Raw pointers and manual heap allocation are supported through `ptr`, `null`, `alloc`, `free`, `ptr_offset`, `load_i32`/`load_i64`/`load_f64`/`load_bool`/`load_ptr`, and matching `store_*` intrinsics. These operations are unsafe by design: the programmer is responsible for allocation size, alignment, bounds, lifetime, and avoiding use-after-free or double-free. Typed pointer safety, arrays, user-defined structs, strings, modules, imports, external function declarations, generics, and a formal ownership model are not implemented yet. Integer division uses signed LLVM division. There is no stable language specification or cross-platform target configuration yet.
+This is an early, intentionally small compiler. Raw pointers and manual heap allocation are supported through `ptr`, `null`, `alloc`, `free`, `ptr_offset`, `load_i32`/`load_i64`/`load_f64`/`load_bool`/`load_ptr`, and matching `store_*` intrinsics. These operations are unsafe by design: the programmer is responsible for allocation size, alignment, bounds, lifetime, and avoiding use-after-free or double-free. Typed pointer safety, arrays, user-defined structs, strings, modules, imports, variadic foreign calls, generics, and a formal ownership model are not implemented yet. Integer division uses signed LLVM division. There is no stable language specification or cross-platform target configuration yet.
 
 The compiler emits opaque-pointer LLVM IR, so the current native path targets LLVM/Clang 15+. LLVM IR is an implementation boundary, not a promise that every future RamLang feature or target is already supported.
 
