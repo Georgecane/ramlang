@@ -318,7 +318,41 @@ fn main() -> i32 {
 }
 ```
 
-Variants without an explicit value increment from the preceding discriminant, so `Blue` above has value `5`. Enums lower to their integer discriminants (currently `i32`) rather than tagged payload unions. Payload variants, exhaustive `match`, and enum constructors are not implemented yet.
+Variants without an explicit value increment from the preceding discriminant, so `Blue` above has value `5`. Enums lower to their integer discriminants (currently `i32`) rather than tagged payload unions. Payload variants and enum constructors are not implemented yet.
+
+## Match statements
+
+Use `match (value)` to select a block from enum variants. An enum match without a `_` fallback must cover every distinct discriminant; otherwise the compiler reports a non-exhaustive match. Non-enum values require a wildcard fallback.
+
+```rust
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn main() -> i32 {
+    let color: Color = Color.Green;
+    match (color) {
+        Color.Red => { print(10); },
+        Color.Green => { print(20); },
+        Color.Blue => { print(30); },
+    }
+    return 0;
+}
+```
+
+A wildcard can handle unmatched values in integer matches:
+
+```rust
+match (status_code) {
+    200 => { print(1); },
+    404 => { print(0); },
+    _ => { print(-1); },
+}
+```
+
+Match bodies are statements (usually blocks), not expressions, so this feature does not yet return a value from each arm. The lowered default edge for an exhaustive enum match traps if the underlying integer contains an invalid discriminant.
 
 ## Named structs
 
