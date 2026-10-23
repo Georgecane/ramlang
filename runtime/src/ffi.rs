@@ -1300,6 +1300,68 @@ pub unsafe extern "C" fn ramlang_udp_close(endpoint: *mut RamlangUdpEndpoint) {
     clear_last_error();
 }
 
+fn write_stdout_line(write_value: impl FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>) {
+    use std::io::Write;
+    let stdout = std::io::stdout();
+    let mut output = stdout.lock();
+    if write_value(&mut output).is_ok() {
+        let _ = output.write_all(b"\\n");
+    }
+}
+
+/// Print a signed 32-bit integer using the RamLang runtime, without a C standard-library call.
+#[unsafe(no_mangle)]
+pub extern "C" fn ramlang_print_i32(value: i32) {
+    write_stdout_line(|output| write!(output, "{value}"));
+}
+
+/// Print a signed 64-bit integer using the RamLang runtime.
+#[unsafe(no_mangle)]
+pub extern "C" fn ramlang_print_i64(value: i64) {
+    write_stdout_line(|output| write!(output, "{value}"));
+}
+
+/// Print an unsigned 32-bit integer using the RamLang runtime.
+#[unsafe(no_mangle)]
+pub extern "C" fn ramlang_print_u32(value: u32) {
+    write_stdout_line(|output| write!(output, "{value}"));
+}
+
+/// Print an unsigned 64-bit integer using the RamLang runtime.
+#[unsafe(no_mangle)]
+pub extern "C" fn ramlang_print_u64(value: u64) {
+    write_stdout_line(|output| write!(output, "{value}"));
+}
+
+/// Print a floating-point value using Rust's shortest round-trippable decimal formatting.
+#[unsafe(no_mangle)]
+pub extern "C" fn ramlang_print_f64(value: f64) {
+    write_stdout_line(|output| write!(output, "{value}"));
+}
+
+/// Print a NUL-terminated byte string, followed by a newline.
+///
+/// # Safety
+/// A non-null value must point to a readable NUL-terminated byte sequence.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_print_str(value: *const c_char) {
+    if value.is_null() {
+        set_last_error("print string must not be null");
+        return;
+    }
+    // SAFETY: the pointer precondition is part of this function's caller contract.
+    let bytes = unsafe { CStr::from_ptr(value) }.to_bytes();
+    use std::io::Write;
+    let stdout = std::io::stdout();
+    let mut output = stdout.lock();
+    if output.write_all(bytes).is_ok() {
+        let _ = output.write_all(b"\\n");
+        clear_last_error();
+    } else {
+        set_last_error("failed to write string to stdout");
+    }
+}
+
 /// Allocate runtime-owned memory for generated RamLang data frames.
 ///
 /// The allocation is aligned to 16 bytes and must be released with ramlang_free.
