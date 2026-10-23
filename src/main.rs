@@ -1212,4 +1212,12 @@ mod tests {
         let ir = compile(source).unwrap();
         assert!(ir.contains("icmp eq ptr"));
     }
+
+    #[test]
+    fn emits_external_c_abi_declarations() {
+        let source = "extern fn abs(value: i32) -> i32; fn main() -> i32 { return abs(-42) - 42; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("declare i32 @abs(i32)"));
+        assert!(ir.contains("call i32 @abs(i32"));
+    }
 }
