@@ -6,5 +6,8 @@ rust-version = "1.99"
 license = "GPL-3.0-only"
 description = "Async networking and concurrency runtime for RamLang"
 
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
