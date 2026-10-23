@@ -1,0 +1,17 @@
+struct Aligned {
+    byte: u8,
+    wide: i64,
+}
+
+fn main() -> i32 {
+    let byte_alignment: i64 = align_of(i8);
+    let integer_alignment: i64 = align_of(i32);
+    let array_alignment: i64 = align_of([i16; 4]);
+    let struct_alignment: i64 = align_of(Aligned);
+
+    print(byte_alignment);
+    print(integer_alignment);
+    print(array_alignment);
+    print(struct_alignment);
+    return 0;
+}
