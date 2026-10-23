@@ -1860,7 +1860,7 @@ impl<'a> FunctionGenerator<'a> {
                 let atomic_ops = [
                     ("load", "load"), ("store", "store"), ("exchange", "xchg"),
                     ("fetch_add", "add"), ("fetch_sub", "sub"), ("fetch_and", "and"),
-                    ("fetch_or", "or"), ("fetch_xor", "xor"),
+                    ("fetch_or", "or"), ("fetch_xor", "xor"), ("compare_exchange", "cmpxchg"),
                 ];
                 'atomic_parse: for (operation, _) in atomic_ops {
                     let Some(rest) = name.strip_prefix(&format!("atomic_{operation}_")) else {
@@ -1889,7 +1889,11 @@ impl<'a> FunctionGenerator<'a> {
                     }
                 }
                 if let Some((operation, atomic_type, order)) = atomic_builtin {
-                    let expected_args = if operation == "load" { 1 } else { 2 };
+                    let expected_args = match operation {
+                        "load" => 1,
+                        "compare_exchange" => 3,
+                        _ => 2,
+                    };
                     if args.len() != expected_args {
                         return Err(format!("atomic_{operation}_* expects {expected_args} argument(s)"));
                     }
@@ -1916,6 +1920,37 @@ impl<'a> FunctionGenerator<'a> {
                             "store atomic {llvm_type} {value}, ptr {pointer} {order}, align {alignment}"
                         ));
                         return Ok((String::new(), Type::Void));
+                    }
+                    if operation == "compare_exchange" {
+                        let expected_pointer = self.emit_raw_pointer_expr(&args[1], "atomic expected-value address")?;
+                        let expected_value = self.fresh_value();
+                        self.emit(format!(
+                            "{expected_value} = load {llvm_type}, ptr {expected_pointer}, align {alignment}"
+                        ));
+                        let (desired, desired_type) = self.emit_expr_expected(&args[2], Some(atomic_type))?;
+                        self.require_same(atomic_type, desired_type, "atomic compare-exchange desired value")?;
+                        let failure_order = match order {
+                            "release" => "monotonic",
+                            "acq_rel" => "acquire",
+                            other => other,
+                        };
+                        let pair_type = format!("{{ {llvm_type}, i1 }}");
+                        let pair = self.fresh_value();
+                        self.emit(format!(
+                            "{pair} = cmpxchg ptr {pointer}, {llvm_type} {expected_value}, {llvm_type} {desired} {order} {failure_order}, align {alignment}"
+                        ));
+                        let observed = self.fresh_value();
+                        self.emit(format!(
+                            "{observed} = extractvalue {pair_type} {pair}, 0"
+                        ));
+                        let success = self.fresh_value();
+                        self.emit(format!(
+                            "{success} = extractvalue {pair_type} {pair}, 1"
+                        ));
+                        self.emit(format!(
+                            "store {llvm_type} {observed}, ptr {expected_pointer}, align {alignment}"
+                        ));
+                        return Ok((success, Type::Bool));
                     }
                     let llvm_operation = atomic_ops.iter()
                         .find(|(name, _)| *name == operation)
