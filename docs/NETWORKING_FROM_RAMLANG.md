@@ -28,6 +28,10 @@ The shared library is written to target/release/libramlang_runtime.so on Linux. 
 - ramlang_udp_send_to(handle, data, length, destination): send a datagram; payloads are capped at 65,507 bytes.
 - ramlang_udp_recv_from(handle, output, capacity, peer_output, peer_capacity): receive one datagram and copy the sender address into the peer buffer.
 - ramlang_udp_close(handle): release a UDP handle.
+- ramlang_udp_request_start(destination, data, length, response_capacity, timeout_ms): start a UDP send/receive transaction on the shared background runtime.
+- ramlang_udp_request_is_ready(handle), ramlang_udp_request_wait(handle, wait_timeout_ms): inspect completion without waiting indefinitely.
+- ramlang_udp_request_read_result(handle, output, capacity): copy the returned datagram.
+- ramlang_udp_request_cancel(handle), ramlang_udp_request_close(handle): cancel and clean up background work.
 
 Frames use a four-byte unsigned length prefix in big-endian byte order, followed by the payload. The C ABI caps each TCP frame and read-buffer capacity at 16 MiB; reads also reject frames larger than the supplied buffer capacity. If a read fails, close that connection because a partial frame may already have been consumed. A timeout greater than zero is required when connecting; it also bounds each read/write operation on that connection.
 
@@ -74,6 +78,20 @@ The UDP bridge is also blocking at the call site and applies the endpoint timeou
     LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH" target/udp-client
 
 The CI test starts a local UDP echo server at 127.0.0.1:39872. The client sends ping and prints the length and first byte of the reply. The C declarations for both TCP and UDP are in runtime/include/ramlang_runtime.h.
+
+
+
+## Non-blocking UDP requests
+
+The UDP request API starts a send and waits for one response on the shared Tokio runtime, returning a handle immediately. It resolves the destination, sends using a temporary ephemeral socket, and accepts a reply only from the selected destination socket address. Request payloads and response buffers are limited to 65,507 bytes. The network timeout is applied separately to DNS lookup, socket binding, sending, and receiving; request wait has its own timeout. Closing the handle cancels work that has not completed.
+
+    cargo build --release -p ramlang-runtime
+    cargo run --release -- examples/network/udp_request.ram \
+      --link-search target/release --link-lib ramlang_runtime \
+      -o target/udp-request
+    LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH" target/udp-request
+
+The example uses the local echo service at 127.0.0.1:39872 and prints the response length and first byte. As with the TCP request API, this is handle-based background concurrency, not language-native async/await syntax.
 
 
 ## Roadmap to native async
