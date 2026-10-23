@@ -232,7 +232,6 @@ pub unsafe extern "C" fn ramlang_tcp_close(connection: *mut RamlangTcpConnection
     clear_last_error();
 }
 
-
 const MAX_FFI_UDP_PAYLOAD: usize = 65_507;
 
 /// Opaque UDP endpoint handle for C and RamLang callers.
@@ -393,7 +392,10 @@ pub unsafe extern "C" fn ramlang_udp_send_to(
         Ok(socket) => socket,
         Err(_) => return fail_i64("UDP endpoint lock is poisoned"),
     };
-    match handle.runtime.block_on(socket.send_to(payload, &destination)) {
+    match handle
+        .runtime
+        .block_on(socket.send_to(payload, &destination))
+    {
         Ok(sent) => {
             clear_last_error();
             sent as i64
@@ -544,7 +546,9 @@ mod tests {
     #[test]
     fn c_abi_udp_datagram_round_trip() {
         let server = UdpSocket::bind("127.0.0.1:0").unwrap();
-        server.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
         let server_address = server.local_addr().unwrap();
         let server = thread::spawn(move || {
             let mut payload = [0_u8; 64];
@@ -566,9 +570,11 @@ mod tests {
         assert!(local_length > 0, "{}", unsafe {
             CStr::from_ptr(ramlang_last_error()).to_string_lossy()
         });
-        assert!(unsafe { CStr::from_ptr(local_output.as_ptr()) }
-            .to_string_lossy()
-            .starts_with("127.0.0.1:"));
+        assert!(
+            unsafe { CStr::from_ptr(local_output.as_ptr()) }
+                .to_string_lossy()
+                .starts_with("127.0.0.1:")
+        );
 
         let destination = CString::new(server_address.to_string()).unwrap();
         let payload = b"ramlang udp";
