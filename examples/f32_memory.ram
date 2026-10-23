@@ -1,0 +1,19 @@
+static mut DEVICE_VALUE: f32 = 1.25e-2;
+
+fn main() -> i32 {
+    let address: ptr = &DEVICE_VALUE;
+
+    volatile_store_f32(address, 1.5);
+    print(volatile_load_f32(address));
+
+    volatile_store_unaligned_f32(address, 3.5);
+    print(volatile_load_unaligned_f32(address));
+
+    let memory: ptr = alloc(8);
+    let unaligned: ptr = ptr_offset(memory, 1);
+    store_unaligned_f32(unaligned, 4.25);
+    print(load_unaligned_f32(unaligned));
+
+    free(memory);
+    return 0;
+}
