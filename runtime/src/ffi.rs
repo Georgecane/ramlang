@@ -1439,6 +1439,69 @@ mod tests {
     }
 
     #[test]
+    fn c_abi_task_scope_cancels_tracked_tcp_requests() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server_address = listener.local_addr().unwrap();
+        let (received_tx, received_rx) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut header = [0_u8; 4];
+            stream.read_exact(&mut header).unwrap();
+            let length = u32::from_be_bytes(header) as usize;
+            let mut payload = vec![0_u8; length];
+            stream.read_exact(&mut payload).unwrap();
+            received_tx.send(()).unwrap();
+            thread::sleep(Duration::from_millis(200));
+        });
+
+        let address = CString::new(server_address.to_string()).unwrap();
+        let payload = b"scope cancellation";
+        // SAFETY: address and payload are valid and copied synchronously.
+        let request = unsafe {
+            ramlang_tcp_request_start(
+                address.as_ptr(),
+                payload.as_ptr(),
+                payload.len() as u64,
+                5_000,
+            )
+        };
+        assert!(!request.is_null());
+
+        let scope = ramlang_task_scope_new();
+        assert!(!scope.is_null());
+        // SAFETY: both request and scope are live handles and not used concurrently.
+        assert_eq!(unsafe { ramlang_task_scope_track_tcp(scope, request) }, 0);
+        assert_eq!(unsafe { ramlang_task_scope_track_tcp(scope, request) }, 0);
+        assert_eq!(unsafe { ramlang_task_scope_len(scope) }, 1);
+        received_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        // SAFETY: the scope is live and not being closed concurrently.
+        assert_eq!(unsafe { ramlang_task_scope_cancel(scope) }, 0);
+        assert_eq!(unsafe { ramlang_tcp_request_wait(request, 500) }, 1);
+
+        let mut output = [0_u8; 64];
+        // SAFETY: request is live and output has 64 writable bytes.
+        assert_eq!(
+            unsafe { ramlang_tcp_request_read_result(request, output.as_mut_ptr(), 64) },
+            -1
+        );
+        assert_eq!(
+            unsafe { CStr::from_ptr(ramlang_last_error()) }.to_string_lossy(),
+            "TCP request cancelled"
+        );
+
+        // SAFETY: both handles are live and have not been closed.
+        unsafe {
+            ramlang_task_scope_close(scope);
+            ramlang_tcp_request_close(request);
+        }
+        server.join().unwrap();
+    }
+
+    #[test]
     fn c_abi_async_tcp_request_cancel_unblocks_waiters() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let server_address = listener.local_addr().unwrap();
