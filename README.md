@@ -492,7 +492,7 @@ fn main() -> i32 {
 }
 ```
 
-`size_of(void)` is invalid. Cross-compiling may change pointer and struct sizes; use this intrinsic instead of hardcoding ABI-dependent byte counts. The current allocator interface uses an `i64` size and targets a 64-bit host ABI in the provided examples.
+`size_of(void)` is invalid. Cross-compiling may change pointer and struct sizes; use this intrinsic instead of hardcoding ABI-dependent byte counts. Heap allocation and C memory routines use target-sized `size_t` arguments (`i32` on supported 32-bit targets, `i64` on supported 64-bit targets). The source-language `size_of` result remains `i64`, so the compiler converts sizes to the target ABI width at calls.
 
 ## Bit-manipulation intrinsics
 
