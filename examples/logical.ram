@@ -1,0 +1,14 @@
+fn side_effect() -> bool {
+    print(9);
+    return true;
+}
+
+fn main() -> i32 {
+    let remainder: i32 = 7 % 4;
+    if (false && side_effect() || remainder == 3) {
+        print(0);
+    } else {
+        print(1);
+    }
+    return 0;
+}
