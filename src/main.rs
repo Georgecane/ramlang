@@ -2480,6 +2480,23 @@ mod tests {
     }
 
     #[test]
+    fn lowers_panic_as_a_non_returning_trap() {
+        let source = r#"fn main() -> i32 { panic("fatal error"); return 0; }"#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("@.fmt.str"));
+        assert!(ir.contains("fatal error"));
+        assert!(ir.contains("call void @llvm.trap()"));
+        assert!(ir.contains("unreachable"));
+        assert!(!ir.contains("ret i32 0"));
+    }
+
+    #[test]
+    fn rejects_invalid_panic_arguments() {
+        let error = compile("fn main() -> i32 { panic(42); return 0; }").unwrap_err();
+        assert!(error.contains("panic message"));
+    }
+
+    #[test]
     fn rejects_invalid_assert_and_assume_arguments() {
         let assert_error = compile("fn main() -> i32 { assert(1); return 0; }").unwrap_err();
         assert!(assert_error.contains("assert condition"));
