@@ -4528,6 +4528,24 @@ mod tests {
     }
 
     #[test]
+    fn lowers_inline_assembly_with_literal_template_and_constraints() {
+        let source = r#"fn main() -> i32 { let value: i32 = asm_i32("mov $1, $0", "=r,r", 42); asm_void("nop", ""); print(value); return 0; }"#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains(r#"call i32 asm sideeffect "\6D\6F\76\20\24\31\2C\20\24\30", "\3D\72\2C\72"(i32 42)"#));
+        assert!(ir.contains(r#"call void asm sideeffect "\6E\6F\70", ""()"#));
+    }
+
+    #[test]
+    fn rejects_invalid_inline_assembly_template_and_constraints() {
+        let missing = compile("fn main() -> i32 { let x: i32 = asm_i32(42, \"=r\", 1); return x; }").unwrap_err();
+        assert!(missing.contains("assembly template must be a string literal"));
+        let bad_constraints = compile("fn main() -> i32 { let x: i32 = asm_i32(\"nop\", 0, 1); return x; }").unwrap_err();
+        assert!(bad_constraints.contains("constraints must be a string literal"));
+        let too_few = compile("fn main() -> i32 { let x: i32 = asm_i32(\"nop\"); return x; }").unwrap_err();
+        assert!(too_few.contains("expects an assembly string and a constraint string"));
+    }
+
+    #[test]
     fn lowers_atomic_load_store_and_read_modify_write() {
         let source = "fn main() -> i32 { let mut value: i32 = 0; let address: ptr = &value; atomic_store_i32_release(address, 10); print(atomic_load_i32_acquire(address)); print(atomic_fetch_add_i32_acq_rel(address, 5)); print(atomic_fetch_sub_i32_relaxed(address, 1)); print(atomic_exchange_i32_seq_cst(address, 20)); print(atomic_fetch_and_i32(address, 7)); print(atomic_fetch_or_i32(address, 8)); print(atomic_fetch_xor_i32(address, 1)); return 0; }";
         let ir = compile(source).unwrap();
