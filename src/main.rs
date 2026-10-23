@@ -3828,20 +3828,20 @@ fn resolve_program_enum_types(source: &Program) -> Result<Program, String> {
     }
     for function in &mut program.functions {
         for (_, ty) in &mut function.params {
-            resolve_enum_type(ty, &enum_ids, &alias_types);
+            resolve_enum_type(ty, &enum_ids, &alias_types)?;
         }
-        resolve_enum_type(&mut function.return_type, &enum_ids, &alias_types);
+        resolve_enum_type(&mut function.return_type, &enum_ids, &alias_types)?;
         if let Some(body) = &mut function.body {
             resolve_enum_stmt(body, &enum_ids, &alias_types)?;
         }
     }
     for constant in &mut program.constants {
-        resolve_enum_type(&mut constant.ty, &enum_ids, &alias_types);
+        resolve_enum_type(&mut constant.ty, &enum_ids, &alias_types)?;
         resolve_global_enum_variant(&mut constant.value, &program.enums)?;
         resolve_enum_expr(&mut constant.value, &enum_ids, &alias_types)?;
     }
     for variable in &mut program.static_vars {
-        resolve_enum_type(&mut variable.ty, &enum_ids, &alias_types);
+        resolve_enum_type(&mut variable.ty, &enum_ids, &alias_types)?;
         if let Some(value) = &mut variable.value {
             resolve_global_enum_variant(value, &program.enums)?;
             resolve_enum_expr(value, &enum_ids, &alias_types)?;
