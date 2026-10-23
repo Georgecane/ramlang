@@ -3189,6 +3189,36 @@ mod tests {
     }
 
     #[test]
+    fn selects_pointer_width_from_target_triple() {
+        assert_eq!(target_pointer_width(Some("i686-unknown-linux-gnu")).unwrap(), 32);
+        assert_eq!(target_pointer_width(Some("wasm32-unknown-unknown")).unwrap(), 32);
+        assert_eq!(target_pointer_width(Some("x86_64-unknown-linux-gnu")).unwrap(), 64);
+        assert_eq!(target_pointer_width(Some("aarch64-unknown-linux-gnu")).unwrap(), 64);
+        assert_eq!(target_pointer_width(Some("x86_64-unknown-linux-gnux32")).unwrap(), 32);
+        assert!(target_pointer_width(Some("unknown-unknown-unknown")).unwrap_err().contains("cannot determine pointer width"));
+    }
+
+    #[test]
+    fn lowers_size_t_based_apis_for_32bit_targets() {
+        let source = "fn main() -> i32 { let p: ptr = calloc(2, size_of(i32)); let text_length: i64 = strlen(\"hello\"); memset(p, 0, text_length); memcpy(p, p, text_length); let order: i32 = memcmp(p, p, text_length); let found: ptr = memchr(p, 0, text_length); let q: ptr = realloc(p, text_length); free(q); return order; }";
+        let program = parse_source(source).unwrap();
+        let ir = compile_to_llvm_for_pointer_width(&program, 32).unwrap();
+        assert!(ir.contains("declare ptr @malloc(i32)"));
+        assert!(ir.contains("declare ptr @calloc(i32, i32)"));
+        assert!(ir.contains("declare ptr @realloc(ptr, i32)"));
+        assert!(ir.contains("declare ptr @memcpy(ptr, ptr, i32)"));
+        assert!(ir.contains("declare ptr @memset(ptr, i32, i32)"));
+        assert!(ir.contains("declare i32 @strlen(ptr)"));
+        assert!(ir.contains("declare i32 @strncmp(ptr, ptr, i32)"));
+        assert!(ir.contains("declare ptr @memchr(ptr, i32, i32)"));
+        assert!(ir.contains("call ptr @calloc(i32"));
+        assert!(ir.contains("call i32 @strlen(ptr"));
+        assert!(ir.contains("zext i32"));
+        assert!(ir.contains("trunc i64"));
+        assert!(ir.contains("size_t.trap"));
+    }
+
+    #[test]
     fn parses_native_linker_options() {
         let options = parse_args_from([
             "example.ram".to_owned(),
