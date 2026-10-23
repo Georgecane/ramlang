@@ -179,7 +179,7 @@ impl<'a> Lexer<'a> {
 
             let symbol = match byte {
                 b'(' => "(", b')' => ")", b'{' => "{", b'}' => "}",
-                b'[' => "[", b']' => "]",
+                b'[' => "[", b']' => "]", b'.' => ".",
                 b':' => ":", b';' => ";", b',' => ",", b'+' => "+",
                 b'-' => "-", b'*' => "*", b'/' => "/", b'%' => "%", b'=' => "=",
                 b'<' => "<", b'>' => ">", b'!' => "!",
@@ -270,6 +270,7 @@ enum Type {
     Str,
     Ptr,
     Array(ArrayElement, u32),
+    Struct(u64),
     Void,
 }
 
@@ -289,6 +290,7 @@ impl Type {
             Self::Str => "ptr",
             Self::Ptr => "ptr",
             Self::Array(_, _) => "ptr",
+            Self::Struct(_) => "ptr",
             Self::Void => "void",
         }
     }
@@ -326,10 +328,30 @@ struct Function {
 }
 
 #[derive(Debug, Clone)]
+struct StructDef {
+    id: u64,
+    name: String,
+    fields: Vec<(String, Type)>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct Program {
+    functions: Vec<Function>,
+    structs: Vec<StructDef>,
+}
+
+fn struct_type_id(name: &str) -> u64 {
+    name.bytes().fold(14_695_981_039_346_656_037_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(1_099_511_628_211)
+    })
+}
+
+#[derive(Debug, Clone)]
 enum Stmt {
     Block(Vec<Stmt>),
     Let { name: String, declared_type: Option<Type>, mutable: bool, value: Expr },
     Assign { name: String, value: Expr },
+    FieldAssign { base: Expr, field: String, value: Expr },
     IndexAssign { array: Expr, index: Expr, value: Expr },
     Return(Option<Expr>),
     Break,
@@ -348,6 +370,8 @@ enum Expr {
     Bool(bool),
     Null,
     Variable(String),
+    StructLiteral { type_id: u64, fields: Vec<(String, Expr)> },
+    Field { base: Box<Expr>, field: String },
     Unary { op: String, right: Box<Expr> },
     Cast { value: Box<Expr>, target: Type },
     Index { array: Box<Expr>, index: Box<Expr> },
@@ -417,19 +441,49 @@ impl Parser {
         format!("{message} at {}:{}", self.current().line, self.current().column)
     }
 
-    fn parse_program(&mut self) -> Result<Vec<Function>, String> {
-        let mut functions = Vec::new();
+    fn parse_program(&mut self) -> Result<Program, String> {
+        let mut program = Program::default();
         while !self.at_end() {
+            if self.match_keyword("struct") {
+                program.structs.push(self.parse_struct()?);
+                continue;
+            }
             let external = self.match_keyword("extern");
             if !self.match_keyword("fn") {
-                return Err(self.error("expected a function declaration beginning with 'fn' or 'extern fn'".to_owned()));
+                return Err(self.error("expected a struct declaration, function declaration, or 'extern fn'".to_owned()));
             }
-            functions.push(self.parse_function(external)?);
+            program.functions.push(self.parse_function(external)?);
         }
-        if functions.is_empty() {
-            return Err("source file does not contain any functions".to_owned());
+        if program.functions.is_empty() && program.structs.is_empty() {
+            return Err("source file does not contain any declarations".to_owned());
         }
-        Ok(functions)
+        Ok(program)
+    }
+
+    fn parse_struct(&mut self) -> Result<StructDef, String> {
+        let name = self.expect_ident("struct name")?;
+        self.expect_symbol("{")?;
+        let mut fields = Vec::new();
+        while !self.check_symbol("}") && !self.at_end() {
+            let field_name = self.expect_ident("field name")?;
+            self.expect_symbol(":")?;
+            let field_type = self.parse_type()?;
+            if field_type == Type::Void {
+                return Err(self.error("a struct field cannot have type void".to_owned()));
+            }
+            if fields.iter().any(|(existing, _)| existing == &field_name) {
+                return Err(self.error(format!("duplicate field '{field_name}' in struct '{name}'")));
+            }
+            fields.push((field_name, field_type));
+            if !self.match_symbol(",") {
+                break;
+            }
+        }
+        self.expect_symbol("}")?;
+        if fields.is_empty() {
+            return Err(self.error(format!("struct '{name}' must contain at least one field")));
+        }
+        Ok(StructDef { id: struct_type_id(&name), name, fields })
     }
 
     fn parse_type(&mut self) -> Result<Type, String> {
@@ -465,7 +519,7 @@ impl Parser {
             "str" => Ok(Type::Str),
             "ptr" => Ok(Type::Ptr),
             "void" => Ok(Type::Void),
-            _ => Err(self.error(format!("unknown type '{name}'; expected i8, i16, i32, i64, u8, u16, u32, u64, f64, bool, str, ptr, or void"))),
+            _ => Ok(Type::Struct(struct_type_id(&name)),
         }
     }
 
