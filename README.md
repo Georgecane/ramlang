@@ -10,6 +10,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Native compilation through Clang (LLVM 15 or newer, using opaque pointers)
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
+- `extern static` declarations for C-defined scalar and raw-pointer globals
 - Global scalar, boolean, null-pointer, and UTF-8 string constants, available across source files
 - Static global storage with immutable `static` and mutable `static mut` variables
 - Target-aware `size_of(Type)`, `align_of(Type)`, and `offset_of(Type, field)` layout queries
@@ -151,6 +152,24 @@ fn main() -> i32 {
 ```
 
 This example links against the host C runtime and prints `42`. At present, FFI uses the supported scalar and raw-pointer types; variadic declarations and per-library link metadata inside source files are not implemented. Pass library search paths and link flags on the compiler command line.
+
+### External global variables
+
+Use `extern static mut NAME: Type;` for a writable C global or `extern static NAME: Type;` for a read-only reference. These declarations are emitted as LLVM external globals and resolved by the final linker.
+
+```rust
+extern static mut C_COUNTER: i32;
+extern static C_LIMIT: u32;
+
+fn main() -> i32 {
+    C_COUNTER = C_COUNTER + 2;
+    print(C_COUNTER);
+    print(C_LIMIT);
+    return 0;
+}
+```
+
+The corresponding C definitions live in `examples/extern_globals.c`; CI compiles RamLang to an object file, links it with the C object, and checks the result. External aggregate globals such as inline C structs are not implemented yet. Ensure the declared type, mutability, symbol name, and target ABI match the C definition.
 
 ### Explicit address conversion
 
