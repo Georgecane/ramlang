@@ -5882,7 +5882,7 @@ mod tests {
         assert!(ir.contains("fptosi float"));
         assert!(ir.contains("call i32 (ptr, ...) @printf(ptr"));
         assert!(ir.contains("double"));
-        assert!(ir.contains("store i64 8, ptr"));
+        assert!(ir.contains("call i32 (ptr, ...) @printf(ptr @.fmt.i64, i64 8)"));
         assert!(ir.contains("getelementptr { i8, float }, ptr null"));
     }
 
