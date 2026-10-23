@@ -352,7 +352,25 @@ match (status_code) {
 }
 ```
 
-Match bodies are statements (usually blocks), not expressions, so this feature does not yet return a value from each arm. Constant enum, integer, and boolean patterns lower to an LLVM `switch` terminator; dynamic patterns retain an ordered comparison chain. The lowered default edge for an exhaustive enum match traps if the underlying integer contains an invalid discriminant.
+Match statements select blocks. Match expressions instead return a value: every reachable arm must produce the same type, and integer matches require a fallback. A diverging arm such as `panic("invalid input")` is allowed because it does not contribute a value to the result's LLVM `phi` node.
+
+```rust
+fn decode(code: i32) -> i32 {
+    return match (code) {
+        0 => 42,
+        200 => 7,
+        _ => panic("unsupported code"),
+    };
+}
+
+fn main() -> i32 {
+    print(decode(0));
+    print(decode(200));
+    return 0;
+}
+```
+
+Statement matches with constant enum, integer, and boolean patterns lower to an LLVM `switch`; value-producing matches currently lower to ordered comparison branches and a `phi` node. Dynamic patterns retain ordered comparison semantics. The lowered default edge for an exhaustive enum statement match traps if the underlying integer contains an invalid discriminant.
 
 ## Named structs
 
