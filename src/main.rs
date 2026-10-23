@@ -3871,26 +3871,60 @@ fn target_pointer_width(target: Option<&str>) -> Result<u32, String> {
     }
 }
 
+fn merge_program(target: &mut Program, mut source: Program) -> Result<(), String> {
+    target.functions.append(&mut source.functions);
+    target.structs.append(&mut source.structs);
+    target.enums.append(&mut source.enums);
+    target.constants.append(&mut source.constants);
+    target.static_vars.append(&mut source.static_vars);
+    for (type_id, type_name) in source.type_references {
+        if let Some(existing) = target.type_references.get(&type_id) {
+            if existing != &type_name {
+                return Err(format!("type identifier collision between '{existing}' and '{type_name}'"));
+            }
+        } else {
+            target.type_references.insert(type_id, type_name);
+        }
+    }
+    Ok(())
+}
+
+fn load_source_recursive(
+    source_path: &Path,
+    visited: &mut HashSet<PathBuf>,
+) -> Result<Vec<Program>, String> {
+    let canonical_path = fs::canonicalize(source_path)
+        .map_err(|error| format!("cannot resolve source/import path {}: {error}", source_path.display()))?;
+    if !visited.insert(canonical_path.clone()) {
+        return Ok(Vec::new());
+    }
+
+    let source = fs::read_to_string(&canonical_path)
+        .map_err(|error| format!("cannot read {}: {error}", canonical_path.display()))?;
+    let mut parsed = parse_source(&source)
+        .map_err(|error| format!("{}: {error}", canonical_path.display()))?;
+    let imports = std::mem::take(&mut parsed.imports);
+    let base_directory = canonical_path.parent().unwrap_or_else(|| Path::new("."));
+    let mut programs = Vec::new();
+    for import in imports {
+        let import_path = Path::new(&import);
+        let resolved_import = if import_path.is_absolute() {
+            import_path.to_path_buf()
+        } else {
+            base_directory.join(import_path)
+        };
+        programs.extend(load_source_recursive(&resolved_import, visited)?);
+    }
+    programs.push(parsed);
+    Ok(programs)
+}
+
 fn compile(options: Options) -> Result<(), String> {
     let mut program = Program::default();
+    let mut visited = HashSet::<PathBuf>::new();
     for source_path in &options.sources {
-        let source = fs::read_to_string(source_path)
-            .map_err(|error| format!("cannot read {}: {error}", source_path.display()))?;
-        let mut parsed = parse_source(&source)
-            .map_err(|error| format!("{}: {error}", source_path.display()))?;
-        program.functions.append(&mut parsed.functions);
-        program.structs.append(&mut parsed.structs);
-        program.enums.append(&mut parsed.enums);
-        program.constants.append(&mut parsed.constants);
-        program.static_vars.append(&mut parsed.static_vars);
-        for (type_id, type_name) in parsed.type_references {
-            if let Some(existing) = program.type_references.get(&type_id) {
-                if existing != &type_name {
-                    return Err(format!("struct type identifier collision between '{existing}' and '{type_name}'"));
-                }
-            } else {
-                program.type_references.insert(type_id, type_name);
-            }
+        for parsed in load_source_recursive(source_path, &mut visited)? {
+            merge_program(&mut program, parsed)?;
         }
     }
     let source_label = options.sources.iter()
