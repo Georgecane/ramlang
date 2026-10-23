@@ -1774,14 +1774,16 @@ struct FutureResultSlot {
 /// Pointer-result futures produced by network built-ins own their result allocation until
 /// await transfers that pointer to the caller. If the handle is dropped first, the runtime
 /// releases that allocation. Each Future is one-shot: awaiting a consumed result is an error.
+type FuturePointerCleanup = unsafe extern "C" fn(*mut c_void);
+
 struct FutureState {
     data: Mutex<FutureResultSlot>,
     ready: Condvar,
-    pointer_result_owned: bool,
+    pointer_result_cleanup: Option<FuturePointerCleanup>,
 }
 
 impl FutureState {
-    fn new(pointer_result_owned: bool) -> Self {
+    fn new(pointer_result_cleanup: Option<FuturePointerCleanup>) -> Self {
         Self {
             data: Mutex::new(FutureResultSlot {
                 result: None,
@@ -1791,7 +1793,7 @@ impl FutureState {
                 abort_handle: None,
             }),
             ready: Condvar::new(),
-            pointer_result_owned,
+            pointer_result_cleanup,
         }
     }
 
@@ -1822,18 +1824,20 @@ impl FutureState {
                 return;
             }
             if data.closed {
-                if self.pointer_result_owned {
-                    value_to_release = value.ok().map(|encoded| encoded as usize as *mut c_void);
+                if let Some(cleanup) = self.pointer_result_cleanup {
+                    value_to_release =
+                        value.ok().map(|encoded| (cleanup, encoded as usize as *mut c_void));
                 }
             } else {
                 data.result = Some(value);
                 self.ready.notify_all();
             }
         }
-        if let Some(pointer) = value_to_release {
-            // SAFETY: pointer-result futures own a ramlang_alloc allocation until await
-            // transfers it to the caller. This path runs only if the handle closed first.
-            unsafe { ramlang_free(pointer) };
+        if let Some((cleanup, pointer)) = value_to_release {
+            if !pointer.is_null() {
+                // SAFETY: the future's configured cleanup matches the pointer payload type.
+                unsafe { cleanup(pointer) };
+            }
         }
     }
 
@@ -1841,23 +1845,26 @@ impl FutureState {
         let (abort_handle, value_to_release) = {
             let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
             data.closed = true;
-            let result_to_release = if self.pointer_result_owned && !data.pointer_result_transferred
-            {
-                data.result.take().and_then(Result::ok)
-            } else {
-                None
-            };
+            let result_to_release =
+                if self.pointer_result_cleanup.is_some() && !data.pointer_result_transferred {
+                    data.result.take().and_then(Result::ok).map(|encoded| {
+                        (
+                            self.pointer_result_cleanup.expect("cleanup checked above"),
+                            encoded as usize as *mut c_void,
+                        )
+                    })
+                } else {
+                    None
+                };
             (data.abort_handle.take(), result_to_release)
         };
         if let Some(handle) = abort_handle {
             handle.abort();
         }
-        if let Some(encoded) = value_to_release {
-            let pointer = encoded as usize as *mut c_void;
+        if let Some((cleanup, pointer)) = value_to_release {
             if !pointer.is_null() {
-                // SAFETY: pointer-result futures hold runtime-owned allocations until await
-                // transfers ownership to the caller or this close path releases them.
-                unsafe { ramlang_free(pointer) };
+                // SAFETY: the future's configured cleanup matches its pointer payload type.
+                unsafe { cleanup(pointer) };
             }
         }
     }
@@ -1900,7 +1907,7 @@ pub unsafe extern "C" fn ramlang_future_spawn_i64(
         }
     };
 
-    let state = Arc::new(FutureState::new(false));
+    let state = Arc::new(FutureState::new(None));
     let task_state = Arc::clone(&state);
     let context_address = context as usize;
     // Detach this task rather than aborting it on Future drop. Generated wrappers release
@@ -1962,7 +1969,7 @@ pub unsafe extern "C" fn ramlang_tcp_request_future(
         }
     };
 
-    let state = Arc::new(FutureState::new(true));
+    let state = Arc::new(FutureState::new(Some(ramlang_free)));
     let task_state = Arc::clone(&state);
     let operation_timeout = Duration::from_millis(timeout_ms as u64);
     let task = runtime.spawn(async move {
@@ -2169,7 +2176,7 @@ pub unsafe extern "C" fn ramlang_future_await_i64(future: *mut RamlangFuture) ->
     match data.result.as_ref().expect("Future result checked above") {
         Ok(value) => {
             let value = *value;
-            if future.state.pointer_result_owned {
+            if future.state.pointer_result_cleanup.is_some() {
                 data.pointer_result_transferred = true;
             }
             clear_last_error();
