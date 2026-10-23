@@ -47,7 +47,7 @@ This syntax is illustrative and is not accepted by the compiler yet.
 
 ## Runtime crate
 
-`runtime/` provides async TCP connect and listener/accept helpers, length-prefixed frames with a caller-supplied maximum, per-operation timeouts, and localhost tests for a round trip and oversized-frame rejection. This is currently a Rust API, not yet callable from RamLang without an explicit C ABI bridge or compiler-generated runtime integration.
+`runtime/` provides async TCP connect and listener/accept helpers, length-prefixed frames with a caller-supplied maximum, bounded UDP datagrams, per-operation timeouts, and localhost tests for TCP/UDP round trips and oversized payload rejection. This is currently a Rust API, not yet callable from RamLang without an explicit C ABI bridge or compiler-generated runtime integration.
 
 ## Quality gates
 
