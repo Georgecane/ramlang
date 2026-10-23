@@ -1816,8 +1816,10 @@ impl<'a> FunctionGenerator<'a> {
                         return Err("strlen expects exactly one string or pointer argument".to_owned());
                     }
                     let pointer = self.emit_raw_pointer_expr(&args[0], "strlen argument")?;
-                    let result = self.fresh_value();
-                    self.emit(format!("{result} = call i64 @strlen(ptr {pointer})"));
+                    let size_t_type = self.size_t_llvm_type();
+                    let raw_result = self.fresh_value();
+                    self.emit(format!("{raw_result} = call {size_t_type} @strlen(ptr {pointer})"));
+                    let result = self.widen_size_t_to_i64(&raw_result);
                     return Ok((result, Type::I64));
                 }
 
@@ -1834,7 +1836,9 @@ impl<'a> FunctionGenerator<'a> {
                     } else {
                         let (count, count_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
                         self.require_same(Type::I64, count_type, "strncmp byte count")?;
-                        self.emit(format!("{result} = call i32 @strncmp(ptr {left}, ptr {right}, i64 {count})"));
+                        let count = self.emit_size_t_count(&count, "strncmp byte count")?;
+                        let size_t_type = self.size_t_llvm_type();
+                        self.emit(format!("{result} = call i32 @strncmp(ptr {left}, ptr {right}, {size_t_type} {count})"));
                     }
                     return Ok((result, Type::I32));
                 }
@@ -1848,8 +1852,10 @@ impl<'a> FunctionGenerator<'a> {
                     self.require_same(Type::I32, byte_type, "memchr byte value")?;
                     let (count, count_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
                     self.require_same(Type::I64, count_type, "memchr byte count")?;
+                    let count = self.emit_size_t_count(&count, "memchr byte count")?;
+                    let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call ptr @memchr(ptr {pointer}, i32 {byte}, i64 {count})"));
+                    self.emit(format!("{result} = call ptr @memchr(ptr {pointer}, i32 {byte}, {size_t_type} {count})"));
                     return Ok((result, Type::Ptr));
                 }
 
@@ -1861,8 +1867,10 @@ impl<'a> FunctionGenerator<'a> {
                     let source = self.emit_raw_pointer_expr(&args[1], "memory source")?;
                     let (count, count_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
                     self.require_same(Type::I64, count_type, &format!("{name} byte count"))?;
+                    let count = self.emit_size_t_count(&count, &format!("{name} byte count"))?;
+                    let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call ptr @{name}(ptr {destination}, ptr {source}, i64 {count})"));
+                    self.emit(format!("{result} = call ptr @{name}(ptr {destination}, ptr {source}, {size_t_type} {count})"));
                     return Ok((result, Type::Ptr));
                 }
 
@@ -1875,8 +1883,10 @@ impl<'a> FunctionGenerator<'a> {
                     self.require_same(Type::I32, fill_type, "memset fill value")?;
                     let (count, count_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
                     self.require_same(Type::I64, count_type, "memset byte count")?;
+                    let count = self.emit_size_t_count(&count, "memset byte count")?;
+                    let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call ptr @memset(ptr {destination}, i32 {fill}, i64 {count})"));
+                    self.emit(format!("{result} = call ptr @memset(ptr {destination}, i32 {fill}, {size_t_type} {count})"));
                     return Ok((result, Type::Ptr));
                 }
 
@@ -1888,8 +1898,10 @@ impl<'a> FunctionGenerator<'a> {
                     let right = self.emit_raw_pointer_expr(&args[1], "memcmp right operand")?;
                     let (count, count_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
                     self.require_same(Type::I64, count_type, "memcmp byte count")?;
+                    let count = self.emit_size_t_count(&count, "memcmp byte count")?;
+                    let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call i32 @memcmp(ptr {left}, ptr {right}, i64 {count})"));
+                    self.emit(format!("{result} = call i32 @memcmp(ptr {left}, ptr {right}, {size_t_type} {count})"));
                     return Ok((result, Type::I32));
                 }
 
@@ -2075,8 +2087,10 @@ impl<'a> FunctionGenerator<'a> {
                     }
                     let (size, size_type) = self.emit_expr_expected(&args[0], Some(Type::I64))?;
                     self.require_same(Type::I64, size_type, "alloc byte count")?;
+                    let size = self.emit_size_t_count(&size, "alloc byte count")?;
+                    let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call ptr @malloc(i64 {size})"));
+                    self.emit(format!("{result} = call ptr @malloc({size_t_type} {size})"));
                     return Ok((result, Type::Ptr));
                 }
 
@@ -2086,10 +2100,13 @@ impl<'a> FunctionGenerator<'a> {
                     }
                     let (count, count_type) = self.emit_expr_expected(&args[0], Some(Type::I64))?;
                     self.require_same(Type::I64, count_type, "calloc element count")?;
+                    let count = self.emit_size_t_count(&count, "calloc element count")?;
                     let (size, size_type) = self.emit_expr_expected(&args[1], Some(Type::I64))?;
                     self.require_same(Type::I64, size_type, "calloc element size")?;
+                    let size = self.emit_size_t_count(&size, "calloc element size")?;
+                    let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call ptr @calloc(i64 {count}, i64 {size})"));
+                    self.emit(format!("{result} = call ptr @calloc({size_t_type} {count}, {size_t_type} {size})"));
                     return Ok((result, Type::Ptr));
                 }
 
@@ -2100,8 +2117,10 @@ impl<'a> FunctionGenerator<'a> {
                     let pointer = self.emit_raw_pointer_expr(&args[0], "realloc pointer")?;
                     let (size, size_type) = self.emit_expr_expected(&args[1], Some(Type::I64))?;
                     self.require_same(Type::I64, size_type, "realloc byte count")?;
+                    let size = self.emit_size_t_count(&size, "realloc byte count")?;
+                    let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call ptr @realloc(ptr {pointer}, i64 {size})"));
+                    self.emit(format!("{result} = call ptr @realloc(ptr {pointer}, {size_t_type} {size})"));
                     return Ok((result, Type::Ptr));
                 }
 
