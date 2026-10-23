@@ -2418,6 +2418,26 @@ mod tests {
     }
 
     #[test]
+    fn emits_global_scalar_and_string_constants() {
+        let source = r#"const ANSWER: i32 = 42; const GREETING: str = "hello"; const ENABLED: bool = true; fn main() -> i32 { print(ANSWER); print(GREETING); print(ENABLED); return 0; }"#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("@ANSWER = constant i32 42"));
+        assert!(ir.contains("@ENABLED = constant i1 true"));
+        assert!(ir.contains("@GREETING = private unnamed_addr constant [6 x i8]"));
+        assert!(ir.contains("getelementptr inbounds ([6 x i8], ptr @GREETING"));
+    }
+
+    #[test]
+    fn rejects_invalid_and_duplicate_global_constants() {
+        let range_error = compile("const VALUE: i8 = 300; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(range_error.contains("requires a literal compatible with type i8"));
+        let duplicate = compile("const VALUE: i32 = 1; const VALUE: i32 = 2; fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(duplicate.contains("duplicate global constant 'VALUE'"));
+        let collision = compile("const value: i32 = 1; fn value() -> i32 { return 0; } fn main() -> i32 { return 0; }").unwrap_err();
+        assert!(collision.contains("conflicts with a function"));
+    }
+
+    #[test]
     fn parses_native_linker_options() {
         let options = parse_args_from([
             "example.ram".to_owned(),
