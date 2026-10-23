@@ -1,0 +1,7 @@
+fn main() -> i32 {
+    let value: i32 = 42;
+    assert(value == 42);
+    assume(value > 0);
+    print(value);
+    return 0;
+}
