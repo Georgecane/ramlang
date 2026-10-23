@@ -8,7 +8,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 
 - Rust-based lexer, parser, compiler driver, and LLVM IR backend
 - Native compilation through Clang (LLVM 15 or newer, using opaque pointers), with LLVM IR, object, assembly, and bitcode output modes
-- Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f64`, `bool`, `str`, `ptr`, and `void`
+- Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Type aliases for scalar, array, struct, and enum types, including chained aliases
 - Simple enums with automatic or explicit integer discriminants, including cross-file type resolution
@@ -24,7 +24,8 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Typed atomic integer loads, stores, exchanges, and read-modify-write operations with explicit memory ordering
 - Runtime `assert(bool)` with a trap on failure, `panic(str)` for non-returning errors, `assume(bool)` lowered to `llvm.assume`, volatile memory access built-ins, and LLVM memory-order fences
 - Immutable local variables with `let` and mutable locals with `let mut`
-- Explicit casts with `as` between signed integer widths, integers and `f64`, integers and `bool`, `bool` and `f64`, and `str` / `ptr`
+- Explicit casts with `as` across integer widths, `f32` / `f64`, integers and floating-point types, integers and `bool`, booleans and floating-point types, and `str` / `ptr`
+- Decimal and scientific-notation floating-point literals, with `f32` default argument promotion to `double` in C variadic calls
 - Arithmetic (`+`, `-`, `*`, `/`, `%`), signed comparisons, bitwise (`&`, `|`, `^`, `~`) and shift (`<<`, `>>`) operations, unary `-` and `!`, and short-circuit `&&` / `||`
 - `if` / `else`, `while`, C-style `for` loops, `break`, `continue`, nested loops and blocks, line and block comments
 - UTF-8 string literals with `\\n`, `\\r`, `\\t`, `\\0`, `\\\\`, and `\\\"` escapes
@@ -99,6 +100,28 @@ fn main() -> i32 {
 ```
 
 A direct negative literal cannot initialize an unsigned variable; use an explicit cast when wrapping behavior is intentional. Arithmetic is low-level and does not insert overflow checks.
+
+## Single-precision floating point
+
+RamLang supports IEEE-754 single-precision `f32` and double-precision `f64`. Arithmetic, comparisons, unary negation, casts, fixed-length arrays, raw memory operations, globals, and printing work with `f32`. A cast between `f32` and `f64` lowers to LLVM `fpext` or `fptrunc`.
+
+```rust
+const HALF: f32 = 0.5;
+const TINY: f32 = 1.25e-2;
+
+extern fn printf(format: str, ...) -> i32;
+
+fn main() -> i32 {
+    let values: [f32; 2] = [1.5, 2.25];
+    let result: f32 = values[0] * values[1] + HALF;
+    print(result);
+    printf("%.2f\n", result);
+    print(TINY);
+    return 0;
+}
+```
+
+Scientific notation accepts an optional exponent sign, such as `1.25e2` or `1.25E-2`. When passing an `f32` to a variadic C function, RamLang performs the C default argument promotion to `double`; fixed parameters retain the type declared by the function signature. Non-finite literals are rejected, but ordinary floating-point operations can still produce infinities or NaNs at runtime.
 
 ## Explicit casts
 
