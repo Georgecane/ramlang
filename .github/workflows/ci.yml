@@ -52,6 +52,31 @@ jobs:
           expected="$(printf '4\n112')"
           test "$output" = "$expected"
           wait "$server_pid"
+      - name: Compile and run concurrent RamLang TCP requests
+        shell: bash
+        run: |
+          cargo run --release -- examples/network/tcp_concurrent.ram \
+            --link-search target/release --link-lib ramlang_runtime \
+            -o target/tcp-concurrent
+          cargo run --release -p ramlang-runtime --example tcp_concurrent_echo_server -- 127.0.0.1:39873 > target/tcp-concurrent-echo-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 100); do
+            if grep -q READY target/tcp-concurrent-echo-server.log; then
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat target/tcp-concurrent-echo-server.log
+              exit 1
+            fi
+            sleep 0.1
+          done
+          grep -q READY target/tcp-concurrent-echo-server.log
+          export LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH"
+          output="$(target/tcp-concurrent)"
+          expected="$(printf '5\n102\n6\n115')"
+          test "$output" = "$expected"
+          wait "$server_pid"
       - name: Compile and run RamLang UDP networking example
         shell: bash
         run: |
