@@ -807,31 +807,43 @@ impl<'a> FunctionGenerator<'a> {
                     }
                     Ok((format!("{value:.17e}"), Type::F64))
                 } else {
-                    let value: i64 = text.parse().map_err(|_| format!("integer literal '{text}' is outside the i64 range"))?;
-                    if expected == Some(Type::I8) {
-                        if (i8::MIN as i64..=i8::MAX as i64).contains(&value) {
-                            Ok((value.to_string(), Type::I8))
+                    let value: u128 = text.parse()
+                        .map_err(|_| format!("integer literal '{text}' is outside the u64 range"))?;
+                    let fits = |maximum: u128| value <= maximum;
+                    let expected_signed_max = match expected {
+                        Some(Type::I8) => Some(i8::MAX as u128),
+                        Some(Type::I16) => Some(i16::MAX as u128),
+                        Some(Type::I32) => Some(i32::MAX as u128),
+                        Some(Type::I64) => Some(i64::MAX as u128),
+                        _ => None,
+                    };
+                    if let Some(maximum) = expected_signed_max {
+                        if fits(maximum) {
+                            let ty = expected.unwrap();
+                            Ok((value.to_string(), ty))
                         } else {
-                            Err(format!("integer literal '{text}' does not fit i8"))
+                            Err(format!("integer literal '{text}' does not fit {}", expected.unwrap().llvm()))
                         }
-                    } else if expected == Some(Type::I16) {
-                        if (i16::MIN as i64..=i16::MAX as i64).contains(&value) {
-                            Ok((value.to_string(), Type::I16))
-                        } else {
-                            Err(format!("integer literal '{text}' does not fit i16"))
-                        }
-                    } else if expected == Some(Type::I64) {
-                        Ok((value.to_string(), Type::I64))
-                    } else if expected == Some(Type::I32) {
-                        if (i32::MIN as i64..=i32::MAX as i64).contains(&value) {
-                            Ok((value.to_string(), Type::I32))
-                        } else {
-                            Err(format!("integer literal '{text}' does not fit i32"))
-                        }
-                    } else if (i32::MIN as i64..=i32::MAX as i64).contains(&value) {
+                    } else if expected == Some(Type::U8) {
+                        if fits(u8::MAX as u128) { Ok((value.to_string(), Type::U8)) }
+                        else { Err(format!("integer literal '{text}' does not fit u8")) }
+                    } else if expected == Some(Type::U16) {
+                        if fits(u16::MAX as u128) { Ok((value.to_string(), Type::U16)) }
+                        else { Err(format!("integer literal '{text}' does not fit u16")) }
+                    } else if expected == Some(Type::U32) {
+                        if fits(u32::MAX as u128) { Ok((value.to_string(), Type::U32)) }
+                        else { Err(format!("integer literal '{text}' does not fit u32")) }
+                    } else if expected == Some(Type::U64) {
+                        if fits(u64::MAX as u128) { Ok((value.to_string(), Type::U64)) }
+                        else { Err(format!("integer literal '{text}' does not fit u64")) }
+                    } else if fits(i32::MAX as u128) {
                         Ok((value.to_string(), Type::I32))
-                    } else {
+                    } else if fits(i64::MAX as u128) {
                         Ok((value.to_string(), Type::I64))
+                    } else if fits(u64::MAX as u128) {
+                        Ok((value.to_string(), Type::U64))
+                    } else {
+                        Err(format!("integer literal '{text}' is outside the u64 range"))
                     }
                 }
             }
