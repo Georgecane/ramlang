@@ -1181,6 +1181,15 @@ impl<'a> FunctionGenerator<'a> {
         Ok((field_ptr, *field_type, structure.packed))
     }
 
+    fn emit_raw_pointer_expr(&mut self, expression: &Expr, context: &str) -> Result<String, String> {
+        let (value, ty) = self.emit_expr(expression)?;
+        if matches!(ty, Type::Ptr | Type::Str | Type::Array(_, _) | Type::Struct(_)) {
+            Ok(value)
+        } else {
+            Err(format!("{context} requires a pointer-like value, found {}", ty.llvm()))
+        }
+    }
+
     fn emit_expr(&mut self, expression: &Expr) -> Result<(String, Type), String> {
         self.emit_expr_expected(expression, None)
     }
@@ -1762,6 +1771,46 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((String::new(), Type::Void));
                 }
 
+                if matches!(name.as_str(), "memcpy" | "memmove") {
+                    if args.len() != 3 {
+                        return Err(format!("{name} expects destination, source, and byte count"));
+                    }
+                    let destination = self.emit_raw_pointer_expr(&args[0], "memory destination")?;
+                    let source = self.emit_raw_pointer_expr(&args[1], "memory source")?;
+                    let (count, count_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
+                    self.require_same(Type::I64, count_type, &format!("{name} byte count"))?;
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = call ptr @{name}(ptr {destination}, ptr {source}, i64 {count})"));
+                    return Ok((result, Type::Ptr));
+                }
+
+                if name == "memset" {
+                    if args.len() != 3 {
+                        return Err("memset expects destination, fill value, and byte count".to_owned());
+                    }
+                    let destination = self.emit_raw_pointer_expr(&args[0], "memset destination")?;
+                    let (fill, fill_type) = self.emit_expr_expected(&args[1], Some(Type::I32))?;
+                    self.require_same(Type::I32, fill_type, "memset fill value")?;
+                    let (count, count_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
+                    self.require_same(Type::I64, count_type, "memset byte count")?;
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = call ptr @memset(ptr {destination}, i32 {fill}, i64 {count})"));
+                    return Ok((result, Type::Ptr));
+                }
+
+                if name == "memcmp" {
+                    if args.len() != 3 {
+                        return Err("memcmp expects left pointer, right pointer, and byte count".to_owned());
+                    }
+                    let left = self.emit_raw_pointer_expr(&args[0], "memcmp left operand")?;
+                    let right = self.emit_raw_pointer_expr(&args[1], "memcmp right operand")?;
+                    let (count, count_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
+                    self.require_same(Type::I64, count_type, "memcmp byte count")?;
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = call i32 @memcmp(ptr {left}, ptr {right}, i64 {count})"));
+                    return Ok((result, Type::I32));
+                }
+
                 let bit_intrinsic = ["ctpop", "ctlz", "cttz", "bswap", "bitreverse"]
                     .iter()
                     .find_map(|intrinsic| {
@@ -2336,7 +2385,7 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
         if signatures.contains_key(&constant.name) {
             return Err(format!("global constant '{}' conflicts with a function", constant.name));
         }
-        if matches!(constant.name.as_str(), "printf" | "malloc" | "free" | "llvm.trap") {
+        if matches!(constant.name.as_str(), "printf" | "malloc" | "free" | "memcpy" | "memmove" | "memset" | "memcmp" | "llvm.trap") {
             return Err(format!("global constant '{}' conflicts with a reserved runtime symbol", constant.name));
         }
         if global_values.contains_key(&constant.name) || global_bindings.contains_key(&constant.name) {
@@ -2358,7 +2407,7 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
         if signatures.contains_key(&variable.name) {
             return Err(format!("static variable '{}' conflicts with a function", variable.name));
         }
-        if matches!(variable.name.as_str(), "printf" | "malloc" | "free" | "llvm.trap") {
+        if matches!(variable.name.as_str(), "printf" | "malloc" | "free" | "memcpy" | "memmove" | "memset" | "memcmp" | "llvm.trap") {
             return Err(format!("static variable '{}' conflicts with a reserved runtime symbol", variable.name));
         }
         if global_values.contains_key(&variable.name) || global_bindings.contains_key(&variable.name) {
@@ -2444,6 +2493,10 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
     module.push_str("declare i32 @printf(ptr, ...)\n\n");
     module.push_str("declare ptr @malloc(i64)\n");
     module.push_str("declare void @free(ptr)\n");
+    module.push_str("declare ptr @memcpy(ptr, ptr, i64)\n");
+    module.push_str("declare ptr @memmove(ptr, ptr, i64)\n");
+    module.push_str("declare ptr @memset(ptr, i32, i64)\n");
+    module.push_str("declare i32 @memcmp(ptr, ptr, i64)\n");
     module.push_str("declare void @llvm.trap() cold noreturn nounwind\n");
     module.push_str("declare void @llvm.assume(i1) nounwind\n");
 
