@@ -19,7 +19,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Target-aware `size_of(Type)`, `align_of(Type)`, and `offset_of(Type, field)` layout queries, including `packed struct` layouts
 - Target-ABI-aware `size_t` calls for allocation, string, and memory routines, with checked 64-to-32-bit byte-count conversion
 - LLVM bit intrinsics for population count, leading/trailing zero counts, byte swap, and bit reversal
-- Checked signed and unsigned integer add, subtract, and multiply with overflow flags
+- Checked signed and unsigned integer add, subtract, and multiply with overflow flags, plus saturating add/subtract
 - Typed LLVM inline assembly built-ins for target-specific instructions
 - Typed atomic integer loads, stores, exchanges, and read-modify-write operations with explicit memory ordering
 - Runtime `assert(bool)` with a trap on failure, `panic(str)` for non-returning errors, `assume(bool)` lowered to `llvm.assume`, volatile memory access built-ins, and LLVM memory-order fences
@@ -580,6 +580,26 @@ fn main() -> i32 {
 ```
 
 `size_of(void)` is invalid. Cross-compiling may change pointer and struct sizes; use this intrinsic instead of hardcoding ABI-dependent byte counts. Heap allocation and C memory routines use target-sized `size_t` arguments (`i32` on supported 32-bit targets, `i64` on supported 64-bit targets). The source-language `size_of` result remains `i64`, so the compiler converts sizes to the target ABI width at calls.
+
+## Saturating integer arithmetic
+
+RamLang also exposes `sadd_sat_i32`, `ssub_sat_i32`, `uadd_sat_u32`, and `usub_sat_u32), with width variants for 8, 16, 32, and 64-bit integers. These return the calculated value directly, clamping signed results to the signed minimum/maximum and unsigned results to zero or the unsigned maximum instead of wrapping.
+
+```rust
+fn main() -> i32 {
+    let signed_max: i32 = sadd_sat_i32(2147483647, 1);
+    let signed_min: i32 = ssub_sat_i32(-2147483648, 1);
+    let unsigned_max: u16 = uadd_sat_u16(65535, 1);
+    let unsigned_min: u16 = usub_sat_u16(0, 1);
+    print(signed_max);
+    print(signed_min);
+    print(unsigned_max);
+    print(unsigned_min);
+    return 0;
+}
+```
+
+These operations lower to LLVM saturating arithmetic intrinsics. Choose saturating arithmetic when clamping is the desired policy; use the checked operations when the caller must detect overflow explicitly.
 
 ## Checked integer arithmetic
 
