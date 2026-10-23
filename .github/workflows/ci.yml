@@ -156,6 +156,10 @@ jobs:
           cargo run --release -- examples/alignof.ram -o target/alignof
           expected="$(printf '%s\n%s\n%s\n%s' '1' '4' '2' '8')"
           test "$(target/alignof)" = "$expected"
+      - name: Compile and run memory-fence example
+        run: |
+          cargo run --release -- examples/memory_fences.ram -o target/memory-fences
+          test "$(target/memory-fences)" = "42"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
