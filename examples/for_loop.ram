@@ -1,0 +1,14 @@
+fn main() -> i32 {
+    let mut sum: i32 = 0;
+    for (let mut index: i32 = 0; index < 10; index = index + 1) {
+        if (index == 3) {
+            continue;
+        }
+        if (index == 7) {
+            break;
+        }
+        sum = sum + index;
+    }
+    print(sum);
+    return 0;
+}
