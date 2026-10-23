@@ -4176,13 +4176,34 @@ mod tests {
     }
 
     #[test]
-    fn lowers_exhaustive_enum_match_to_conditional_branches() {
+    fn lowers_exhaustive_enum_match_to_llvm_switch() {
         let source = "enum Color { Red, Green, Blue } fn main() -> i32 { let color: Color = Color.Green; match (color) { Color.Red => { print(10); }, Color.Green => { print(20); }, Color.Blue => { print(30); } } return 0; }";
         let ir = compile(source).unwrap();
+        assert!(ir.contains("switch i32"));
         assert!(ir.contains("match.arm"));
-        assert!(ir.contains("match.next"));
-        assert!(ir.matches("icmp eq i32").count() >= 3);
+        assert!(ir.contains("match.invalid"));
+        assert!(!ir.contains("match.next"));
+        assert!(!ir.contains("icmp eq i32"));
         assert!(ir.contains("call void @llvm.trap()"));
+    }
+
+    #[test]
+    fn lowers_integer_and_boolean_constant_matches_to_switch() {
+        let source = "fn main() -> i32 { let value: i32 = 2; match (value) { 1 => { print(10); }, 2 => { print(20); }, _ => { print(30); } } let flag: bool = true; match (flag) { true => { print(1); }, false => { print(0); } } return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("switch i32"));
+        assert!(ir.contains("switch i1"));
+        assert!(ir.contains("i32 1, label %match.arm"));
+        assert!(ir.contains("i1 true, label %match.arm"));
+    }
+
+    #[test]
+    fn retains_comparison_chain_for_dynamic_match_patterns() {
+        let source = "fn main() -> i32 { let value: i32 = 5; let pattern: i32 = 5; match (value) { pattern => { print(1); }, _ => { print(0); } } return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("icmp eq i32"));
+        assert!(ir.contains("match.next"));
+        assert!(!ir.contains("switch i32"));
     }
 
     #[test]
