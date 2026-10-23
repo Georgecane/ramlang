@@ -5918,6 +5918,28 @@ mod tests {
     }
 
     #[test]
+    fn lowers_f32_global_storage_and_unaligned_volatile_access() {
+        let source = "static mut DEVICE_VALUE: f32 = 1.25e-2; fn main() -> i32 { let address: ptr = &DEVICE_VALUE; volatile_store_unaligned_f32(address, 3.5); let value: f32 = volatile_load_unaligned_f32(address); print(value); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("@DEVICE_VALUE = global float"));
+        assert!(ir.contains("store volatile float"));
+        assert!(ir.contains("load volatile float"));
+        assert!(ir.contains("align 1"));
+        assert!(ir.contains("fpext float"));
+    }
+
+    #[test]
+    fn supports_f32_volatile_memory_load_store_variants() {
+        let source = "fn main() -> i32 { let memory: ptr = alloc(size_of(f32)); volatile_store_f32(memory, 1.5); let first: f32 = volatile_load_f32(memory); store_unaligned_f32(ptr_offset(memory, 1), first); let second: f32 = load_unaligned_f32(ptr_offset(memory, 1)); print(second); free(memory); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("store volatile float"));
+        assert!(ir.contains("load volatile float"));
+        assert!(ir.contains("store float"));
+        assert!(ir.contains("load float"));
+        assert!(ir.contains("align 1"));
+    }
+
+    #[test]
     fn rejects_f32_non_finite_literals() {
         let error = compile("fn main() -> i32 { let value: f32 = 3402824000000000000000000000000000000000.0; return 0; }").unwrap_err();
         assert!(error.contains("f32 finite range"), "unexpected error: {error}");
