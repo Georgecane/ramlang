@@ -9,6 +9,7 @@ edition = "2024"
 rust-version = "1.99"
 
 [dependencies]
+inkwell = { version = "0.6.0", features = ["llvm18-1"] }
 
 [[bin]]
 name = "ramcomp"
