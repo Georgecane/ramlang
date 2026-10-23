@@ -899,6 +899,8 @@ impl<'a> FunctionGenerator<'a> {
                         self.emit(format!("{result} = trunc {} {source} to {}", source_type.llvm(), target.llvm()));
                     } else if source_type.is_unsigned() {
                         self.emit(format!("{result} = zext {} {source} to {}", source_type.llvm(), target.llvm()));
+                    } else if source_type.is_unsigned() {
+                        self.emit(format!("{result} = zext {} {source} to {}", source_type.llvm(), target.llvm()));
                     } else {
                         self.emit(format!("{result} = sext {} {source} to {}", source_type.llvm(), target.llvm()));
                     }
@@ -1014,16 +1016,19 @@ impl<'a> FunctionGenerator<'a> {
                     (Type::F64, "-") => format!("{result} = fsub double {lhs}, {rhs}"),
                     (Type::F64, "*") => format!("{result} = fmul double {lhs}, {rhs}"),
                     (Type::F64, "/") => format!("{result} = fdiv double {lhs}, {rhs}"),
-                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "+") => format!("{result} = add {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "-") => format!("{result} = sub {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "*") => format!("{result} = mul {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64, "+") => format!("{result} = add {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64, "-") => format!("{result} = sub {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64, "*") => format!("{result} = mul {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I16 | Type::I32 | Type::I64, "/") => format!("{result} = sdiv {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::U8 | Type::U16 | Type::U32 | Type::U64, "/") => format!("{result} = udiv {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I16 | Type::I32 | Type::I64, "%") => format!("{result} = srem {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "&") => format!("{result} = and {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "|") => format!("{result} = or {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "^") => format!("{result} = xor {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "<<") => format!("{result} = shl {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::U8 | Type::U16 | Type::U32 | Type::U64, "%") => format!("{result} = urem {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64, "&") => format!("{result} = and {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64, "|") => format!("{result} = or {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64, "^") => format!("{result} = xor {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64, "<<") => format!("{result} = shl {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I16 | Type::I32 | Type::I64, ">>") => format!("{result} = ashr {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::U8 | Type::U16 | Type::U32 | Type::U64, ">>") => format!("{result} = lshr {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::F64, "==") => format!("{result} = fcmp oeq double {lhs}, {rhs}"),
                     (Type::F64, "!=") => format!("{result} = fcmp une double {lhs}, {rhs}"),
                     (Type::F64, "<") => format!("{result} = fcmp olt double {lhs}, {rhs}"),
@@ -1033,9 +1038,13 @@ impl<'a> FunctionGenerator<'a> {
                     (_, "==") => format!("{result} = icmp eq {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (_, "!=") => format!("{result} = icmp ne {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I16 | Type::I32 | Type::I64, "<") => format!("{result} = icmp slt {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::U8 | Type::U16 | Type::U32 | Type::U64, "<") => format!("{result} = icmp ult {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I16 | Type::I32 | Type::I64, "<=") => format!("{result} = icmp sle {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::U8 | Type::U16 | Type::U32 | Type::U64, "<=") => format!("{result} = icmp ule {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I16 | Type::I32 | Type::I64, ">") => format!("{result} = icmp sgt {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::U8 | Type::U16 | Type::U32 | Type::U64, ">") => format!("{result} = icmp ugt {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I16 | Type::I32 | Type::I64, ">=") => format!("{result} = icmp sge {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::U8 | Type::U16 | Type::U32 | Type::U64, ">=") => format!("{result} = icmp uge {} {lhs}, {rhs}", lhs_ty.llvm()),
                     _ => return Err(format!("operator '{op}' is not valid for {}", lhs_ty.llvm())),
                 };
                 self.emit(instruction);
