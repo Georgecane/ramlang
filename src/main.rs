@@ -3727,6 +3727,9 @@ fn resolve_program_enum_types(source: &Program) -> Result<Program, String> {
             resolve_enum_expr(value, &enum_ids, &alias_types);
         }
     }
+    // Alias references have already been replaced in every type position; they are
+    // declarations, not LLVM struct/enum tags, so keep them out of backend tag validation.
+    program.type_references.retain(|type_id, _| !aliases.contains_key(type_id));
     Ok(program)
 }
 
