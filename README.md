@@ -10,6 +10,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Native compilation through Clang (LLVM 15 or newer, using opaque pointers), with LLVM IR, object, assembly, and bitcode output modes
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
+- Simple enums with automatic or explicit integer discriminants, including cross-file type resolution
 - `extern static` declarations for C-defined scalar and raw-pointer globals
 - Global scalar, boolean, null-pointer, and UTF-8 string constants, available across source files
 - Static global storage with immutable `static` and mutable `static mut` variables
@@ -292,6 +293,32 @@ fn main() -> i32 {
 ```
 
 The initial implementation accepts literal values for global constants (numeric, boolean, string, or null). It does not yet evaluate arbitrary constant expressions or initialize global arrays/structs.
+
+## Enums
+
+RamLang supports simple enums with automatic or explicit signed 32-bit discriminants. Use `EnumName.Variant` to refer to a variant, declare locals and parameters with the enum type, compare values, and cast to or from integer types when you need the numeric discriminant.
+
+```rust
+enum Color {
+    Red,
+    Green = 4,
+    Blue,
+}
+
+fn color_code(color: Color) -> i32 {
+    return color as i32;
+}
+
+fn main() -> i32 {
+    let color: Color = Color.Green;
+    print(color);
+    print(color == Color.Green);
+    print(size_of(Color));
+    return color_code(Color.Blue) - 5;
+}
+```
+
+Variants without an explicit value increment from the preceding discriminant, so `Blue` above has value `5`. Enums lower to their integer discriminants (currently `i32`) rather than tagged payload unions. Payload variants, exhaustive `match`, and enum constructors are not implemented yet.
 
 ## Named structs
 
