@@ -7,7 +7,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 ## Current features
 
 - Rust-based lexer, parser, compiler driver, and LLVM IR backend
-- Native compilation through Clang (LLVM 15 or newer, using opaque pointers), with LLVM IR, object, assembly, and bitcode output modes
+- Native compilation through Clang (LLVM 15 or newer, using opaque pointers), with LLVM IR, object, assembly, bitcode, and generated C-header output modes
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Type aliases for scalar, array, struct, and enum types, including chained aliases
@@ -84,6 +84,16 @@ Expected output:
 ```text
 49
 ```
+
+## Generate a C API header
+
+Use `--emit-header` to generate a C header for RamLang function declarations and global symbols. The header uses fixed-width C types for the integer types, `float` and `double` for `f32` and `f64`, `bool` for booleans, `const char *` for strings, and `void *` for raw pointers and the current pointer-backed struct representation. Enum variants are exposed as `RAMLANG_ENUM_VARIANT` macros. The compiler's `main` function is omitted from the header.
+
+```sh
+cargo run --release -- examples/c_header_api.ram --emit-header ramlang_api.h
+```
+
+The generated header includes prototypes for source-defined functions, declared external functions, and global constants/statics. C aliases for RamLang type aliases are flattened to their underlying ABI type. Structs are opaque pointers in the current ABI, not C struct definitions, and the header does not imply ownership or thread safety. CI compiles a C translation unit that includes the generated header to catch syntax and declaration mismatches.
 
 ## Unsigned integers
 
