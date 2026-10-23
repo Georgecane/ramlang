@@ -1,1066 +1,1072 @@
-use std::fmt;
+use std::{
+    collections::HashMap,
+    env, fs,
+    path::{Path, PathBuf},
+    process::{self, Command},
+};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum TokenKind {
-    // Single-character tokens.
-    LeftParen,
-    RightParen,
-    LeftBrace,
-    RightBrace,
-    Comma,
-    Dot,
-    Minus,
-    Plus,
-    Semicolon,
-    Slash,
-    Star,
-
-    // One or two character tokens.
-    Bang,
-    BangEqual,
-    Equal,
-    EqualEqual,
-    Greater,
-    GreaterEqual,
-    Less,
-    LessEqual,
-
-    // Literals.
-    Identifier,
-    String,
+    Ident,
     Number,
+    Symbol(String),
+    Eof,
 }
 
 #[derive(Debug, Clone)]
 struct Token {
     kind: TokenKind,
-    lexeme: String,
+    text: String,
     line: usize,
     column: usize,
 }
 
-#[derive(Debug)]
-enum LexerError {
-    InvalidCharacter {
-        character: char,
-        line: usize,
-        column: usize,
-    },
-
-    UnterminatedComment {
-        line: usize,
-        column: usize,
-    },
-
-    UnterminatedString {
-        line: usize,
-        column: usize,
-    },
+struct Lexer<'a> {
+    source: &'a [u8],
+    index: usize,
+    line: usize,
+    column: usize,
 }
 
-impl fmt::Display for LexerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LexerError::InvalidCharacter {
-                character,
-                line,
-                column,
-            } => {
-                write!(
-                    f,
-                    "invalid character '{}' at {}:{}",
-                    character, line, column
-                )
-            }
+impl<'a> Lexer<'a> {
+    fn new(source: &'a str) -> Self {
+        Self { source: source.as_bytes(), index: 0, line: 1, column: 1 }
+    }
 
-            LexerError::UnterminatedComment { line, column } => {
-                write!(
-                    f,
-                    "unterminated comment at {}:{}",
-                    line, column
-                )
-            }
+    fn peek(&self, offset: usize) -> Option<u8> {
+        self.source.get(self.index + offset).copied()
+    }
 
-            LexerError::UnterminatedString { line, column } => {
-                write!(
-                    f,
-                    "unterminated string at {}:{}",
-                    line, column
-                )
-            }
+    fn advance(&mut self) -> Option<u8> {
+        let byte = self.peek(0)?;
+        self.index += 1;
+        if byte == b'\n' {
+            self.line += 1;
+            self.column = 1;
+        } else {
+            self.column += 1;
         }
-    }
-}
-
-impl std::error::Error for LexerError {}
-
-struct Lexer;
-
-impl Lexer {
-    fn new() -> Self {
-        Self
+        Some(byte)
     }
 
-    fn lex(&self, source: &str) -> Result<TokenStream, LexerError> {
-        let bytes = source.as_bytes();
+    fn token(&self, kind: TokenKind, text: String, line: usize, column: usize) -> Token {
+        Token { kind, text, line, column }
+    }
 
+    fn lex(mut self) -> Result<Vec<Token>, String> {
         let mut tokens = Vec::new();
-
-        let mut i = 0usize;
-        let mut line = 1usize;
-        let mut column = 1usize;
-
-        while i < bytes.len() {
-            let start = i;
-            let start_line = line;
-            let start_column = column;
-
-            let c = bytes[i] as char;
-
-            match c {
-                // Single-character tokens.
-                '(' => {
-                    i += 1;
-                    column += 1;
-
-                    Self::append_token(
-                        &mut tokens,
-                        TokenKind::LeftParen,
-                        &source[start..i],
-                        start_line,
-                        start_column,
-                    );
-                }
-
-                ')' => {
-                    i += 1;
-                    column += 1;
-
-                    Self::append_token(
-                        &mut tokens,
-                        TokenKind::RightParen,
-                        &source[start..i],
-                        start_line,
-                        start_column,
-                    );
-                }
-
-                '{' => {
-                    i += 1;
-                    column += 1;
-
-                    Self::append_token(
-                        &mut tokens,
-                        TokenKind::LeftBrace,
-                        &source[start..i],
-                        start_line,
-                        start_column,
-                    );
-                }
-
-                '}' => {
-                    i += 1;
-                    column += 1;
-
-                    Self::append_token(
-                        &mut tokens,
-                        TokenKind::RightBrace,
-                        &source[start..i],
-                        start_line,
-                        start_column,
-                    );
-                }
-
-                ',' => {
-                    i += 1;
-                    column += 1;
-
-                    Self::append_token(
-                        &mut tokens,
-                        TokenKind::Comma,
-                        &source[start..i],
-                        start_line,
-                        start_column,
-                    );
-                }
-
-                '.' => {
-                    if i + 1 < bytes.len() && is_digit(bytes[i + 1]) {
-                        i += 1;
-                        column += 1;
-
-                        while i < bytes.len() && is_digit(bytes[i]) {
-                            i += 1;
-                            column += 1;
-                        }
-
-                        Self::append_token(
-                            &mut tokens,
-                            TokenKind::Number,
-                            &source[start..i],
-                            start_line,
-                            start_column,
-                        );
-                    } else {
-                        i += 1;
-                        column += 1;
-
-                        Self::append_token(
-                            &mut tokens,
-                            TokenKind::Dot,
-                            &source[start..i],
-                            start_line,
-                            start_column,
-                        );
-                    }
-                }
-
-                '-' => {
-                    i += 1;
-                    column += 1;
-
-                    Self::append_token(
-                        &mut tokens,
-                        TokenKind::Minus,
-                        &source[start..i],
-                        start_line,
-                        start_column,
-                    );
-                }
-
-                '+' => {
-                    i += 1;
-                    column += 1;
-
-                    Self::append_token(
-                        &mut tokens,
-                        TokenKind::Plus,
-                        &source[start..i],
-                        start_line,
-                        start_column,
-                    );
-                }
-
-                ';' => {
-                    i += 1;
-                    column += 1;
-
-                    Self::append_token(
-                        &mut tokens,
-                        TokenKind::Semicolon,
-                        &source[start..i],
-                        start_line,
-                        start_column,
-                    );
-                }
-
-                '*' => {
-                    i += 1;
-                    column += 1;
-
-                    Self::append_token(
-                        &mut tokens,
-                        TokenKind::Star,
-                        &source[start..i],
-                        start_line,
-                        start_column,
-                    );
-                }
-
-                // Slash or comment.
-                '/' => {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'/' {
-                        i += 2;
-                        column += 2;
-
-                        while i < bytes.len() && bytes[i] != b'\n' {
-                            i += 1;
-                            column += 1;
-                        }
-                    } else if i + 1 < bytes.len() && bytes[i + 1] == b'*' {
-                        i += 2;
-                        column += 2;
-
-                        let mut terminated = false;
-
-                        while i < bytes.len() {
-                            if bytes[i] == b'*'
-                                && i + 1 < bytes.len()
-                                && bytes[i + 1] == b'/'
-                            {
-                                i += 2;
-                                column += 2;
-                                terminated = true;
-                                break;
-                            }
-
-                            if bytes[i] == b'\n' {
-                                i += 1;
-                                line += 1;
-                                column = 1;
-                            } else {
-                                i += 1;
-                                column += 1;
-                            }
-                        }
-
-                        if !terminated {
-                            return Err(LexerError::UnterminatedComment {
-                                line: start_line,
-                                column: start_column,
-                            });
-                        }
-                    } else {
-                        i += 1;
-                        column += 1;
-
-                        Self::append_token(
-                            &mut tokens,
-                            TokenKind::Slash,
-                            &source[start..i],
-                            start_line,
-                            start_column,
-                        );
-                    }
-                }
-
-                // Bang.
-                '!' => {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'=' {
-                        i += 2;
-                        column += 2;
-
-                        Self::append_token(
-                            &mut tokens,
-                            TokenKind::BangEqual,
-                            &source[start..i],
-                            start_line,
-                            start_column,
-                        );
-                    } else {
-                        i += 1;
-                        column += 1;
-
-                        Self::append_token(
-                            &mut tokens,
-                            TokenKind::Bang,
-                            &source[start..i],
-                            start_line,
-                            start_column,
-                        );
-                    }
-                }
-
-                // Equal.
-                '=' => {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'=' {
-                        i += 2;
-                        column += 2;
-
-                        Self::append_token(
-                            &mut tokens,
-                            TokenKind::EqualEqual,
-                            &source[start..i],
-                            start_line,
-                            start_column,
-                        );
-                    } else {
-                        i += 1;
-                        column += 1;
-
-                        Self::append_token(
-                            &mut tokens,
-                            TokenKind::Equal,
-                            &source[start..i],
-                            start_line,
-                            start_column,
-                        );
-                    }
-                }
-
-                // Greater.
-                '>' => {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'=' {
-                        i += 2;
-                        column += 2;
-
-                        Self::append_token(
-                            &mut tokens,
-                            TokenKind::GreaterEqual,
-                            &source[start..i],
-                            start_line,
-                            start_column,
-                        );
-                    } else {
-                        i += 1;
-                        column += 1;
-
-                        Self::append_token(
-                            &mut tokens,
-                            TokenKind::Greater,
-                            &source[start..i],
-                            start_line,
-                            start_column,
-                        );
-                    }
-                }
-
-                // Less.
-                '<' => {
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'=' {
-                        i += 2;
-                        column += 2;
-
-                        Self::append_token(
-                            &mut tokens,
-                            TokenKind::LessEqual,
-                            &source[start..i],
-                            start_line,
-                            start_column,
-                        );
-                    } else {
-                        i += 1;
-                        column += 1;
-
-                        Self::append_token(
-                            &mut tokens,
-                            TokenKind::Less,
-                            &source[start..i],
-                            start_line,
-                            start_column,
-                        );
-                    }
-                }
-
-                // Whitespace.
-                ' ' | '\t' | '\r' => {
-                    i += 1;
-                    column += 1;
-                }
-
-                '\n' => {
-                    i += 1;
-                    line += 1;
-                    column = 1;
-                }
-
-                // String.
-                '"' => {
-                    i += 1;
-                    column += 1;
-
-                    let mut terminated = false;
-
-                    while i < bytes.len() {
-                        if bytes[i] == b'\\' {
-                            if i + 1 >= bytes.len() {
-                                return Err(LexerError::UnterminatedString {
-                                    line: start_line,
-                                    column: start_column,
-                                });
-                            }
-
-                            i += 2;
-                            column += 2;
-                            continue;
-                        }
-
-                        if bytes[i] == b'"' {
-                            i += 1;
-                            column += 1;
-                            terminated = true;
-                            break;
-                        }
-
-                        if bytes[i] == b'\n' {
-                            i += 1;
-                            line += 1;
-                            column = 1;
-                        } else {
-                            i += 1;
-                            column += 1;
-                        }
-                    }
-
-                    if !terminated {
-                        return Err(LexerError::UnterminatedString {
-                            line: start_line,
-                            column: start_column,
-                        });
-                    }
-
-                    Self::append_token(
-                        &mut tokens,
-                        TokenKind::String,
-                        &source[start..i],
-                        start_line,
-                        start_column,
-                    );
-                }
-
-                // Number.
-                '0'..='9' => {
-                    i += 1;
-                    column += 1;
-
-                    while i < bytes.len() && is_digit(bytes[i]) {
-                        i += 1;
-                        column += 1;
-                    }
-
-                    // Fractional part.
-                    if i + 1 < bytes.len()
-                        && bytes[i] == b'.'
-                        && is_digit(bytes[i + 1])
-                    {
-                        i += 1;
-                        column += 1;
-
-                        while i < bytes.len() && is_digit(bytes[i]) {
-                            i += 1;
-                            column += 1;
-                        }
-                    }
-
-                    Self::append_token(
-                        &mut tokens,
-                        TokenKind::Number,
-                        &source[start..i],
-                        start_line,
-                        start_column,
-                    );
-                }
-
-                // Identifier.
-                'a'..='z' | 'A'..='Z' | '_' => {
-                    i += 1;
-                    column += 1;
-
-                    while i < bytes.len()
-                        && is_identifier_continue(bytes[i])
-                    {
-                        i += 1;
-                        column += 1;
-                    }
-
-                    Self::append_token(
-                        &mut tokens,
-                        TokenKind::Identifier,
-                        &source[start..i],
-                        start_line,
-                        start_column,
-                    );
-                }
-
-                _ => {
-                    return Err(LexerError::InvalidCharacter {
-                        character: c,
-                        line,
-                        column,
-                    });
-                }
+        while let Some(byte) = self.peek(0) {
+            if byte.is_ascii_whitespace() {
+                self.advance();
+                continue;
             }
+
+            let line = self.line;
+            let column = self.column;
+            let start = self.index;
+
+            if byte.is_ascii_alphabetic() || byte == b'_' {
+                self.advance();
+                while self.peek(0).is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_') {
+                    self.advance();
+                }
+                let text = String::from_utf8(self.source[start..self.index].to_vec()).unwrap();
+                tokens.push(self.token(TokenKind::Ident, text, line, column));
+                continue;
+            }
+
+            if byte.is_ascii_digit() {
+                self.advance();
+                while self.peek(0).is_some_and(|b| b.is_ascii_digit()) {
+                    self.advance();
+                }
+                if self.peek(0) == Some(b'.') && self.peek(1).is_some_and(|b| b.is_ascii_digit()) {
+                    self.advance();
+                    while self.peek(0).is_some_and(|b| b.is_ascii_digit()) {
+                        self.advance();
+                    }
+                }
+                let text = String::from_utf8(self.source[start..self.index].to_vec()).unwrap();
+                tokens.push(self.token(TokenKind::Number, text, line, column));
+                continue;
+            }
+
+            if byte == b'/' && self.peek(1) == Some(b'/') {
+                self.advance();
+                self.advance();
+                while self.peek(0).is_some_and(|b| b != b'\n') {
+                    self.advance();
+                }
+                continue;
+            }
+
+            if byte == b'/' && self.peek(1) == Some(b'*') {
+                self.advance();
+                self.advance();
+                let mut closed = false;
+                while self.peek(0).is_some() {
+                    if self.peek(0) == Some(b'*') && self.peek(1) == Some(b'/') {
+                        self.advance();
+                        self.advance();
+                        closed = true;
+                        break;
+                    }
+                    self.advance();
+                }
+                if !closed {
+                    return Err(format!("unterminated block comment at {line}:{column}"));
+                }
+                continue;
+            }
+
+            let pair = match (byte, self.peek(1)) {
+                (b'-', Some(b'>')) => Some("->"),
+                (b'=', Some(b'=')) => Some("=="),
+                (b'!', Some(b'=')) => Some("!="),
+                (b'<', Some(b'=')) => Some("<="),
+                (b'>', Some(b'=')) => Some(">="),
+                _ => None,
+            };
+            if let Some(symbol) = pair {
+                self.advance();
+                self.advance();
+                tokens.push(self.token(TokenKind::Symbol(symbol.to_owned()), symbol.to_owned(), line, column));
+                continue;
+            }
+
+            let symbol = match byte {
+                b'(' => "(", b')' => ")", b'{' => "{", b'}' => "}",
+                b':' => ":", b';' => ";", b',' => ",", b'+' => "+",
+                b'-' => "-", b'*' => "*", b'/' => "/", b'=' => "=",
+                b'<' => "<", b'>' => ">", b'!' => "!",
+                _ => {
+                    let ch = if byte.is_ascii() { char::from(byte).to_string() } else { format!("byte 0x{byte:02x}") };
+                    return Err(format!("invalid character {ch} at {line}:{column}; RamLang currently accepts ASCII source"));
+                }
+            };
+            self.advance();
+            tokens.push(self.token(TokenKind::Symbol(symbol.to_owned()), symbol.to_owned(), line, column));
         }
 
-        Ok(TokenStream::new(tokens))
-    }
-
-    fn append_token(
-        tokens: &mut Vec<Token>,
-        kind: TokenKind,
-        lexeme: &str,
-        line: usize,
-        column: usize,
-    ) {
-        tokens.push(Token {
-            kind,
-            lexeme: lexeme.to_owned(),
-            line,
-            column,
-        });
+        tokens.push(Token { kind: TokenKind::Eof, text: String::new(), line: self.line, column: self.column });
+        Ok(tokens)
     }
 }
 
-fn is_digit(c: u8) -> bool {
-    c.is_ascii_digit()
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Type {
+    I32,
+    I64,
+    F64,
+    Bool,
+    Void,
 }
 
-fn is_identifier_continue(c: u8) -> bool {
-    c.is_ascii_alphanumeric() || c == b'_'
+impl Type {
+    fn llvm(self) -> &'static str {
+        match self {
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::F64 => "double",
+            Self::Bool => "i1",
+            Self::Void => "void",
+        }
+    }
+
+    fn is_numeric(self) -> bool {
+        matches!(self, Self::I32 | Self::I64 | Self::F64)
+    }
 }
 
-struct TokenStream {
+#[derive(Debug, Clone)]
+struct Function {
+    name: String,
+    params: Vec<(String, Type)>,
+    return_type: Type,
+    body: Stmt,
+}
+
+#[derive(Debug, Clone)]
+enum Stmt {
+    Block(Vec<Stmt>),
+    Let { name: String, declared_type: Option<Type>, mutable: bool, value: Expr },
+    Assign { name: String, value: Expr },
+    Return(Option<Expr>),
+    Expression(Expr),
+    If { condition: Expr, then_branch: Box<Stmt>, else_branch: Option<Box<Stmt>> },
+    While { condition: Expr, body: Box<Stmt> },
+}
+
+#[derive(Debug, Clone)]
+enum Expr {
+    Number(String),
+    Bool(bool),
+    Variable(String),
+    Unary { op: String, right: Box<Expr> },
+    Binary { left: Box<Expr>, op: String, right: Box<Expr> },
+    Call { name: String, args: Vec<Expr> },
+}
+
+struct Parser {
     tokens: Vec<Token>,
     index: usize,
 }
 
-impl TokenStream {
-    fn new(tokens: Vec<Token>) -> Self {
-        Self {
-            tokens,
-            index: 0,
-        }
-    }
-
-    fn peek(&self) -> Option<&Token> {
-        self.tokens.get(self.index)
-    }
-
-    fn advance(&mut self) -> Option<Token> {
-        if self.index >= self.tokens.len() {
-            return None;
-        }
-
-        let token = self.tokens[self.index].clone();
-        self.index += 1;
-
-        Some(token)
-    }
-
-    fn is_at_end(&self) -> bool {
-        self.index >= self.tokens.len()
-    }
-}
-
-#[derive(Debug)]
-enum Expr {
-    Number(String),
-
-    String(String),
-
-    Identifier(String),
-
-    Unary {
-        operator: TokenKind,
-        right: Box<Expr>,
-    },
-
-    Binary {
-        left: Box<Expr>,
-        operator: TokenKind,
-        right: Box<Expr>,
-    },
-
-    Grouping(Box<Expr>),
-}
-
-#[derive(Debug)]
-enum Stmt {
-    Expression(Box<Expr>),
-
-    Block {
-        statements: Vec<Stmt>,
-    },
-}
-
-#[derive(Debug)]
-struct Ast {
-    root: Option<Stmt>,
-}
-
-impl Ast {
-    fn new() -> Self {
-        Self { root: None }
-    }
-}
-
-#[derive(Debug)]
-enum ParseError {
-    UnexpectedEndOfInput,
-
-    ExpectedExpression,
-
-    ExpectedSemicolon,
-
-    ExpectedRightParen,
-
-    ExpectedRightBrace,
-
-    UnterminatedBlock,
-}
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ParseError::UnexpectedEndOfInput => {
-                write!(f, "unexpected end of input")
-            }
-
-            ParseError::ExpectedExpression => {
-                write!(f, "expected expression")
-            }
-
-            ParseError::ExpectedSemicolon => {
-                write!(f, "expected ';'")
-            }
-
-            ParseError::ExpectedRightParen => {
-                write!(f, "expected ')'")
-            }
-
-            ParseError::ExpectedRightBrace => {
-                write!(f, "expected '}}'")
-            }
-
-            ParseError::UnterminatedBlock => {
-                write!(f, "unterminated block")
-            }
-        }
-    }
-}
-
-impl std::error::Error for ParseError {}
-
-struct Parser {
-    tokens: TokenStream,
-}
-
 impl Parser {
-    fn new(tokens: TokenStream) -> Self {
-        Self { tokens }
+    fn new(tokens: Vec<Token>) -> Self {
+        Self { tokens, index: 0 }
     }
 
-    fn parse(&mut self, ast: &mut Ast) -> Result<(), ParseError> {
-        let mut statements = Vec::new();
+    fn current(&self) -> &Token {
+        &self.tokens[self.index]
+    }
 
-        while !self.tokens.is_at_end() {
+    fn previous(&self) -> &Token {
+        &self.tokens[self.index - 1]
+    }
+
+    fn at_end(&self) -> bool {
+        matches!(self.current().kind, TokenKind::Eof)
+    }
+
+    fn check_symbol(&self, symbol: &str) -> bool {
+        self.current().kind == TokenKind::Symbol(symbol.to_owned())
+    }
+
+    fn match_symbol(&mut self, symbol: &str) -> bool {
+        if self.check_symbol(symbol) {
+            self.index += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn match_keyword(&mut self, keyword: &str) -> bool {
+        if matches!(self.current().kind, TokenKind::Ident) && self.current().text == keyword {
+            self.index += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn expect_symbol(&mut self, symbol: &str) -> Result<(), String> {
+        if self.match_symbol(symbol) {
+            Ok(())
+        } else {
+            Err(self.error(format!("expected '{symbol}'")))
+        }
+    }
+
+    fn expect_ident(&mut self, purpose: &str) -> Result<String, String> {
+        if matches!(self.current().kind, TokenKind::Ident) {
+            let result = self.current().text.clone();
+            self.index += 1;
+            Ok(result)
+        } else {
+            Err(self.error(format!("expected {purpose}")))
+        }
+    }
+
+    fn error(&self, message: String) -> String {
+        format!("{message} at {}:{}", self.current().line, self.current().column)
+    }
+
+    fn parse_program(&mut self) -> Result<Vec<Function>, String> {
+        let mut functions = Vec::new();
+        while !self.at_end() {
+            if !self.match_keyword("fn") {
+                return Err(self.error("expected a function declaration beginning with 'fn'".to_owned()));
+            }
+            functions.push(self.parse_function()?);
+        }
+        if functions.is_empty() {
+            return Err("source file does not contain any functions".to_owned());
+        }
+        Ok(functions)
+    }
+
+    fn parse_type(&mut self) -> Result<Type, String> {
+        let name = self.expect_ident("type name")?;
+        match name.as_str() {
+            "i32" => Ok(Type::I32),
+            "i64" => Ok(Type::I64),
+            "f64" => Ok(Type::F64),
+            "bool" => Ok(Type::Bool),
+            "void" => Ok(Type::Void),
+            _ => Err(self.error(format!("unknown type '{name}'; expected i32, i64, f64, bool, or void"))),
+        }
+    }
+
+    fn parse_function(&mut self) -> Result<Function, String> {
+        let name = self.expect_ident("function name")?;
+        self.expect_symbol("(")?;
+        let mut params = Vec::new();
+        if !self.check_symbol(")") {
+            loop {
+                let param_name = self.expect_ident("parameter name")?;
+                self.expect_symbol(":")?;
+                let param_type = self.parse_type()?;
+                if param_type == Type::Void {
+                    return Err(self.error("a parameter cannot have type void".to_owned()));
+                }
+                params.push((param_name, param_type));
+                if !self.match_symbol(",") {
+                    break;
+                }
+            }
+        }
+        self.expect_symbol(")")?;
+        let return_type = if self.match_symbol("->") { self.parse_type()? } else { Type::Void };
+        let body = self.parse_block()?;
+        Ok(Function { name, params, return_type, body })
+    }
+
+    fn parse_block(&mut self) -> Result<Stmt, String> {
+        self.expect_symbol("{")?;
+        let mut statements = Vec::new();
+        while !self.check_symbol("}") && !self.at_end() {
             statements.push(self.parse_statement()?);
         }
+        if self.at_end() {
+            return Err(self.error("unterminated block; expected '}'".to_owned()));
+        }
+        self.expect_symbol("}")?;
+        Ok(Stmt::Block(statements))
+    }
 
-        ast.root = Some(Stmt::Block { statements });
+    fn parse_statement(&mut self) -> Result<Stmt, String> {
+        if self.check_symbol("{") {
+            return self.parse_block();
+        }
+        if self.match_keyword("let") {
+            let mutable = self.match_keyword("mut");
+            let name = self.expect_ident("variable name")?;
+            let declared_type = if self.match_symbol(":") { Some(self.parse_type()?) } else { None };
+            if declared_type == Some(Type::Void) {
+                return Err(self.error("a variable cannot have type void".to_owned()));
+            }
+            self.expect_symbol("=")?;
+            let value = self.parse_expression()?;
+            self.expect_symbol(";")?;
+            return Ok(Stmt::Let { name, declared_type, mutable, value });
+        }
+        if self.match_keyword("return") {
+            let value = if self.check_symbol(";") { None } else { Some(self.parse_expression()?) };
+            self.expect_symbol(";")?;
+            return Ok(Stmt::Return(value));
+        }
+        if self.match_keyword("if") {
+            self.expect_symbol("(")?;
+            let condition = self.parse_expression()?;
+            self.expect_symbol(")")?;
+            let then_branch = Box::new(self.parse_block()?);
+            let else_branch = if self.match_keyword("else") {
+                Some(Box::new(if self.match_keyword("if") {
+                    self.index -= 1;
+                    self.parse_statement()?
+                } else {
+                    self.parse_block()?
+                }))
+            } else {
+                None
+            };
+            return Ok(Stmt::If { condition, then_branch, else_branch });
+        }
+        if self.match_keyword("while") {
+            self.expect_symbol("(")?;
+            let condition = self.parse_expression()?;
+            self.expect_symbol(")")?;
+            let body = Box::new(self.parse_block()?);
+            return Ok(Stmt::While { condition, body });
+        }
+        if matches!(self.current().kind, TokenKind::Ident)
+            && self.tokens.get(self.index + 1).is_some_and(|t| t.kind == TokenKind::Symbol("=".to_owned()))
+        {
+            let name = self.current().text.clone();
+            self.index += 2;
+            let value = self.parse_expression()?;
+            self.expect_symbol(";")?;
+            return Ok(Stmt::Assign { name, value });
+        }
+        let expression = self.parse_expression()?;
+        self.expect_symbol(";")?;
+        Ok(Stmt::Expression(expression))
+    }
 
+    fn parse_expression(&mut self) -> Result<Expr, String> {
+        self.parse_equality()
+    }
+
+    fn parse_equality(&mut self) -> Result<Expr, String> {
+        let mut expr = self.parse_comparison()?;
+        while self.check_symbol("==") || self.check_symbol("!=") {
+            let op = self.current().text.clone();
+            self.index += 1;
+            let right = self.parse_comparison()?;
+            expr = Expr::Binary { left: Box::new(expr), op, right: Box::new(right) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_comparison(&mut self) -> Result<Expr, String> {
+        let mut expr = self.parse_term()?;
+        while ["<", "<=", ">", ">="].iter().any(|op| self.check_symbol(op)) {
+            let op = self.current().text.clone();
+            self.index += 1;
+            let right = self.parse_term()?;
+            expr = Expr::Binary { left: Box::new(expr), op, right: Box::new(right) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_term(&mut self) -> Result<Expr, String> {
+        let mut expr = self.parse_factor()?;
+        while self.check_symbol("+") || self.check_symbol("-") {
+            let op = self.current().text.clone();
+            self.index += 1;
+            let right = self.parse_factor()?;
+            expr = Expr::Binary { left: Box::new(expr), op, right: Box::new(right) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_factor(&mut self) -> Result<Expr, String> {
+        let mut expr = self.parse_unary()?;
+        while self.check_symbol("*") || self.check_symbol("/") {
+            let op = self.current().text.clone();
+            self.index += 1;
+            let right = self.parse_unary()?;
+            expr = Expr::Binary { left: Box::new(expr), op, right: Box::new(right) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_unary(&mut self) -> Result<Expr, String> {
+        if self.check_symbol("-") || self.check_symbol("!") {
+            let op = self.current().text.clone();
+            self.index += 1;
+            return Ok(Expr::Unary { op, right: Box::new(self.parse_unary()?) });
+        }
+        self.parse_primary()
+    }
+
+    fn parse_primary(&mut self) -> Result<Expr, String> {
+        if self.match_symbol("(") {
+            let expr = self.parse_expression()?;
+            self.expect_symbol(")")?;
+            return Ok(expr);
+        }
+        if matches!(self.current().kind, TokenKind::Number) {
+            let text = self.current().text.clone();
+            self.index += 1;
+            return Ok(Expr::Number(text));
+        }
+        if self.match_keyword("true") {
+            return Ok(Expr::Bool(true));
+        }
+        if self.match_keyword("false") {
+            return Ok(Expr::Bool(false));
+        }
+        if matches!(self.current().kind, TokenKind::Ident) {
+            let name = self.current().text.clone();
+            self.index += 1;
+            if self.match_symbol("(") {
+                let mut args = Vec::new();
+                if !self.check_symbol(")") {
+                    loop {
+                        args.push(self.parse_expression()?);
+                        if !self.match_symbol(",") {
+                            break;
+                        }
+                    }
+                }
+                self.expect_symbol(")")?;
+                return Ok(Expr::Call { name, args });
+            }
+            return Ok(Expr::Variable(name));
+        }
+        Err(self.error("expected an expression".to_owned()))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Signature {
+    params: Vec<Type>,
+    return_type: Type,
+}
+
+#[derive(Debug, Clone)]
+struct Binding {
+    ty: Type,
+    slot: String,
+    mutable: bool,
+}
+
+struct FunctionGenerator<'a> {
+    signatures: &'a HashMap<String, Signature>,
+    return_type: Type,
+    allocas: Vec<String>,
+    lines: Vec<String>,
+    scopes: Vec<HashMap<String, Binding>>,
+    next_value: usize,
+    next_label: usize,
+    terminated: bool,
+    uses_printf: bool,
+}
+
+impl<'a> FunctionGenerator<'a> {
+    fn new(signatures: &'a HashMap<String, Signature>, return_type: Type) -> Self {
+        Self {
+            signatures, return_type, allocas: Vec::new(), lines: Vec::new(),
+            scopes: vec![HashMap::new()], next_value: 0, next_label: 0,
+            terminated: false, uses_printf: false,
+        }
+    }
+
+    fn emit(&mut self, instruction: impl Into<String>) {
+        self.lines.push(format!("  {}", instruction.into()));
+    }
+
+    fn label(&mut self, name: &str) {
+        self.lines.push(format!("{name}:"));
+        self.terminated = false;
+    }
+
+    fn fresh_value(&mut self) -> String {
+        let name = format!("%t{}", self.next_value);
+        self.next_value += 1;
+        name
+    }
+
+    fn fresh_slot(&mut self, ty: Type) -> String {
+        let name = format!("%v{}", self.next_value);
+        self.next_value += 1;
+        self.allocas.push(format!("  {name} = alloca {}", ty.llvm()));
+        name
+    }
+
+    fn fresh_label(&mut self, prefix: &str) -> String {
+        let name = format!("{prefix}.{}", self.next_label);
+        self.next_label += 1;
+        name
+    }
+
+    fn lookup(&self, name: &str) -> Option<Binding> {
+        self.scopes.iter().rev().find_map(|scope| scope.get(name).cloned())
+    }
+
+    fn require_same(&self, expected: Type, actual: Type, context: &str) -> Result<(), String> {
+        if expected == actual {
+            Ok(())
+        } else {
+            Err(format!("{context}: expected {}, found {}", expected.llvm(), actual.llvm()))
+        }
+    }
+
+    fn emit_expr(&mut self, expression: &Expr) -> Result<(String, Type), String> {
+        match expression {
+            Expr::Number(text) => {
+                if text.contains('.') {
+                    let value: f64 = text.parse().map_err(|_| format!("invalid floating-point literal '{text}'"))?;
+                    if !value.is_finite() {
+                        return Err(format!("floating-point literal '{text}' is outside the supported finite range"));
+                    }
+                    Ok((format!("{value:.17e}"), Type::F64))
+                } else {
+                    let value: i64 = text.parse().map_err(|_| format!("integer literal '{text}' is outside the i64 range"))?;
+                    if (i32::MIN as i64..=i32::MAX as i64).contains(&value) {
+                        Ok((value.to_string(), Type::I32))
+                    } else {
+                        Ok((value.to_string(), Type::I64))
+                    }
+                }
+            }
+            Expr::Bool(value) => Ok((if *value { "true" } else { "false" }.to_owned(), Type::Bool)),
+            Expr::Variable(name) => {
+                let binding = self.lookup(name).ok_or_else(|| format!("unknown variable '{name}'"))?;
+                let result = self.fresh_value();
+                self.emit(format!("{result} = load {}, ptr {}", binding.ty.llvm(), binding.slot));
+                Ok((result, binding.ty))
+            }
+            Expr::Unary { op, right } => {
+                let (value, ty) = self.emit_expr(right)?;
+                match op.as_str() {
+                    "-" if ty.is_numeric() => {
+                        let result = self.fresh_value();
+                        if ty == Type::F64 {
+                            self.emit(format!("{result} = fneg double {value}"));
+                        } else {
+                            self.emit(format!("{result} = sub {} 0, {value}", ty.llvm()));
+                        }
+                        Ok((result, ty))
+                    }
+                    "!" if ty == Type::Bool => {
+                        let result = self.fresh_value();
+                        self.emit(format!("{result} = xor i1 {value}, true"));
+                        Ok((result, Type::Bool))
+                    }
+                    "-" => Err(format!("unary '-' requires a number, found {}", ty.llvm())),
+                    "!" => Err(format!("unary '!' requires bool, found {}", ty.llvm())),
+                    _ => Err(format!("unsupported unary operator '{op}'")),
+                }
+            }
+            Expr::Binary { left, op, right } => {
+                let (lhs, lhs_ty) = self.emit_expr(left)?;
+                let (rhs, rhs_ty) = self.emit_expr(right)?;
+                self.require_same(lhs_ty, rhs_ty, &format!("operator '{op}'"))?;
+
+                let result_ty = match op.as_str() {
+                    "+" | "-" | "*" | "/" if lhs_ty.is_numeric() => lhs_ty,
+                    "==" | "!=" if lhs_ty != Type::Void => Type::Bool,
+                    "<" | "<=" | ">" | ">=" if lhs_ty.is_numeric() => Type::Bool,
+                    "+" | "-" | "*" | "/" => return Err(format!("operator '{op}' requires numeric operands")),
+                    "<" | "<=" | ">" | ">=" => return Err(format!("operator '{op}' requires numeric operands")),
+                    _ => return Err(format!("unsupported binary operator '{op}'")),
+                };
+
+                let result = self.fresh_value();
+                let instruction = match (lhs_ty, op.as_str()) {
+                    (Type::F64, "+") => format!("{result} = fadd double {lhs}, {rhs}"),
+                    (Type::F64, "-") => format!("{result} = fsub double {lhs}, {rhs}"),
+                    (Type::F64, "*") => format!("{result} = fmul double {lhs}, {rhs}"),
+                    (Type::F64, "/") => format!("{result} = fdiv double {lhs}, {rhs}"),
+                    (Type::I32 | Type::I64, "+") => format!("{result} = add {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I32 | Type::I64, "-") => format!("{result} = sub {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I32 | Type::I64, "*") => format!("{result} = mul {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I32 | Type::I64, "/") => format!("{result} = sdiv {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::F64, "==") => format!("{result} = fcmp oeq double {lhs}, {rhs}"),
+                    (Type::F64, "!=") => format!("{result} = fcmp une double {lhs}, {rhs}"),
+                    (Type::F64, "<") => format!("{result} = fcmp olt double {lhs}, {rhs}"),
+                    (Type::F64, "<=") => format!("{result} = fcmp ole double {lhs}, {rhs}"),
+                    (Type::F64, ">") => format!("{result} = fcmp ogt double {lhs}, {rhs}"),
+                    (Type::F64, ">=") => format!("{result} = fcmp oge double {lhs}, {rhs}"),
+                    (_, "==") => format!("{result} = icmp eq {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (_, "!=") => format!("{result} = icmp ne {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I32 | Type::I64, "<") => format!("{result} = icmp slt {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I32 | Type::I64, "<=") => format!("{result} = icmp sle {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I32 | Type::I64, ">") => format!("{result} = icmp sgt {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I32 | Type::I64, ">=") => format!("{result} = icmp sge {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    _ => return Err(format!("operator '{op}' is not valid for {}", lhs_ty.llvm())),
+                };
+                self.emit(instruction);
+                Ok((result, result_ty))
+            }
+            Expr::Call { name, args } => {
+                if name == "print" {
+                    if args.len() != 1 {
+                        return Err("print expects exactly one argument".to_owned());
+                    }
+                    let (value, ty) = self.emit_expr(&args[0])?;
+                    self.uses_printf = true;
+                    match ty {
+                        Type::I32 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 {value})")),
+                        Type::I64 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i64, i64 {value})")),
+                        Type::F64 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.f64, double {value})")),
+                        Type::Bool => {
+                            let promoted = self.fresh_value();
+                            self.emit(format!("{promoted} = zext i1 {value} to i32"));
+                            self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 {promoted})"));
+                        }
+                        Type::Void => return Err("print cannot print a void expression".to_owned()),
+                    }
+                    return Ok((String::new(), Type::Void));
+                }
+
+                let signature = self.signatures.get(name).cloned()
+                    .ok_or_else(|| format!("unknown function '{name}'"))?;
+                if signature.params.len() != args.len() {
+                    return Err(format!("function '{name}' expects {} argument(s), got {}", signature.params.len(), args.len()));
+                }
+                let mut lowered = Vec::new();
+                for (arg, expected) in args.iter().zip(signature.params.iter()) {
+                    let (value, actual) = self.emit_expr(arg)?;
+                    self.require_same(*expected, actual, &format!("argument to '{name}'"))?;
+                    lowered.push(format!("{} {value}", actual.llvm()));
+                }
+                let arguments = lowered.join(", ");
+                if signature.return_type == Type::Void {
+                    self.emit(format!("call void @{name}({arguments})"));
+                    Ok((String::new(), Type::Void))
+                } else {
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = call {} @{name}({arguments})", signature.return_type.llvm()));
+                    Ok((result, signature.return_type))
+                }
+            }
+        }
+    }
+
+    fn emit_stmt(&mut self, statement: &Stmt) -> Result<(), String> {
+        if self.terminated {
+            return Ok(());
+        }
+        match statement {
+            Stmt::Block(statements) => {
+                self.scopes.push(HashMap::new());
+                for statement in statements {
+                    if self.terminated { break; }
+                    self.emit_stmt(statement)?;
+                }
+                self.scopes.pop();
+            }
+            Stmt::Let { name, declared_type, mutable, value } => {
+                if self.scopes.last().is_some_and(|scope| scope.contains_key(name)) {
+                    return Err(format!("variable '{name}' is already declared in this scope"));
+                }
+                let (value, inferred_type) = self.emit_expr(value)?;
+                let ty = declared_type.unwrap_or(inferred_type);
+                if ty == Type::Void {
+                    return Err("cannot infer a variable from a void expression".to_owned());
+                }
+                self.require_same(ty, inferred_type, &format!("initializer for '{name}'"))?;
+                let slot = self.fresh_slot(ty);
+                self.emit(format!("store {} {value}, ptr {slot}", ty.llvm()));
+                self.scopes.last_mut().unwrap().insert(name.clone(), Binding { ty, slot, mutable: *mutable });
+            }
+            Stmt::Assign { name, value } => {
+                let binding = self.lookup(name).ok_or_else(|| format!("assignment to unknown variable '{name}'"))?;
+                if !binding.mutable {
+                    return Err(format!("cannot assign to immutable variable '{name}'; declare it with 'let mut'"));
+                }
+                let (value, ty) = self.emit_expr(value)?;
+                self.require_same(binding.ty, ty, &format!("assignment to '{name}'"))?;
+                self.emit(format!("store {} {value}, ptr {}", ty.llvm(), binding.slot));
+            }
+            Stmt::Return(value) => {
+                match (self.return_type, value) {
+                    (Type::Void, None) => self.emit("ret void"),
+                    (Type::Void, Some(_)) => return Err("void function cannot return a value".to_owned()),
+                    (_, None) => return Err(format!("function must return {}", self.return_type.llvm())),
+                    (expected, Some(expression)) => {
+                        let (value, actual) = self.emit_expr(expression)?;
+                        self.require_same(expected, actual, "return value")?;
+                        self.emit(format!("ret {} {value}", expected.llvm()));
+                    }
+                }
+                self.terminated = true;
+            }
+            Stmt::Expression(expression) => {
+                self.emit_expr(expression)?;
+            }
+            Stmt::If { condition, then_branch, else_branch } => {
+                let (condition_value, condition_type) = self.emit_expr(condition)?;
+                self.require_same(Type::Bool, condition_type, "if condition")?;
+                let then_label = self.fresh_label("if.then");
+                let else_label = self.fresh_label("if.else");
+                let end_label = self.fresh_label("if.end");
+                self.emit(format!("br i1 {condition_value}, label %{then_label}, label %{else_label}"));
+                self.terminated = true;
+
+                self.label(&then_label);
+                self.emit_stmt(then_branch)?;
+                let then_terminated = self.terminated;
+                if !then_terminated {
+                    self.emit(format!("br label %{end_label}"));
+                    self.terminated = true;
+                }
+
+                self.label(&else_label);
+                if let Some(else_branch) = else_branch {
+                    self.emit_stmt(else_branch)?;
+                }
+                let else_terminated = self.terminated;
+                if !else_terminated {
+                    self.emit(format!("br label %{end_label}"));
+                    self.terminated = true;
+                }
+
+                if then_terminated && else_terminated {
+                    self.terminated = true;
+                } else {
+                    self.label(&end_label);
+                }
+            }
+            Stmt::While { condition, body } => {
+                let condition_label = self.fresh_label("while.cond");
+                let body_label = self.fresh_label("while.body");
+                let end_label = self.fresh_label("while.end");
+                self.emit(format!("br label %{condition_label}"));
+                self.terminated = true;
+
+                self.label(&condition_label);
+                let (condition_value, condition_type) = self.emit_expr(condition)?;
+                self.require_same(Type::Bool, condition_type, "while condition")?;
+                self.emit(format!("br i1 {condition_value}, label %{body_label}, label %{end_label}"));
+                self.terminated = true;
+
+                self.label(&body_label);
+                self.emit_stmt(body)?;
+                if !self.terminated {
+                    self.emit(format!("br label %{condition_label}"));
+                    self.terminated = true;
+                }
+                self.label(&end_label);
+            }
+        }
         Ok(())
     }
 
-    fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
-        if self.match_kind(TokenKind::LeftBrace) {
-            return self.parse_block();
-        }
-
-        let expr = self.expression()?;
-
-        self.consume(
-            TokenKind::Semicolon,
-            ParseError::ExpectedSemicolon,
-        )?;
-
-        Ok(Stmt::Expression(Box::new(expr)))
-    }
-
-    fn parse_block(&mut self) -> Result<Stmt, ParseError> {
-        let mut statements = Vec::new();
-
-        while !self.tokens.is_at_end()
-            && !self.check(TokenKind::RightBrace)
-        {
-            statements.push(self.parse_statement()?);
-        }
-
-        if self.tokens.is_at_end() {
-            return Err(ParseError::UnterminatedBlock);
-        }
-
-        self.consume(
-            TokenKind::RightBrace,
-            ParseError::ExpectedRightBrace,
-        )?;
-
-        Ok(Stmt::Block { statements })
-    }
-
-    fn expression(&mut self) -> Result<Expr, ParseError> {
-        self.equality()
-    }
-
-    fn equality(&mut self) -> Result<Expr, ParseError> {
-        let mut expr = self.comparison()?;
-
-        loop {
-            let operator = match self.tokens.peek().map(|token| token.kind) {
-                Some(TokenKind::BangEqual) => TokenKind::BangEqual,
-                Some(TokenKind::EqualEqual) => TokenKind::EqualEqual,
-                _ => break,
-            };
-
-            self.tokens.advance();
-
-            let right = self.comparison()?;
-
-            expr = Expr::Binary {
-                left: Box::new(expr),
-                operator,
-                right: Box::new(right),
-            };
-        }
-
-        Ok(expr)
-    }
-
-    fn comparison(&mut self) -> Result<Expr, ParseError> {
-        let mut expr = self.term()?;
-
-        loop {
-            let operator = match self.tokens.peek().map(|token| token.kind) {
-                Some(TokenKind::Greater) => TokenKind::Greater,
-                Some(TokenKind::GreaterEqual) => TokenKind::GreaterEqual,
-                Some(TokenKind::Less) => TokenKind::Less,
-                Some(TokenKind::LessEqual) => TokenKind::LessEqual,
-                _ => break,
-            };
-
-            self.tokens.advance();
-
-            let right = self.term()?;
-
-            expr = Expr::Binary {
-                left: Box::new(expr),
-                operator,
-                right: Box::new(right),
-            };
-        }
-
-        Ok(expr)
-    }
-
-    fn term(&mut self) -> Result<Expr, ParseError> {
-        let mut expr = self.factor()?;
-
-        loop {
-            let operator = match self.tokens.peek().map(|token| token.kind) {
-                Some(TokenKind::Minus) => TokenKind::Minus,
-                Some(TokenKind::Plus) => TokenKind::Plus,
-                _ => break,
-            };
-
-            self.tokens.advance();
-
-            let right = self.factor()?;
-
-            expr = Expr::Binary {
-                left: Box::new(expr),
-                operator,
-                right: Box::new(right),
-            };
-        }
-
-        Ok(expr)
-    }
-
-    fn factor(&mut self) -> Result<Expr, ParseError> {
-        let mut expr = self.unary()?;
-
-        loop {
-            let operator = match self.tokens.peek().map(|token| token.kind) {
-                Some(TokenKind::Slash) => TokenKind::Slash,
-                Some(TokenKind::Star) => TokenKind::Star,
-                _ => break,
-            };
-
-            self.tokens.advance();
-
-            let right = self.unary()?;
-
-            expr = Expr::Binary {
-                left: Box::new(expr),
-                operator,
-                right: Box::new(right),
-            };
-        }
-
-        Ok(expr)
-    }
-
-    fn unary(&mut self) -> Result<Expr, ParseError> {
-        let token_kind = match self.tokens.peek() {
-            Some(token) => token.kind,
-            None => return Err(ParseError::UnexpectedEndOfInput),
-        };
-
-        let operator = match token_kind {
-            TokenKind::Bang => TokenKind::Bang,
-            TokenKind::Minus => TokenKind::Minus,
-
-            _ => {
-                return self.primary();
+    fn generate(mut self, function: &Function) -> Result<(String, bool), String> {
+        for (index, (name, ty)) in function.params.iter().enumerate() {
+            if self.scopes[0].contains_key(name) {
+                return Err(format!("duplicate parameter '{name}'"));
             }
-        };
-
-        self.tokens.advance();
-
-        let right = self.unary()?;
-
-        Ok(Expr::Unary {
-            operator,
-            right: Box::new(right),
-        })
-    }
-
-    fn primary(&mut self) -> Result<Expr, ParseError> {
-        let token = match self.tokens.advance() {
-            Some(token) => token,
-            None => return Err(ParseError::UnexpectedEndOfInput),
-        };
-
-        match token.kind {
-            TokenKind::Number => {
-                Ok(Expr::Number(token.lexeme))
-            }
-
-            TokenKind::String => {
-                Ok(Expr::String(token.lexeme))
-            }
-
-            TokenKind::Identifier => {
-                Ok(Expr::Identifier(token.lexeme))
-            }
-
-            TokenKind::LeftParen => {
-                let expr = self.expression()?;
-
-                self.consume(
-                    TokenKind::RightParen,
-                    ParseError::ExpectedRightParen,
-                )?;
-
-                Ok(Expr::Grouping(Box::new(expr)))
-            }
-
-            _ => Err(ParseError::ExpectedExpression),
-        }
-    }
-
-    fn match_kind(&mut self, kind: TokenKind) -> bool {
-        if !self.check(kind) {
-            return false;
+            let slot = self.fresh_slot(*ty);
+            self.emit(format!("store {} %arg{index}, ptr {slot}", ty.llvm()));
+            self.scopes[0].insert(name.clone(), Binding { ty: *ty, slot, mutable: false });
         }
 
-        self.tokens.advance();
-        true
-    }
-
-    fn check(&self, kind: TokenKind) -> bool {
-        match self.tokens.peek() {
-            Some(token) => token.kind == kind,
-            None => false,
+        self.emit_stmt(&function.body)?;
+        if function.return_type != Type::Void && !self.terminated {
+            return Err(format!("not every path in function '{}' returns {}", function.name, function.return_type.llvm()));
         }
-    }
-
-    fn consume(
-        &mut self,
-        kind: TokenKind,
-        error: ParseError,
-    ) -> Result<Token, ParseError> {
-        match self.tokens.peek() {
-            Some(token) if token.kind == kind => {
-                Ok(self.tokens.advance().unwrap())
-            }
-
-            _ => Err(error),
+        if function.return_type == Type::Void && !self.terminated {
+            self.emit("ret void");
+            self.terminated = true;
         }
+
+        let mut body = String::from("entry:\n");
+        for alloca in self.allocas {
+            body.push_str(&alloca);
+            body.push('\n');
+        }
+        for line in self.lines {
+            body.push_str(&line);
+            body.push('\n');
+        }
+        Ok((body, self.uses_printf))
     }
 }
 
-fn print_ast(stmt: &Stmt, indent: usize) {
-    let padding = " ".repeat(indent);
-
-    match stmt {
-        Stmt::Expression(expr) => {
-            println!("{padding}Expression:");
-            print_expr(expr, indent + 4);
+fn statement_always_returns(statement: &Stmt) -> bool {
+    match statement {
+        Stmt::Return(_) => true,
+        Stmt::Block(statements) => statements.iter().any(statement_always_returns),
+        Stmt::If { then_branch, else_branch: Some(else_branch), .. } => {
+            statement_always_returns(then_branch) && statement_always_returns(else_branch)
         }
+        _ => false,
+    }
+}
 
-        Stmt::Block { statements } => {
-            println!("{padding}Block:");
+fn compile_to_llvm(functions: &[Function]) -> Result<String, String> {
+    let mut signatures = HashMap::new();
+    for function in functions {
+        let signature = Signature {
+            params: function.params.iter().map(|(_, ty)| *ty).collect(),
+            return_type: function.return_type,
+        };
+        if signatures.insert(function.name.clone(), signature).is_some() {
+            return Err(format!("duplicate function '{}'", function.name));
+        }
+    }
 
-            for statement in statements {
-                print_ast(statement, indent + 4);
+    let main = signatures.get("main").ok_or_else(|| "program must define fn main() -> i32".to_owned())?;
+    if !main.params.is_empty() || main.return_type != Type::I32 {
+        return Err("entry point must have signature fn main() -> i32".to_owned());
+    }
+    for function in functions {
+        if function.return_type != Type::Void && !statement_always_returns(&function.body) {
+            return Err(format!("function '{}' must return a value on every path", function.name));
+        }
+    }
+
+    let mut module = String::from("; RamLang native module generated by ramcomp\nsource_filename = \"ramlang\"\n\n");
+    module.push_str("@.fmt.i32 = private unnamed_addr constant [4 x i8] [i8 37, i8 100, i8 10, i8 0], align 1\n");
+    module.push_str("@.fmt.i64 = private unnamed_addr constant [6 x i8] [i8 37, i8 108, i8 108, i8 100, i8 10, i8 0], align 1\n");
+    module.push_str("@.fmt.f64 = private unnamed_addr constant [4 x i8] [i8 37, i8 103, i8 10, i8 0], align 1\n");
+    module.push_str("declare i32 @printf(ptr, ...)\n\n");
+
+    for function in functions {
+        let params = function.params.iter().enumerate()
+            .map(|(index, (_, ty))| format!("{} %arg{index}", ty.llvm()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let signature_params = function.params.iter()
+            .map(|(_, ty)| ty.llvm())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let generator = FunctionGenerator::new(&signatures, function.return_type);
+        let (body, _) = generator.generate(function)?;
+        let header = format!("define {} @{}({params}) {{\n", function.return_type.llvm(), function.name);
+        module.push_str(&header);
+        module.push_str(&body);
+        module.push_str("}\n\n");
+        let _ = signature_params;
+    }
+    Ok(module)
+}
+
+fn parse_source(source: &str) -> Result<Vec<Function>, String> {
+    let tokens = Lexer::new(source).lex()?;
+    Parser::new(tokens).parse_program()
+}
+
+struct Options {
+    source: PathBuf,
+    output: Option<PathBuf>,
+    emit_llvm: bool,
+    check_only: bool,
+}
+
+fn parse_args() -> Result<Options, String> {
+    let mut args = env::args().skip(1);
+    let Some(source) = args.next() else {
+        return Err("usage: ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output]".to_owned());
+    };
+    if source == "--help" || source == "-h" {
+        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output]\n\nOPTIONS:\n  --check          Parse and type-check without producing an executable\n  --emit-llvm      Write LLVM IR instead of compiling a native executable\n  -o <path>        Set output executable or IR path\n  -h, --help       Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
+        process::exit(0);
+    }
+
+    let mut options = Options {
+        source: PathBuf::from(source),
+        output: None,
+        emit_llvm: false,
+        check_only: false,
+    };
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--check" => options.check_only = true,
+            "--emit-llvm" => {
+                options.emit_llvm = true;
+                if let Some(next) = args.next() {
+                    if next.starts_with('-') {
+                        return Err(format!("unexpected option '{next}' after --emit-llvm"));
+                    }
+                    options.output = Some(PathBuf::from(next));
+                }
             }
+            "-o" => {
+                let Some(path) = args.next() else { return Err("expected a path after -o".to_owned()); };
+                options.output = Some(PathBuf::from(path));
+            }
+            _ => return Err(format!("unknown option '{arg}'")),
         }
     }
+    if options.check_only && options.emit_llvm {
+        return Err("--check cannot be combined with --emit-llvm".to_owned());
+    }
+    Ok(options)
 }
 
-fn print_expr(expr: &Expr, indent: usize) {
-    let padding = " ".repeat(indent);
+fn compile(options: Options) -> Result<(), String> {
+    let source = fs::read_to_string(&options.source)
+        .map_err(|error| format!("cannot read {}: {error}", options.source.display()))?;
+    let functions = parse_source(&source).map_err(|error| format!("{}: {error}", options.source.display()))?;
+    let llvm_ir = compile_to_llvm(&functions)
+        .map_err(|error| format!("{}: {error}", options.source.display()))?;
 
-    match expr {
-        Expr::Number(value) => {
-            println!("{padding}Number({value})");
-        }
-
-        Expr::String(value) => {
-            println!("{padding}String({value})");
-        }
-
-        Expr::Identifier(value) => {
-            println!("{padding}Identifier({value})");
-        }
-
-        Expr::Unary { operator, right } => {
-            println!(
-                "{padding}Unary({operator:?})"
-            );
-
-            print_expr(right, indent + 4);
-        }
-
-        Expr::Binary {
-            left,
-            operator,
-            right,
-        } => {
-            println!(
-                "{padding}Binary({operator:?})"
-            );
-
-            println!("{padding}Left:");
-            print_expr(left, indent + 4);
-
-            println!("{padding}Right:");
-            print_expr(right, indent + 4);
-        }
-
-        Expr::Grouping(expr) => {
-            println!("{padding}Grouping:");
-            print_expr(expr, indent + 4);
-        }
-    }
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let source = r#"{
-    x + 10;
-    {
-        y * 2;
-    }
-}"#;
-
-    let lexer = Lexer::new();
-
-    let token_stream = lexer.lex(source)?;
-
-    for token in &token_stream.tokens {
-        println!(
-            "{:?} \"{}\" ({}:{})",
-            token.kind,
-            token.lexeme,
-            token.line,
-            token.column
-        );
+    if options.check_only {
+        println!("{}: OK", options.source.display());
+        return Ok(());
     }
 
-    let mut parser = Parser::new(token_stream);
-
-    let mut ast = Ast::new();
-
-    parser.parse(&mut ast)?;
-
-    println!();
-    println!("Parsing successful.");
-    println!();
-
-    if let Some(root) = &ast.root {
-        print_ast(root, 0);
+    if options.emit_llvm {
+        let output = options.output.unwrap_or_else(|| options.source.with_extension("ll"));
+        fs::write(&output, llvm_ir)
+            .map_err(|error| format!("cannot write {}: {error}", output.display()))?;
+        println!("wrote {}", output.display());
+        return Ok(());
     }
 
+    let output = options.output.unwrap_or_else(|| options.source.with_extension(""));
+    let ir_path = env::temp_dir().join(format!("ramlang-{}.ll", process::id()));
+    fs::write(&ir_path, llvm_ir)
+        .map_err(|error| format!("cannot write temporary LLVM IR: {error}"))?;
+    let clang = env::var_os("RAMLANG_CLANG").unwrap_or_else(|| "clang".into());
+    let result = Command::new(&clang)
+        .arg("-Wno-override-module")
+        .arg(&ir_path)
+        .arg("-o")
+        .arg(&output)
+        .output()
+        .map_err(|error| format!("could not launch clang ({:?}): {error}; install LLVM/Clang 15+ or set RAMLANG_CLANG", clang));
+    let _ = fs::remove_file(&ir_path);
+    let result = result?;
+    if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        return Err(format!("clang failed to compile the generated LLVM IR:\n{stderr}\nInstall LLVM/Clang 15+ and verify that clang accepts opaque-pointer IR."));
+    }
+    println!("built {}", output.display());
     Ok(())
+}
+
+fn main() {
+    match parse_args().and_then(compile) {
+        Ok(()) => {}
+        Err(error) => {
+            eprintln!("ramcomp: {error}");
+            process::exit(1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn compile(source: &str) -> Result<String, String> {
+        let functions = parse_source(source)?;
+        compile_to_llvm(&functions)
+    }
+
+    #[test]
+    fn emits_integer_arithmetic() {
+        let ir = compile("fn main() -> i32 { let x: i32 = 20 + 22; return x; }").unwrap();
+        assert!(ir.contains("add i32 20, 22"));
+        assert!(ir.contains("ret i32"));
+    }
+
+    #[test]
+    fn emits_if_else_control_flow() {
+        let source = "fn main() -> i32 { let x: i32 = 3; if (x > 1) { return 1; } else { return 0; } }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("if.then"));
+        assert!(ir.contains("icmp sgt i32"));
+    }
+
+    #[test]
+    fn supports_mutable_variables_and_loops() {
+        let source = "fn main() -> i32 { let mut x: i32 = 0; while (x < 4) { x = x + 1; } return x; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("while.cond"));
+        assert!(ir.contains("store i32"));
+    }
+
+    #[test]
+    fn supports_functions_and_print() {
+        let source = "fn twice(x: i32) -> i32 { return x * 2; } fn main() -> i32 { print(twice(21)); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("define i32 @twice(i32 %arg0)"));
+        assert!(ir.contains("@printf"));
+    }
+
+    #[test]
+    fn rejects_immutable_assignment() {
+        let source = "fn main() -> i32 { let x: i32 = 1; x = 2; return x; }";
+        assert!(compile(source).unwrap_err().contains("immutable"));
+    }
+
+    #[test]
+    fn rejects_type_mismatches() {
+        let source = "fn main() -> i32 { let x: i32 = true; return x; }";
+        assert!(compile(source).unwrap_err().contains("initializer"));
+    }
+
+    #[test]
+    fn rejects_missing_return() {
+        let source = "fn main() -> i32 { let x: i32 = 1; }";
+        assert!(compile(source).unwrap_err().contains("return"));
+    }
+
+    #[test]
+    fn parses_nested_comments_and_precedence() {
+        let source = "/* head */ fn main() -> i32 { // body\n return 1 + 2 * 3; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("mul i32"));
+        assert!(ir.contains("add i32"));
+    }
 }
