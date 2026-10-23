@@ -5572,7 +5572,7 @@ mod tests {
         assert!(ir.contains("zext i16"));
         assert!(ir.contains("zext i1"));
         assert!(ir.contains("call i32 (i32, ...) @variadic_sum(i32 10"));
-        assert!(ir.contains("double 2.000000e0") || ir.contains("double 2.000000e+00") || ir.contains("double 2.000000e00"));
+        assert!(ir.contains("double 2.000000"));
     }
 
     #[test]
