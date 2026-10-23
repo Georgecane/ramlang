@@ -47,7 +47,7 @@ This syntax is illustrative and is not accepted by the compiler yet.
 
 ## Runtime crate
 
-`runtime/` provides async TCP connect and listener/accept helpers, length-prefixed frames with a caller-supplied maximum, bounded UDP datagrams, per-operation timeouts, and a `TaskGroup<T>` for structured child-task ownership, joining, abort, and shutdown. Localhost tests cover TCP/UDP round trips, oversized payload rejection, and task-group joining/shutdown. The C ABI makes TCP and UDP usable from current `.ram` programs, but its calls block the calling thread. This is an interoperability bridge, not native async language support. This is currently a Rust API, not yet callable from RamLang without an explicit C ABI bridge or compiler-generated runtime integration.
+`runtime/` provides async TCP connect and listener/accept helpers, length-prefixed frames with a caller-supplied maximum, bounded UDP datagrams, per-operation timeouts, and a `TaskGroup<T>` for structured child-task ownership, joining, abort, and shutdown. Localhost tests cover TCP/UDP round trips, oversized payload rejection, and task-group joining/shutdown. The ordinary TCP connection API and UDP C API are blocking. The TCP request-handle API can start several connect/write/read transactions on a shared multithread Tokio runtime without blocking the calling thread, then expose readiness, timed waits, result retrieval, cancellation, and cleanup. This is explicit handle-based concurrency, not native async language support: `.ram` still has no native `async fn` or `await` syntax. This is currently a Rust API, not yet callable from RamLang without an explicit C ABI bridge or compiler-generated runtime integration.
 
 ## Quality gates
 
