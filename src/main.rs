@@ -958,8 +958,8 @@ fn compile_to_llvm(functions: &[Function]) -> Result<String, String> {
     module.push_str("@.fmt.i64 = private unnamed_addr constant [6 x i8] [i8 37, i8 108, i8 108, i8 100, i8 10, i8 0], align 1\n");
     module.push_str("@.fmt.f64 = private unnamed_addr constant [4 x i8] [i8 37, i8 103, i8 10, i8 0], align 1\n");
     module.push_str("declare i32 @printf(ptr, ...)\n\n");
-    module.push_str("declare ptr @malloc(i64)\\n");
-    module.push_str("declare void @free(ptr)\\n\\n");
+    module.push_str("declare ptr @malloc(i64)\n");
+    module.push_str("declare void @free(ptr)\n\n");
 
     for function in functions {
         let params = function.params.iter().enumerate()
