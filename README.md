@@ -12,6 +12,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Global scalar, boolean, null-pointer, and UTF-8 string constants, available across source files
 - Target-aware `size_of(Type)`, `align_of(Type)`, and `offset_of(Type, field)` layout queries
+- LLVM bit intrinsics for population count, leading/trailing zero counts, byte swap, and bit reversal
 - Runtime `assert(bool)` with a trap on failure, `panic(str)` for non-returning errors, `assume(bool)` lowered to `llvm.assume`, volatile memory access built-ins, and LLVM memory-order fences
 - Immutable local variables with `let` and mutable locals with `let mut`
 - Explicit casts with `as` between signed integer widths, integers and `f64`, integers and `bool`, `bool` and `f64`, and `str` / `ptr`
@@ -321,6 +322,23 @@ fn main() -> i32 {
 ```
 
 `size_of(void)` is invalid. Cross-compiling may change pointer and struct sizes; use this intrinsic instead of hardcoding ABI-dependent byte counts. The current allocator interface uses an `i64` size and targets a 64-bit host ABI in the provided examples.
+
+## Bit-manipulation intrinsics
+
+For integer widths 8, 16, 32, and 64, RamLang exposes `ctpop_N` (population count), `ctlz_N` (count leading zero bits), `cttz_N` (count trailing zero bits), and `bitreverse_N` (reverse all bits), where `N` is the width in bits. `bswap_N` swaps bytes for widths 16, 32, and 64. These lower to LLVM intrinsics so the selected backend can choose efficient target instructions.
+
+```rust
+fn main() -> i32 {
+    print(ctpop_32(255));
+    print(ctlz_32(1));
+    print(cttz_32(8));
+    print(bswap_32(16909060));
+    print(bitreverse_32(1));
+    return 0;
+}
+```
+
+The count-leading/trailing-zero intrinsics pass LLVM's defined-zero mode, so a zero input returns the bit width rather than making the result undefined. An input's integer width must match the suffix; cast literals explicitly when a narrower width is intended.
 
 ## Memory-order fences
 
