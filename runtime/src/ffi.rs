@@ -1350,6 +1350,56 @@ mod tests {
     }
 
     #[test]
+    fn c_abi_async_udp_request_cancel_unblocks_waiters() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let address = server.local_addr().unwrap();
+        let (received_tx, received_rx) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let mut payload = [0_u8; 64];
+            let (_, _) = server.recv_from(&mut payload).unwrap();
+            received_tx.send(()).unwrap();
+            thread::sleep(Duration::from_millis(250));
+        });
+
+        let destination = CString::new(address.to_string()).unwrap();
+        let payload = b"cancel udp";
+        // SAFETY: destination and payload are valid and copied before return.
+        let request = unsafe {
+            ramlang_udp_request_start(
+                destination.as_ptr(),
+                payload.as_ptr(),
+                payload.len() as u64,
+                64,
+                5_000,
+            )
+        };
+        assert!(!request.is_null(), "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+        received_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        // SAFETY: request is live and has not been closed.
+        assert_eq!(unsafe { ramlang_udp_request_cancel(request) }, 0);
+        assert_eq!(unsafe { ramlang_udp_request_wait(request, 500) }, 1);
+        let mut output = [0_u8; 64];
+        // SAFETY: request is live and output has 64 writable bytes.
+        assert_eq!(
+            unsafe { ramlang_udp_request_read_result(request, output.as_mut_ptr(), 64) },
+            -1
+        );
+        assert_eq!(
+            unsafe { CStr::from_ptr(ramlang_last_error()) }.to_string_lossy(),
+            "UDP request cancelled"
+        );
+        // SAFETY: request is live and has not been closed.
+        unsafe { ramlang_udp_request_close(request) };
+        server.join().unwrap();
+    }
+
+    #[test]
     fn c_abi_udp_datagram_round_trip() {
         let server = UdpSocket::bind("127.0.0.1:0").unwrap();
         server
