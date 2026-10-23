@@ -5180,14 +5180,12 @@ fn compile(options: Options) -> Result<(), String> {
         .or_else(|| env::var_os("RAMLANG_CLANG"))
         .unwrap_or_else(|| "clang".into());
     let mut command = Command::new(&linker);
-    let requires_async_runtime = program.functions.iter().any(|function| function.asynchronous);
-    let runtime_library_dir = if requires_async_runtime {
-        env::current_exe()
-            .ok()
-            .and_then(|path| path.parent().map(Path::to_path_buf))
-    } else {
-        None
-    };
+    // Every native RamLang executable links the Rust runtime for print, allocation,
+    // panic, async, and standard-library services. Library users can override this by
+    // explicitly supplying ramlang_runtime in --link-lib.
+    let runtime_library_dir = env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf));
     if let Some(target) = &options.target {
         command.arg("-target").arg(target);
     }
@@ -5215,7 +5213,7 @@ fn compile(options: Options) -> Result<(), String> {
     }
     let runtime_library_is_explicit = options.link_libs.iter().any(|library| library == "ramlang_runtime");
     command.arg(&object_path);
-    if requires_async_runtime && !runtime_library_is_explicit {
+    if !runtime_library_is_explicit {
         command.arg("-lramlang_runtime");
     }
     let result = command.arg("-o").arg(&output).output();
