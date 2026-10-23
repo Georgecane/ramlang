@@ -66,6 +66,22 @@ Expected output:
 49
 ```
 
+## Explicit memory management
+
+Raw memory operations are intentionally explicit. This example allocates four bytes, stores an integer, reads it back, and frees the allocation:
+
+```rust
+fn main() -> i32 {
+    let p: ptr = alloc(4);
+    store_i32(p, 42);
+    print(load_i32(p));
+    free(p);
+    return 0;
+}
+```
+
+The caller must allocate enough correctly aligned memory for each load/store operation and must not use a pointer after freeing it. The first implementation targets host platforms with a 64-bit `size_t` for the current `alloc(byte_count: i64)` ABI.
+
 ## Compiler options
 
 ```sh
@@ -109,7 +125,7 @@ fn main() -> i32 {
 
 ## Current limitations
 
-This is an early, intentionally small compiler. Strings, user-defined structs, pointers/references, arrays, modules, imports, external function declarations, generics, memory allocation APIs, and a formal ownership model are not implemented yet. Integer division uses signed LLVM division. There is no stable language specification or cross-platform target configuration yet.
+This is an early, intentionally small compiler. Raw pointers and manual heap allocation are supported through `ptr`, `null`, `alloc`, `free`, `load_i32`/`load_i64`/`load_f64`/`load_bool`/`load_ptr`, and matching `store_*` intrinsics. These operations are unsafe by design: the programmer is responsible for allocation size, alignment, bounds, lifetime, and avoiding use-after-free or double-free. Typed pointer safety, arrays, user-defined structs, strings, modules, imports, external function declarations, generics, and a formal ownership model are not implemented yet. Integer division uses signed LLVM division. There is no stable language specification or cross-platform target configuration yet.
 
 The compiler emits opaque-pointer LLVM IR, so the current native path targets LLVM/Clang 15+. LLVM IR is an implementation boundary, not a promise that every future RamLang feature or target is already supported.
 
