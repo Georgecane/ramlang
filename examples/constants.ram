@@ -1,0 +1,10 @@
+const ANSWER: i32 = 42;
+const GREETING: str = "Global constants work";
+const ENABLED: bool = true;
+
+fn main() -> i32 {
+    print(ANSWER);
+    print(GREETING);
+    print(ENABLED);
+    return 0;
+}
