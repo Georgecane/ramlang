@@ -1275,4 +1275,12 @@ mod tests {
         assert!(ir.contains("declare i32 @abs(i32)"));
         assert!(ir.contains("call i32 @abs(i32"));
     }
+
+    #[test]
+    fn emits_short_circuit_logic_and_remainder() {
+        let source = "fn side() -> bool { print(9); return true; } fn main() -> i32 { let value: i32 = 7 % 4; if (false && side() || value == 3) { print(0); } else { print(1); } return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("phi i1"));
+        assert!(ir.contains("srem i32 7, 4"));
+    }
 }
