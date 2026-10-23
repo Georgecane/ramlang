@@ -1637,6 +1637,13 @@ impl<'a> FunctionGenerator<'a> {
                 self.scopes.last_mut().unwrap().insert(name.clone(), Binding { ty, slot, mutable: *mutable });
             }
             Stmt::FieldAssign { base, field, value } => {
+                if let Expr::Variable(base_name) = base {
+                    let binding = self.lookup(base_name)
+                        .ok_or_else(|| format!("field assignment on unknown variable '{base_name}'"))?;
+                    if !binding.mutable {
+                        return Err(format!("cannot assign to field '{field}' of immutable variable '{base_name}'; declare it with 'let mut'"));
+                    }
+                }
                 let (field_ptr, field_type) = self.emit_struct_field_ptr(base, field)?;
                 let (stored_value, actual_type) = self.emit_expr_expected(value, Some(field_type))?;
                 self.require_same(field_type, actual_type, &format!("assignment to field '{field}'"))?;
