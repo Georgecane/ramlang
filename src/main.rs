@@ -1158,6 +1158,7 @@ impl<'a> FunctionGenerator<'a> {
                 }
                 let abi_type = match ty {
                     Type::Array(element, length) => format!("[{length} x {}]", element.llvm()),
+                    Type::Struct(type_id) => format!("%struct.{type_id:016x}"),
                     _ => ty.llvm().to_owned(),
                 };
                 let member_ptr = self.fresh_value();
