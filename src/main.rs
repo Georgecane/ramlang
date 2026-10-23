@@ -2628,6 +2628,7 @@ struct Options {
     emit_llvm: bool,
     emit_object: bool,
     emit_assembly: bool,
+    emit_bitcode: bool,
     check_only: bool,
     link_libs: Vec<String>,
     link_search_paths: Vec<PathBuf>,
@@ -2647,10 +2648,10 @@ where
 {
     let mut args = arguments.into_iter().peekable();
     let Some(source) = args.next() else {
-        return Err("usage: ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
+        return Err("usage: ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
     };
     if source == "--help" || source == "-h" {
-        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll]] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --emit-obj              Emit a native object file without linking\n  --emit-asm              Emit target assembly without linking\n  --target <triple>       Select the Clang compilation target\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
+        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --emit-obj              Emit a native object file without linking\n  --emit-asm              Emit target assembly without linking\n  --emit-bc               Emit LLVM bitcode without linking\n  --target <triple>       Select the Clang compilation target\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
         process::exit(0);
     }
 
@@ -2660,6 +2661,7 @@ where
         emit_llvm: false,
         emit_object: false,
         emit_assembly: false,
+        emit_bitcode: false,
         check_only: false,
         link_libs: Vec::new(),
         link_search_paths: Vec::new(),
@@ -2673,6 +2675,7 @@ where
             "--check" => options.check_only = true,
             "--emit-obj" | "--emit-object" => options.emit_object = true,
             "--emit-asm" => options.emit_assembly = true,
+            "--emit-bc" | "--emit-bitcode" => options.emit_bitcode = true,
             "--emit-llvm" => {
                 options.emit_llvm = true;
                 if args.peek().is_some_and(|next| !next.starts_with('-')) {
@@ -2719,9 +2722,10 @@ where
     }
     let output_mode_count = usize::from(options.emit_llvm)
         + usize::from(options.emit_object)
-        + usize::from(options.emit_assembly);
+        + usize::from(options.emit_assembly)
+        + usize::from(options.emit_bitcode);
     if output_mode_count > 1 {
-        return Err("--emit-llvm, --emit-obj, and --emit-asm are mutually exclusive".to_owned());
+        return Err("--emit-llvm, --emit-obj, --emit-asm, and --emit-bc are mutually exclusive".to_owned());
     }
     if options.check_only && output_mode_count > 0 {
         return Err("--check cannot be combined with an output mode".to_owned());
@@ -2785,6 +2789,8 @@ fn compile(options: Options) -> Result<(), String> {
         options.sources[0].with_extension("o")
     } else if options.emit_assembly {
         options.sources[0].with_extension("s")
+    } else if options.emit_bitcode {
+        options.sources[0].with_extension("bc")
     } else {
         options.sources[0].with_extension("")
     };
@@ -2801,9 +2807,11 @@ fn compile(options: Options) -> Result<(), String> {
         command.arg("-c");
     } else if options.emit_assembly {
         command.arg("-S");
+    } else if options.emit_bitcode {
+        command.arg("-emit-llvm").arg("-c");
     }
     command.arg(&ir_path);
-    if !options.emit_object && !options.emit_assembly {
+    if !options.emit_object && !options.emit_assembly && !options.emit_bitcode {
         for path in &options.link_search_paths {
             command.arg("-L").arg(path);
         }
@@ -3014,7 +3022,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_object_and_assembly_emission_modes() {
+    fn parses_object_assembly_and_bitcode_emission_modes() {
         let object = parse_args_from([
             "example.ram".to_owned(),
             "--emit-obj".to_owned(),
@@ -3027,6 +3035,7 @@ mod tests {
         ]).unwrap();
         assert!(object.emit_object);
         assert!(!object.emit_assembly);
+        assert!(!object.emit_bitcode);
         assert_eq!(object.output, Some(PathBuf::from("example.o")));
         assert_eq!(object.opt_level, "0");
 
@@ -3036,6 +3045,17 @@ mod tests {
         ]).unwrap();
         assert!(assembly.emit_assembly);
         assert_eq!(assembly.sources[0], PathBuf::from("example.ram"));
+
+        let bitcode = parse_args_from([
+            "example.ram".to_owned(),
+            "--emit-bc".to_owned(),
+            "--target".to_owned(),
+            "x86_64-unknown-linux-gnu".to_owned(),
+            "--opt-level".to_owned(),
+            "3".to_owned(),
+        ]).unwrap();
+        assert!(bitcode.emit_bitcode);
+        assert_eq!(bitcode.opt_level, "3");
     }
 
     #[test]
@@ -3043,7 +3063,7 @@ mod tests {
         let error = parse_args_from([
             "example.ram".to_owned(),
             "--emit-obj".to_owned(),
-            "--emit-asm".to_owned(),
+            "--emit-bc".to_owned(),
         ]).unwrap_err();
         assert!(error.contains("mutually exclusive"));
     }
