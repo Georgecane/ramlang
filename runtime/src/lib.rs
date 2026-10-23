@@ -267,6 +267,49 @@ mod tests {
         server.await.unwrap();
     }
 
+
+    #[tokio::test]
+    async fn concurrent_tcp_clients_round_trip() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let mut handlers = JoinSet::new();
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                handlers.spawn(async move {
+                    let mut header = [0_u8; 4];
+                    stream.read_exact(&mut header).await.unwrap();
+                    let length = u32::from_be_bytes(header) as usize;
+                    let mut payload = vec![0_u8; length];
+                    stream.read_exact(&mut payload).await.unwrap();
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    stream.write_all(&header).await.unwrap();
+                    stream.write_all(&payload).await.unwrap();
+                });
+            }
+            while let Some(result) = handlers.join_next().await {
+                result.unwrap();
+            }
+        });
+
+        let mut clients = TaskGroup::new();
+        for payload in [b"first".to_vec(), b"second".to_vec()] {
+            let address = address.to_string();
+            clients.spawn(async move {
+                let mut client =
+                    TcpConnection::connect(&address, Duration::from_secs(2)).await?;
+                client.write_frame(&payload).await?;
+                client.read_frame(1024).await
+            });
+        }
+
+        let results = clients.join_all().await.unwrap();
+        let mut payloads = results.into_iter().collect::<io::Result<Vec<_>>>().unwrap();
+        payloads.sort();
+        assert_eq!(payloads, [b"first".to_vec(), b"second".to_vec()]);
+        server.await.unwrap();
+    }
+
     #[tokio::test]
     async fn udp_datagram_round_trip_over_localhost() {
         let receiver = UdpEndpoint::bind("127.0.0.1:0", Duration::from_secs(2))
