@@ -3553,7 +3553,7 @@ fn resolve_enum_type(
     ty: &mut Type,
     enum_ids: &HashSet<u64>,
     alias_types: &HashMap<u64, Type>,
-) {
+) -> Result<(), String> {
     if let Type::Struct(type_id) = ty {
         if let Some(alias_type) = alias_types.get(type_id) {
             *ty = *alias_type;
@@ -3564,6 +3564,24 @@ fn resolve_enum_type(
             *ty = Type::Enum(*type_id);
         }
     }
+    if let Type::Array(element, _) = ty {
+        if let ArrayElement::Alias(type_id) = *element {
+            let resolved = if let Some(alias_type) = alias_types.get(&type_id) {
+                ArrayElement::from_resolved_type(*alias_type)
+            } else if enum_ids.contains(&type_id) {
+                Some(ArrayElement::I32)
+            } else {
+                None
+            };
+            let Some(resolved) = resolved else {
+                return Err(format!(
+                    "array element type 'type id {type_id:016x}' must resolve to a scalar or pointer type"
+                ));
+            };
+            *element = resolved;
+        }
+    }
+    Ok(())
 }
 
 fn resolve_global_enum_variant(expression: &mut Expr, enums: &[EnumDef]) -> Result<(), String> {
