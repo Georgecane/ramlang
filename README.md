@@ -370,7 +370,7 @@ fn main() -> i32 {
 }
 ```
 
-Statement matches with constant enum, integer, and boolean patterns lower to an LLVM `switch`; value-producing matches currently lower to ordered comparison branches and a `phi` node. Dynamic patterns retain ordered comparison semantics. The lowered default edge for an exhaustive enum statement match traps if the underlying integer contains an invalid discriminant.
+Statement matches and value-producing matches both lower constant enum, integer, and boolean patterns to an LLVM `switch`; value-producing matches merge their results with a `phi` node. If any pattern is dynamic, the compiler retains ordered comparison semantics. The lowered default edge for an exhaustive enum statement match traps if the underlying integer contains an invalid discriminant.
 
 ## Named structs
 
