@@ -4406,6 +4406,22 @@ mod tests {
     }
 
     #[test]
+    fn allows_diverging_panic_fallback_in_match_expression() {
+        let source = r#"fn decode(code: i32) -> i32 { return match (code) { 0 => 42, _ => panic("invalid code") }; } fn main() -> i32 { print(decode(0)); return 0; }"#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("phi i32"));
+        assert!(ir.contains("call void @llvm.trap()"));
+        assert!(ir.contains("unreachable"));
+    }
+
+    #[test]
+    fn rejects_non_diverging_void_expression_arms() {
+        let source = "fn main() -> i32 { let p: ptr = alloc(4); let value: i32 = match (1) { 1 => free(p), _ => 2 }; return value; }";
+        let error = compile(source).unwrap_err();
+        assert!(error.contains("match expression arms must produce a value unless they diverge"));
+    }
+
+    #[test]
     fn retains_comparison_chain_for_dynamic_match_patterns() {
         let source = "fn main() -> i32 { let value: i32 = 5; let pattern: i32 = 5; match (value) { pattern => { print(1); }, _ => { print(0); } } return 0; }";
         let ir = compile(source).unwrap();
