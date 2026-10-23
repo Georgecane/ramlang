@@ -3451,7 +3451,16 @@ fn lower_global_constant(
     ))
 }
 
-fn resolve_enum_type(ty: &mut Type, enum_ids: &HashSet<u64>) {
+fn resolve_enum_type(
+    ty: &mut Type,
+    enum_ids: &HashSet<u64>,
+    alias_types: &HashMap<u64, Type>,
+) {
+    if let Type::Struct(type_id) = ty {
+        if let Some(alias_type) = alias_types.get(type_id) {
+            *ty = *alias_type;
+        }
+    }
     if let Type::Struct(type_id) = ty {
         if enum_ids.contains(type_id) {
             *ty = Type::Enum(*type_id);
