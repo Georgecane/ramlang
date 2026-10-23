@@ -11,6 +11,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Global scalar, boolean, null-pointer, and UTF-8 string constants, available across source files
+- Runtime `assert(bool)` with a trap on failure, and `assume(bool)` lowered to `llvm.assume`
 - Immutable local variables with `let` and mutable locals with `let mut`
 - Explicit casts with `as` between signed integer widths, integers and `f64`, integers and `bool`, `bool` and `f64`, and `str` / `ptr`
 - Arithmetic (`+`, `-`, `*`, `/`, `%`), signed comparisons, bitwise (`&`, `|`, `^`, `~`) and shift (`<<`, `>>`) operations, unary `-` and `!`, and short-circuit `&&` / `||`
@@ -165,6 +166,20 @@ fn main() -> i32 {
 ```
 
 Do not dereference arbitrary integer-derived addresses. On targets with pointers wider than the chosen integer type, an integer round-trip may lose information; prefer the target's native pointer-width integer type when adding platform abstractions.
+
+## Assertions and optimizer assumptions
+
+Use `assert(condition)` to trap if a boolean condition is false. `assume(condition)` emits LLVM's `llvm.assume` intrinsic, which tells the optimizer the condition is true; violating that assumption can make the program's behavior undefined and should only be used when the condition is guaranteed.
+
+```rust
+fn main() -> i32 {
+    let value: i32 = 42;
+    assert(value == 42);
+    assume(value > 0);
+    print(value);
+    return 0;
+}
+```
 
 ## Global constants
 
