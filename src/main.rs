@@ -1790,18 +1790,19 @@ impl<'a> FunctionGenerator<'a> {
                 }
 
                 let volatile_load = name.starts_with("volatile_load_");
+                let unaligned_load = name.contains("_unaligned_");
                 let loaded_type = match name.as_str() {
-                    "load_i8" | "volatile_load_i8" => Some(Type::I8),
-                    "load_i16" | "volatile_load_i16" => Some(Type::I16),
-                    "load_i32" | "volatile_load_i32" => Some(Type::I32),
-                    "load_i64" | "volatile_load_i64" => Some(Type::I64),
-                    "load_u8" | "volatile_load_u8" => Some(Type::U8),
-                    "load_u16" | "volatile_load_u16" => Some(Type::U16),
-                    "load_u32" | "volatile_load_u32" => Some(Type::U32),
-                    "load_u64" | "volatile_load_u64" => Some(Type::U64),
-                    "load_f64" | "volatile_load_f64" => Some(Type::F64),
-                    "load_bool" | "volatile_load_bool" => Some(Type::Bool),
-                    "load_ptr" | "volatile_load_ptr" => Some(Type::Ptr),
+                    "load_i8" | "volatile_load_i8" | "load_unaligned_i8" | "volatile_load_unaligned_i8" => Some(Type::I8),
+                    "load_i16" | "volatile_load_i16" | "load_unaligned_i16" | "volatile_load_unaligned_i16" => Some(Type::I16),
+                    "load_i32" | "volatile_load_i32" | "load_unaligned_i32" | "volatile_load_unaligned_i32" => Some(Type::I32),
+                    "load_i64" | "volatile_load_i64" | "load_unaligned_i64" | "volatile_load_unaligned_i64" => Some(Type::I64),
+                    "load_u8" | "volatile_load_u8" | "load_unaligned_u8" | "volatile_load_unaligned_u8" => Some(Type::U8),
+                    "load_u16" | "volatile_load_u16" | "load_unaligned_u16" | "volatile_load_unaligned_u16" => Some(Type::U16),
+                    "load_u32" | "volatile_load_u32" | "load_unaligned_u32" | "volatile_load_unaligned_u32" => Some(Type::U32),
+                    "load_u64" | "volatile_load_u64" | "load_unaligned_u64" | "volatile_load_unaligned_u64" => Some(Type::U64),
+                    "load_f64" | "volatile_load_f64" | "load_unaligned_f64" | "volatile_load_unaligned_f64" => Some(Type::F64),
+                    "load_bool" | "volatile_load_bool" | "load_unaligned_bool" | "volatile_load_unaligned_bool" => Some(Type::Bool),
+                    "load_ptr" | "volatile_load_ptr" | "load_unaligned_ptr" | "volatile_load_unaligned_ptr" => Some(Type::Ptr),
                     _ => None,
                 };
                 if let Some(loaded_type) = loaded_type {
@@ -1811,7 +1812,11 @@ impl<'a> FunctionGenerator<'a> {
                     let (pointer, pointer_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
                     self.require_same(Type::Ptr, pointer_type, &format!("{name} argument"))?;
                     let result = self.fresh_value();
-                    if volatile_load {
+                    if unaligned_load && volatile_load {
+                        self.emit(format!("{result} = load volatile {}, ptr {pointer}, align 1", loaded_type.llvm()));
+                    } else if unaligned_load {
+                        self.emit(format!("{result} = load {}, ptr {pointer}, align 1", loaded_type.llvm()));
+                    } else if volatile_load {
                         self.emit(format!("{result} = load volatile {}, ptr {pointer}", loaded_type.llvm()));
                     } else {
                         self.emit(format!("{result} = load {}, ptr {pointer}", loaded_type.llvm()));
@@ -1820,18 +1825,19 @@ impl<'a> FunctionGenerator<'a> {
                 }
 
                 let volatile_store = name.starts_with("volatile_store_");
+                let unaligned_store = name.contains("_unaligned_");
                 let stored_type = match name.as_str() {
-                    "store_i8" | "volatile_store_i8" => Some(Type::I8),
-                    "store_i16" | "volatile_store_i16" => Some(Type::I16),
-                    "store_i32" | "volatile_store_i32" => Some(Type::I32),
-                    "store_i64" | "volatile_store_i64" => Some(Type::I64),
-                    "store_u8" | "volatile_store_u8" => Some(Type::U8),
-                    "store_u16" | "volatile_store_u16" => Some(Type::U16),
-                    "store_u32" | "volatile_store_u32" => Some(Type::U32),
-                    "store_u64" | "volatile_store_u64" => Some(Type::U64),
-                    "store_f64" | "volatile_store_f64" => Some(Type::F64),
-                    "store_bool" | "volatile_store_bool" => Some(Type::Bool),
-                    "store_ptr" | "volatile_store_ptr" => Some(Type::Ptr),
+                    "store_i8" | "volatile_store_i8" | "store_unaligned_i8" | "volatile_store_unaligned_i8" => Some(Type::I8),
+                    "store_i16" | "volatile_store_i16" | "store_unaligned_i16" | "volatile_store_unaligned_i16" => Some(Type::I16),
+                    "store_i32" | "volatile_store_i32" | "store_unaligned_i32" | "volatile_store_unaligned_i32" => Some(Type::I32),
+                    "store_i64" | "volatile_store_i64" | "store_unaligned_i64" | "volatile_store_unaligned_i64" => Some(Type::I64),
+                    "store_u8" | "volatile_store_u8" | "store_unaligned_u8" | "volatile_store_unaligned_u8" => Some(Type::U8),
+                    "store_u16" | "volatile_store_u16" | "store_unaligned_u16" | "volatile_store_unaligned_u16" => Some(Type::U16),
+                    "store_u32" | "volatile_store_u32" | "store_unaligned_u32" | "volatile_store_unaligned_u32" => Some(Type::U32),
+                    "store_u64" | "volatile_store_u64" | "store_unaligned_u64" | "volatile_store_unaligned_u64" => Some(Type::U64),
+                    "store_f64" | "volatile_store_f64" | "store_unaligned_f64" | "volatile_store_unaligned_f64" => Some(Type::F64),
+                    "store_bool" | "volatile_store_bool" | "store_unaligned_bool" | "volatile_store_unaligned_bool" => Some(Type::Bool),
+                    "store_ptr" | "volatile_store_ptr" | "store_unaligned_ptr" | "volatile_store_unaligned_ptr" => Some(Type::Ptr),
                     _ => None,
                 };
                 if let Some(stored_type) = stored_type {
@@ -1842,7 +1848,11 @@ impl<'a> FunctionGenerator<'a> {
                     self.require_same(Type::Ptr, pointer_type, &format!("{name} destination"))?;
                     let (value, value_type) = self.emit_expr_expected(&args[1], Some(stored_type))?;
                     self.require_same(stored_type, value_type, &format!("{name} value"))?;
-                    if volatile_store {
+                    if unaligned_store && volatile_store {
+                        self.emit(format!("store volatile {} {value}, ptr {pointer}, align 1", stored_type.llvm()));
+                    } else if unaligned_store {
+                        self.emit(format!("store {} {value}, ptr {pointer}, align 1", stored_type.llvm()));
+                    } else if volatile_store {
                         self.emit(format!("store volatile {} {value}, ptr {pointer}", stored_type.llvm()));
                     } else {
                         self.emit(format!("store {} {value}, ptr {pointer}", stored_type.llvm()));
