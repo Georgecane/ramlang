@@ -1,6 +1,7 @@
-const ANSWER: i32 = 6 * 7;
+const BASE_VALUE: i32 = 40;
+const ANSWER: i32 = BASE_VALUE + 2;
 const GREETING: str = "Global constants work";
-const ENABLED: bool = 4 > 2 && !false;
+const ENABLED: bool = ANSWER == 42 && !false;
 
 fn main() -> i32 {
     print(ANSWER);
