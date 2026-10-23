@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    print("timer started");
+    await sleep_ms(1);
+    print("timer finished");
+    return 0;
+}
