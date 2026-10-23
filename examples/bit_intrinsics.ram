@@ -1,0 +1,8 @@
+fn main() -> i32 {
+    print(ctpop_32(255));
+    print(ctlz_32(1));
+    print(cttz_32(8));
+    print(bswap_32(16909060));
+    print(bitreverse_32(1));
+    return 0;
+}
