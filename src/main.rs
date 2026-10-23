@@ -1542,9 +1542,10 @@ mod tests {
 
     #[test]
     fn accepts_signed_minimum_integer_literals() {
-        let source = "fn main() -> i32 { let a: i8 = -128; let b: i32 = -2147483648; let c: i64 = -9223372036854775808; print(a); print(b); print(c); return 0; }";
+        let source = "fn main() -> i32 { let a: i8 = -128; let b: i16 = -32768; let c: i32 = -2147483648; let d: i64 = -9223372036854775808; print(a); print(b); print(c); print(d); return 0; }";
         let ir = compile(source).unwrap();
         assert!(ir.contains("store i8 -128"));
+        assert!(ir.contains("store i16 -32768"));
         assert!(ir.contains("store i32 -2147483648"));
         assert!(ir.contains("store i64 -9223372036854775808"));
     }
