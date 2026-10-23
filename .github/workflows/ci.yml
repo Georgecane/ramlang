@@ -328,6 +328,10 @@ jobs:
           clang -c examples/variadic_ffi.c -o target/variadic-ffi-c.o
           clang target/variadic-ffi.o target/variadic-ffi-c.o -o target/variadic-ffi
           test "$(target/variadic-ffi)" = "258"
+      - name: Compile and run direct variadic printf example
+        run: |
+          cargo run --release -- examples/variadic_printf.ram -o target/variadic-printf
+          test "$(target/variadic-printf)" = "65 1 2.5"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
