@@ -1652,7 +1652,7 @@ pub unsafe extern "C" fn ramlang_memchr(
 
 /// Result slot shared with a generated RamLang async-function wrapper.
 struct FutureState {
-    result: Mutex<Option<i64>>,
+    result: Mutex<Option<Result<i64, String>>>,
     ready: Condvar,
 }
 
@@ -1665,6 +1665,14 @@ impl FutureState {
     }
 
     fn complete(&self, value: i64) {
+        self.complete_result(Ok(value));
+    }
+
+    fn fail(&self, error: impl Into<String>) {
+        self.complete_result(Err(error.into()));
+    }
+
+    fn complete_result(&self, value: Result<i64, String>) {
         let mut result = self.result.lock().unwrap_or_else(|e| e.into_inner());
         if result.is_none() {
             *result = Some(value);
@@ -1717,6 +1725,95 @@ pub unsafe extern "C" fn ramlang_future_spawn_i64(
     Box::into_raw(Box::new(RamlangFuture { state }))
 }
 
+/// Start a framed TCP text request as a native future.
+///
+/// The input strings are copied before returning. The network work runs on the Tokio runtime
+/// and the returned future resolves to a Rust-runtime-owned, NUL-terminated UTF-8 response.
+/// The caller owns that response allocation and must release it with ramlang_free.
+/// Transport errors and non-UTF-8 responses make await return -1 and set ramlang_last_error.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_request_future(
+    address: *const c_char,
+    payload: *const c_char,
+    timeout_ms: u64,
+) -> *mut RamlangFuture {
+    let address = match read_c_string(address, "TCP destination") {
+        Ok(value) => value,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    let payload = match read_c_string(payload, "TCP payload") {
+        Ok(value) => value,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    if timeout_ms == 0 {
+        set_last_error("TCP timeout must be greater than zero");
+        return ptr::null_mut();
+    }
+    if payload.len() > MAX_FFI_TCP_FRAME_SIZE {
+        set_last_error("TCP request payload exceeds 16 MiB");
+        return ptr::null_mut();
+    }
+    let runtime = match async_request_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+
+    let state = Arc::new(FutureState::new());
+    let task_state = Arc::clone(&state);
+    let operation_timeout = Duration::from_millis(timeout_ms);
+    runtime.spawn(async move {
+        let result: Result<i64, String> = async {
+            let mut connection =
+                TcpConnection::connect(&address, operation_timeout).await.map_err(|e| e.to_string())?;
+            connection
+                .write_frame(payload.as_bytes())
+                .await
+                .map_err(|e| e.to_string())?;
+            let response = connection
+                .read_frame(MAX_FFI_TCP_FRAME_SIZE)
+                .await
+                .map_err(|e| e.to_string())?;
+            let response = String::from_utf8(response)
+                .map_err(|error| format!("TCP text response is not valid UTF-8: {error}"))?;
+            let allocation_size = response
+                .len()
+                .checked_add(1)
+                .ok_or_else(|| "TCP response size overflow".to_owned())?;
+            let output = ramlang_alloc(
+                u64::try_from(allocation_size)
+                    .map_err(|_| "TCP response size does not fit this platform".to_owned())?,
+            );
+            if output.is_null() {
+                return Err("unable to allocate TCP response string".to_owned());
+            }
+            // SAFETY: the allocation is response length plus one byte, as requested above.
+            unsafe {
+                ptr::copy_nonoverlapping(
+                    response.as_ptr(),
+                    output.cast::<u8>(),
+                    response.len(),
+                );
+                *output.cast::<u8>().add(response.len()) = 0;
+            }
+            Ok(output as usize as i64)
+        }
+        .await;
+        task_state.complete_result(result);
+    });
+
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangFuture { state }))
+}
+
 /// Block until a future produces its i64 payload.
 ///
 /// # Safety
@@ -1740,9 +1837,17 @@ pub unsafe extern "C" fn ramlang_future_await_i64(future: *mut RamlangFuture) ->
             .wait(result)
             .unwrap_or_else(|e| e.into_inner());
     }
-    let value = result.expect("future result checked above");
-    clear_last_error();
-    value
+    match result.as_ref().expect("future result checked above") {
+        Ok(value) => {
+            let value = *value;
+            clear_last_error();
+            value
+        }
+        Err(error) => {
+            set_last_error(error);
+            -1
+        }
+    }
 }
 
 /// Query completion without waiting: 1 ready, 0 pending, -1 invalid handle.
@@ -1776,7 +1881,6 @@ pub unsafe extern "C" fn ramlang_future_close(future: *mut RamlangFuture) {
         // SAFETY: pointer validity is required by this function's contract.
         drop(unsafe { Box::from_raw(future) });
     }
-    clear_last_error();
 }
 
 #[cfg(test)]
