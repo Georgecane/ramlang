@@ -1351,13 +1351,28 @@ fn trim_decimal_zeros(value: &str) -> String {
 /// notation when the rounded exponent is less than -4 or at least 6.
 fn format_general_float(value: f64) -> String {
     if value.is_nan() {
-        return if value.is_sign_negative() { "-nan" } else { "nan" }.to_owned();
+        return if value.is_sign_negative() {
+            "-nan"
+        } else {
+            "nan"
+        }
+        .to_owned();
     }
     if value.is_infinite() {
-        return if value.is_sign_negative() { "-inf" } else { "inf" }.to_owned();
+        return if value.is_sign_negative() {
+            "-inf"
+        } else {
+            "inf"
+        }
+        .to_owned();
     }
     if value == 0.0 {
-        return if value.is_sign_negative() { "-0" } else { "0" }.to_owned();
+        return if value.is_sign_negative() {
+            "-0"
+        } else {
+            "0"
+        }
+        .to_owned();
     }
 
     // Round first, then select fixed/scientific notation from the rounded exponent. This
