@@ -147,6 +147,10 @@ jobs:
         run: |
           cargo run --release -- examples/panic.ram -o target/panic-example
           test "$(target/panic-example)" = "program is healthy"
+      - name: Compile and run volatile memory example
+        run: |
+          cargo run --release -- examples/volatile_memory.ram -o target/volatile-memory
+          test "$(target/volatile-memory)" = "42"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
