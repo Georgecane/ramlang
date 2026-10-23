@@ -9,7 +9,7 @@ edition = "2024"
 rust-version = "1.99"
 
 [features]
-default = ["llvm23"]
+default = ["llvm18"]
 llvm18 = ["inkwell/llvm18-1"]
 llvm19 = ["inkwell/llvm19-1"]
 llvm20 = ["inkwell/llvm20-1"]
