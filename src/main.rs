@@ -4223,25 +4223,61 @@ fn compile_to_llvm_for_target(
         } else {
             let initializer_value = variable.value.as_ref()
                 .ok_or_else(|| format!("static variable '{}' is missing an initializer", variable.name))?;
-            let initializer_name = if variable.ty == Type::Str && matches!(initializer_value, Expr::String(_)) {
-                format!(".ramlang.static.{}", variable.name)
+            if let (Type::Array(element, length), Expr::ArrayLiteral(elements)) = (variable.ty, initializer_value) {
+                if !variable.mutable {
+                    return Err(format!("static array literal '{}' currently requires 'static mut'", variable.name));
+                }
+                if elements.len() != length as usize {
+                    return Err(format!(
+                        "static array '{}' has {} initializer element(s), but its type requires {length}",
+                        variable.name, elements.len()
+                    ));
+                }
+                let element_type = element.ty();
+                let aggregate_type = format!("[{length} x {}]", element.llvm());
+                let storage_name = format!(".ramlang.static.storage.{}", variable.name);
+                let mut initializers = Vec::with_capacity(elements.len());
+                for (index, expression) in elements.iter().enumerate() {
+                    let initializer = GlobalConst {
+                        name: format!(".ramlang.static.{}.element.{index}", variable.name),
+                        ty: element_type,
+                        value: expression.clone(),
+                    };
+                    let (value, declaration) = lower_global_constant(&initializer, &global_values)?;
+                    if let Some(declaration) = declaration {
+                        global_declarations.push(declaration);
+                    }
+                    initializers.push(format!("{} {value}", element.llvm()));
+                }
+                global_declarations.push(format!(
+                    "@{storage_name} = global {aggregate_type} [{}]",
+                    initializers.join(", ")
+                ));
+                global_declarations.push(format!(
+                    "@{} = constant ptr getelementptr inbounds ({aggregate_type}, ptr @{storage_name}, i64 0, i64 0)",
+                    variable.name
+                ));
             } else {
-                variable.name.clone()
-            };
-            let initializer = GlobalConst {
-                name: initializer_name,
-                ty: variable.ty,
-                value: initializer_value.clone(),
-            };
-            let (value, declaration) = lower_global_constant(&initializer, &global_values)?;
-            if let Some(declaration) = declaration {
-                global_declarations.push(declaration);
+                let initializer_name = if variable.ty == Type::Str && matches!(initializer_value, Expr::String(_)) {
+                    format!(".ramlang.static.{}", variable.name)
+                } else {
+                    variable.name.clone()
+                };
+                let initializer = GlobalConst {
+                    name: initializer_name,
+                    ty: variable.ty,
+                    value: initializer_value.clone(),
+                };
+                let (value, declaration) = lower_global_constant(&initializer, &global_values)?;
+                if let Some(declaration) = declaration {
+                    global_declarations.push(declaration);
+                }
+                let storage = if variable.mutable { "global" } else { "constant" };
+                global_declarations.push(format!(
+                    "@{} = {storage} {} {}",
+                    variable.name, variable.ty.llvm(), value
+                ));
             }
-            let storage = if variable.mutable { "global" } else { "constant" };
-            global_declarations.push(format!(
-                "@{} = {storage} {} {}",
-                variable.name, variable.ty.llvm(), value
-            ));
         }
         global_bindings.insert(variable.name.clone(), Binding {
             ty: variable.ty,
