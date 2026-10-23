@@ -1,0 +1,7 @@
+fn main() -> i32 {
+    let mut value: i32 = 41;
+    let address: ptr = &value;
+    store_i32(address, value + 1);
+    print(value);
+    return 0;
+}
