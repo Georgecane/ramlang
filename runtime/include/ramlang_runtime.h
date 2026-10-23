@@ -82,7 +82,7 @@ int64_t ramlang_future_await_i64(RamlangFuture *future);
 int32_t ramlang_future_is_ready(RamlangFuture *future);
 void ramlang_future_close(RamlangFuture *future);
 /* Start a framed TCP text request. Await it through ramlang_future_await_i64; the returned response string is released with ramlang_free. */
-RamlangFuture *ramlang_tcp_request_future(const char *address, const char *payload, uint64_t timeout_ms);
+RamlangFuture *ramlang_tcp_request_future(const char *address, const char *payload, int64_t timeout_ms);
 
 /*
  * Explicit cancellation scope for background network requests.
