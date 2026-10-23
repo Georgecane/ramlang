@@ -2479,6 +2479,56 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((String::new(), Type::Void));
                 }
 
+                let inline_asm_type = match name.as_str() {
+                    "asm_void" => Some(Type::Void),
+                    "asm_i8" => Some(Type::I8),
+                    "asm_i16" => Some(Type::I16),
+                    "asm_i32" => Some(Type::I32),
+                    "asm_i64" => Some(Type::I64),
+                    "asm_u8" => Some(Type::U8),
+                    "asm_u16" => Some(Type::U16),
+                    "asm_u32" => Some(Type::U32),
+                    "asm_u64" => Some(Type::U64),
+                    "asm_f64" => Some(Type::F64),
+                    "asm_bool" => Some(Type::Bool),
+                    "asm_ptr" => Some(Type::Ptr),
+                    _ => None,
+                };
+                if let Some(return_type) = inline_asm_type {
+                    if args.len() < 2 {
+                        return Err(format!("{name} expects an assembly string and a constraint string"));
+                    }
+                    let Expr::String(assembly) = &args[0] else {
+                        return Err(format!("{name} assembly template must be a string literal"));
+                    };
+                    let Expr::String(constraints) = &args[1] else {
+                        return Err(format!("{name} constraints must be a string literal"));
+                    };
+                    let encode_llvm_bytes = |value: &str| {
+                        value.as_bytes().iter().map(|byte| format!("\\{:02X}", byte)).collect::<String>()
+                    };
+                    let mut operands = Vec::new();
+                    for argument in args.iter().skip(2) {
+                        let (value, value_type) = self.emit_expr(argument)?;
+                        if value_type == Type::Void {
+                            return Err(format!("{name} does not accept void input operands"));
+                        }
+                        operands.push(format!("{} {value}", value_type.llvm()));
+                    }
+                    let assembly = encode_llvm_bytes(assembly);
+                    let constraints = encode_llvm_bytes(constraints);
+                    let operands = operands.join(", ");
+                    let asm_call = if return_type == Type::Void {
+                        format!("call void asm sideeffect \"{assembly}\", \"{constraints}\"({operands})")
+                    } else {
+                        let result = self.fresh_value();
+                        self.emit(format!("{result} = call {} asm sideeffect \"{assembly}\", \"{constraints}\"({operands})", return_type.llvm()));
+                        return Ok((result, return_type));
+                    };
+                    self.emit(asm_call);
+                    return Ok((String::new(), Type::Void));
+                }
+
                 if name == "alloc" {
                     if args.len() != 1 {
                         return Err("alloc expects one byte-count argument".to_owned());
