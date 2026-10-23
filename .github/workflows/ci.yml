@@ -227,6 +227,11 @@ jobs:
           test -s target/hello.bc
           clang target/hello.bc -o target/hello-from-bitcode
           test "$(target/hello-from-bitcode)" = "49"
+      - name: Compile and run atomic compare-exchange example
+        run: |
+          cargo run --release -- examples/atomic_compare_exchange.ram -o target/atomic-compare-exchange
+          expected="$(printf '%s\n%s\n%s\n%s\n%s' '1' '20' '0' '20' '20')"
+          test "$(target/atomic-compare-exchange)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
