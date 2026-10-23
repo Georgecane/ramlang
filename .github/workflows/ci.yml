@@ -208,6 +208,14 @@ jobs:
           cargo run --release -- examples/bulk_memory.ram -o target/bulk-memory
           expected="$(printf '%s\n%s\n%s\n%s' '42' '0' '1' '42')"
           test "$(target/bulk-memory)" = "$expected"
+      - name: Verify runtime bounds checks trap
+        run: |
+          cargo run --release -- examples/array_bounds_trap.ram -o target/array-bounds-trap
+          ulimit -c 0
+          if target/array-bounds-trap >/dev/null 2>&1; then
+            echo "expected out-of-bounds array access to trap"
+            exit 1
+          fi
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
