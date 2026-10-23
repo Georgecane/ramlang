@@ -1523,6 +1523,8 @@ struct Options {
     sources: Vec<PathBuf>,
     output: Option<PathBuf>,
     emit_llvm: bool,
+    emit_object: bool,
+    emit_assembly: bool,
     check_only: bool,
     link_libs: Vec<String>,
     link_search_paths: Vec<PathBuf>,
@@ -1542,10 +1544,10 @@ where
 {
     let mut args = arguments.into_iter().peekable();
     let Some(source) = args.next() else {
-        return Err("usage: ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll]] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
+        return Err("usage: ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
     };
     if source == "--help" || source == "-h" {
-        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll]] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --target <triple>       Select the Clang compilation target\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
+        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll]] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --emit-obj              Emit a native object file without linking\n  --emit-asm              Emit target assembly without linking\n  --target <triple>       Select the Clang compilation target\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
         process::exit(0);
     }
 
@@ -1553,6 +1555,8 @@ where
         sources: vec![PathBuf::from(source)],
         output: None,
         emit_llvm: false,
+        emit_object: false,
+        emit_assembly: false,
         check_only: false,
         link_libs: Vec::new(),
         link_search_paths: Vec::new(),
@@ -1564,6 +1568,8 @@ where
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--check" => options.check_only = true,
+            "--emit-obj" | "--emit-object" => options.emit_object = true,
+            "--emit-asm" => options.emit_assembly = true,
             "--emit-llvm" => {
                 options.emit_llvm = true;
                 if args.peek().is_some_and(|next| !next.starts_with('-')) {
@@ -1608,17 +1614,23 @@ where
             _ => return Err(format!("unknown option '{arg}'")),
         }
     }
-    if options.check_only && options.emit_llvm {
-        return Err("--check cannot be combined with --emit-llvm".to_owned());
+    let output_mode_count = usize::from(options.emit_llvm)
+        + usize::from(options.emit_object)
+        + usize::from(options.emit_assembly);
+    if output_mode_count > 1 {
+        return Err("--emit-llvm, --emit-obj, and --emit-asm are mutually exclusive".to_owned());
     }
-    if (options.check_only || options.emit_llvm)
-        && (!options.link_libs.is_empty()
-            || !options.link_search_paths.is_empty()
-            || !options.link_args.is_empty()
-            || options.target.is_some()
-            || options.opt_level_explicit)
-    {
-        return Err("target, optimization, and linker options require native compilation and cannot be combined with --check or --emit-llvm".to_owned());
+    if options.check_only && output_mode_count > 0 {
+        return Err("--check cannot be combined with an output mode".to_owned());
+    }
+    let link_options_present = !options.link_libs.is_empty()
+        || !options.link_search_paths.is_empty()
+        || !options.link_args.is_empty();
+    if (options.check_only || options.emit_llvm) && (options.target.is_some() || options.opt_level_explicit) {
+        return Err("target and optimization options require native code generation and cannot be combined with --check or --emit-llvm".to_owned());
+    }
+    if (options.check_only || output_mode_count > 0) && link_options_present {
+        return Err("linker options require native linking and cannot be combined with --check or an emit-only mode".to_owned());
     }
     Ok(options)
 }
@@ -1652,7 +1664,15 @@ fn compile(options: Options) -> Result<(), String> {
         return Ok(());
     }
 
-    let output = options.output.unwrap_or_else(|| options.sources[0].with_extension(""));
+    let output = if let Some(output) = options.output {
+        output
+    } else if options.emit_object {
+        options.sources[0].with_extension("o")
+    } else if options.emit_assembly {
+        options.sources[0].with_extension("s")
+    } else {
+        options.sources[0].with_extension("")
+    };
     let ir_path = env::temp_dir().join(format!("ramlang-{}.ll", process::id()));
     fs::write(&ir_path, llvm_ir)
         .map_err(|error| format!("cannot write temporary LLVM IR: {error}"))?;
@@ -1662,15 +1682,22 @@ fn compile(options: Options) -> Result<(), String> {
     if let Some(target) = &options.target {
         command.arg("-target").arg(target);
     }
+    if options.emit_object {
+        command.arg("-c");
+    } else if options.emit_assembly {
+        command.arg("-S");
+    }
     command.arg(&ir_path);
-    for path in &options.link_search_paths {
-        command.arg("-L").arg(path);
-    }
-    for library in &options.link_libs {
-        command.arg(format!("-l{library}"));
-    }
-    for argument in &options.link_args {
-        command.arg(argument);
+    if !options.emit_object && !options.emit_assembly {
+        for path in &options.link_search_paths {
+            command.arg("-L").arg(path);
+        }
+        for library in &options.link_libs {
+            command.arg(format!("-l{library}"));
+        }
+        for argument in &options.link_args {
+            command.arg(argument);
+        }
     }
     let result = command
         .arg("-o")
