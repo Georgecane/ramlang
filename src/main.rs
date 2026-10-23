@@ -4725,6 +4725,11 @@ fn compile_to_llvm_for_target(
 
     for function in functions {
         if function.external {
+            // Runtime built-ins already have canonical declarations above. User source may
+            // repeat the C-compatible prototype with extern fn for legacy examples; emit it once.
+            if function.name == "ramlang_last_error" {
+                continue;
+            }
             let mut params = function.params.iter()
                 .map(|(_, ty)| ty.llvm())
                 .collect::<Vec<_>>();
