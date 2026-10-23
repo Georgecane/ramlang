@@ -3069,14 +3069,22 @@ mod tests {
     }
 
     #[test]
-    fn rejects_linking_options_when_emitting_object() {
-        let error = parse_args_from([
+    fn rejects_linking_options_in_emit_only_modes() {
+        let object_error = parse_args_from([
             "example.ram".to_owned(),
             "--emit-obj".to_owned(),
             "--link-lib".to_owned(),
             "m".to_owned(),
         ]).unwrap_err();
-        assert!(error.contains("linker options require native linking"));
+        assert!(object_error.contains("linker options require native linking"));
+
+        let bitcode_error = parse_args_from([
+            "example.ram".to_owned(),
+            "--emit-bc".to_owned(),
+            "--link-lib".to_owned(),
+            "m".to_owned(),
+        ]).unwrap_err();
+        assert!(bitcode_error.contains("linker options require native linking"));
     }
 
     #[test]
