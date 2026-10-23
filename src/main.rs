@@ -161,6 +161,8 @@ impl<'a> Lexer<'a> {
             let pair = match (byte, self.peek(1)) {
                 (b'&', Some(b'&')) => Some("&&"),
                 (b'|', Some(b'|')) => Some("||"),
+                (b'<', Some(b'<')) => Some("<<"),
+                (b'>', Some(b'>')) => Some(">>"),
                 (b'-', Some(b'>')) => Some("->"),
                 (b'=', Some(b'=')) => Some("=="),
                 (b'!', Some(b'=')) => Some("!="),
@@ -180,6 +182,7 @@ impl<'a> Lexer<'a> {
                 b':' => ":", b';' => ";", b',' => ",", b'+' => "+",
                 b'-' => "-", b'*' => "*", b'/' => "/", b'%' => "%", b'=' => "=",
                 b'<' => "<", b'>' => ">", b'!' => "!",
+                b'&' => "&", b'|' => "|", b'^' => "^", b'~' => "~",
                 _ => {
                     let ch = if byte.is_ascii() { char::from(byte).to_string() } else { format!("byte 0x{byte:02x}") };
                     return Err(format!("invalid character {ch} at {line}:{column}; RamLang currently accepts ASCII source"));
@@ -478,10 +481,37 @@ impl Parser {
     }
 
     fn parse_and(&mut self) -> Result<Expr, String> {
-        let mut expr = self.parse_equality()?;
+        let mut expr = self.parse_bit_or()?;
         while self.match_symbol("&&") {
-            let right = self.parse_equality()?;
+            let right = self.parse_bit_or()?;
             expr = Expr::Binary { left: Box::new(expr), op: "&&".to_owned(), right: Box::new(right) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_bit_or(&mut self) -> Result<Expr, String> {
+        let mut expr = self.parse_bit_xor()?;
+        while self.match_symbol("|") {
+            let right = self.parse_bit_xor()?;
+            expr = Expr::Binary { left: Box::new(expr), op: "|".to_owned(), right: Box::new(right) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_bit_xor(&mut self) -> Result<Expr, String> {
+        let mut expr = self.parse_bit_and()?;
+        while self.match_symbol("^") {
+            let right = self.parse_bit_and()?;
+            expr = Expr::Binary { left: Box::new(expr), op: "^".to_owned(), right: Box::new(right) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_bit_and(&mut self) -> Result<Expr, String> {
+        let mut expr = self.parse_equality()?;
+        while self.match_symbol("&") {
+            let right = self.parse_equality()?;
+            expr = Expr::Binary { left: Box::new(expr), op: "&".to_owned(), right: Box::new(right) };
         }
         Ok(expr)
     }
@@ -498,8 +528,19 @@ impl Parser {
     }
 
     fn parse_comparison(&mut self) -> Result<Expr, String> {
-        let mut expr = self.parse_term()?;
+        let mut expr = self.parse_shift()?;
         while ["<", "<=", ">", ">="].iter().any(|op| self.check_symbol(op)) {
+            let op = self.current().text.clone();
+            self.index += 1;
+            let right = self.parse_shift()?;
+            expr = Expr::Binary { left: Box::new(expr), op, right: Box::new(right) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_shift(&mut self) -> Result<Expr, String> {
+        let mut expr = self.parse_term()?;
+        while self.check_symbol("<<") || self.check_symbol(">>") {
             let op = self.current().text.clone();
             self.index += 1;
             let right = self.parse_term()?;
@@ -531,7 +572,7 @@ impl Parser {
     }
 
     fn parse_unary(&mut self) -> Result<Expr, String> {
-        if self.check_symbol("-") || self.check_symbol("!") {
+        if self.check_symbol("-") || self.check_symbol("!") || self.check_symbol("~") {
             let op = self.current().text.clone();
             self.index += 1;
             return Ok(Expr::Unary { op, right: Box::new(self.parse_unary()?) });
@@ -761,6 +802,11 @@ impl<'a> FunctionGenerator<'a> {
                 let expected_operand = if op == "!" { Some(Type::Bool) } else { expected };
                 let (value, ty) = self.emit_expr_expected(right, expected_operand)?;
                 match op.as_str() {
+                    "~" if ty.is_integer() => {
+                        let result = self.fresh_value();
+                        self.emit(format!("{result} = xor {} {value}, -1", ty.llvm()));
+                        Ok((result, ty))
+                    }
                     "-" if ty.is_numeric() => {
                         let result = self.fresh_value();
                         if ty == Type::F64 {
@@ -777,6 +823,7 @@ impl<'a> FunctionGenerator<'a> {
                     }
                     "-" => Err(format!("unary '-' requires a number, found {}", ty.llvm())),
                     "!" => Err(format!("unary '!' requires bool, found {}", ty.llvm())),
+                    "~" => Err(format!("unary '~' requires an integer, found {}", ty.llvm())),
                     _ => Err(format!("unsupported unary operator '{op}'")),
                 }
             }
@@ -784,7 +831,7 @@ impl<'a> FunctionGenerator<'a> {
                 if op == "&&" || op == "||" {
                     return self.emit_logical(left, op, right);
                 }
-                let arithmetic = matches!(op.as_str(), "+" | "-" | "*" | "/" | "%");
+                let arithmetic = matches!(op.as_str(), "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>");
                 let expected_lhs = if arithmetic && expected.is_some_and(Type::is_numeric) { expected } else { None };
                 let (lhs, lhs_ty) = self.emit_expr_expected(left, expected_lhs)?;
                 let (rhs, rhs_ty) = self.emit_expr_expected(right, Some(lhs_ty))?;
@@ -792,11 +839,12 @@ impl<'a> FunctionGenerator<'a> {
 
                 let result_ty = match op.as_str() {
                     "+" | "-" | "*" | "/" if lhs_ty.is_numeric() => lhs_ty,
-                    "%" if lhs_ty.is_integer() => lhs_ty,
+                    "%" | "&" | "|" | "^" | "<<" | ">>" if lhs_ty.is_integer() => lhs_ty,
                     "==" | "!=" if lhs_ty != Type::Void => Type::Bool,
                     "<" | "<=" | ">" | ">=" if lhs_ty.is_numeric() => Type::Bool,
                     "+" | "-" | "*" | "/" => return Err(format!("operator '{op}' requires numeric operands")),
                     "<" | "<=" | ">" | ">=" => return Err(format!("operator '{op}' requires numeric operands")),
+                    "&" | "|" | "^" | "<<" | ">>" => return Err(format!("operator '{op}' requires integer operands")),
                     _ => return Err(format!("unsupported binary operator '{op}'")),
                 };
 
@@ -811,6 +859,11 @@ impl<'a> FunctionGenerator<'a> {
                     (Type::I8 | Type::I32 | Type::I64, "*") => format!("{result} = mul {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I32 | Type::I64, "/") => format!("{result} = sdiv {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I32 | Type::I64, "%") => format!("{result} = srem {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I32 | Type::I64, "&") => format!("{result} = and {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I32 | Type::I64, "|") => format!("{result} = or {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I32 | Type::I64, "^") => format!("{result} = xor {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I32 | Type::I64, "<<") => format!("{result} = shl {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I32 | Type::I64, ">>") => format!("{result} = ashr {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::F64, "==") => format!("{result} = fcmp oeq double {lhs}, {rhs}"),
                     (Type::F64, "!=") => format!("{result} = fcmp une double {lhs}, {rhs}"),
                     (Type::F64, "<") => format!("{result} = fcmp olt double {lhs}, {rhs}"),
