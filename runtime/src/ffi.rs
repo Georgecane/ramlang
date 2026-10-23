@@ -1786,7 +1786,8 @@ impl FutureState {
         let (abort_handle, value_to_release) = {
             let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
             data.closed = true;
-            let result_to_release = if self.pointer_result_owned && !data.pointer_result_transferred {
+            let result_to_release = if self.pointer_result_owned && !data.pointer_result_transferred
+            {
                 data.result.take().and_then(Result::ok)
             } else {
                 None
