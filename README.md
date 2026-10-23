@@ -43,7 +43,7 @@ Build the optional networking runtime with `cargo build --release -p ramlang-run
 
 ## Requirements
 
-- Rust 1.99.1 stable (edition 2024; pinned by `rust-toolchain.toml)
+- Rust 1.99.1 stable (edition 2024; pinned by `rust-toolchain.toml`)
 - Cargo manifest declares Rust 1.99 as the minimum supported version
 - LLVM development libraries and matching `llvm-config` for one supported major version, 18 through 23 (default: LLVM 18.1)
 - A native system linker and platform runtime for executable linking
