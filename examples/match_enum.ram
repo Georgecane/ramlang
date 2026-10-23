@@ -1,0 +1,15 @@
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn main() -> i32 {
+    let color: Color = Color.Green;
+    match (color) {
+        Color.Red => { print(10); },
+        Color.Green => { print(20); },
+        Color.Blue => { print(30); },
+    }
+    return 0;
+}
