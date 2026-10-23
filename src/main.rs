@@ -4618,13 +4618,7 @@ fn compile_to_llvm_for_target(
     module.push_str("declare void @ramlang_print_u64(i64)\n");
     module.push_str("declare void @ramlang_print_f64(double)\n");
     module.push_str("declare void @ramlang_print_str(ptr)\n");
-    module.push_str("declare void @ramlang_print_i32(i32)\n");
-    module.push_str("declare void @ramlang_print_i64(i64)\n");
-    module.push_str("declare void @ramlang_print_u32(i32)\n");
-    module.push_str("declare void @ramlang_print_u64(i64)\n");
-    module.push_str("declare void @ramlang_print_f64(double)\n");
-    module.push_str("declare void @ramlang_print_str(ptr)\n");
-    module.push_str("declare i32 @printf(ptr, ...)\n\n");
+    module.push('\n');
     let size_t = if target_pointer_width == 32 { "i32" } else { "i64" };
     module.push_str(&format!("declare ptr @ramlang_malloc({size_t})\n"));
     module.push_str(&format!("declare ptr @ramlang_calloc({size_t}, {size_t})\n"));
@@ -4639,7 +4633,6 @@ fn compile_to_llvm_for_target(
     module.push_str(&format!("declare i32 @ramlang_strncmp(ptr, ptr, {size_t})\n"));
     module.push_str(&format!("declare ptr @ramlang_memchr(ptr, i32, {size_t})\n"));
     module.push_str("declare ptr @ramlang_alloc(i64)\n");
-    module.push_str("declare void @ramlang_free(ptr)\n");
     module.push_str("declare ptr @ramlang_future_spawn_i64(ptr, ptr)\n");
     module.push_str("declare i64 @ramlang_future_await_i64(ptr)\n");
     module.push_str("declare void @ramlang_future_close(ptr)\n");
@@ -4669,10 +4662,6 @@ fn compile_to_llvm_for_target(
 
     for function in functions {
         if function.external {
-            if function.name == "printf" {
-                // The runtime declaration emitted above is the canonical printf prototype.
-                continue;
-            }
             let mut params = function.params.iter()
                 .map(|(_, ty)| ty.llvm())
                 .collect::<Vec<_>>();
@@ -5852,7 +5841,7 @@ mod tests {
         let source = "fn twice(x: i32) -> i32 { return x * 2; } fn main() -> i32 { print(twice(21)); return 0; }";
         let ir = compile(source).unwrap();
         assert!(ir.contains("define i32 @twice(i32 %arg0)"));
-        assert!(ir.contains("@printf"));
+        assert!(ir.contains("@ramlang_print_i32"));
     }
 
     #[test]
