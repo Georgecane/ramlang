@@ -2421,6 +2421,21 @@ mod tests {
     }
 
     #[test]
+    fn lowers_address_of_for_variables_and_fields() {
+        let source = "struct Point { x: i32 } fn main() -> i32 { let mut value: i32 = 7; let p: ptr = &value; store_i32(p, 42); let mut point: Point = Point { x: 1 }; let field: ptr = &point.x; store_i32(field, value); print(point.x); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("store i32 42, ptr %v"));
+        assert!(ir.contains("store i32 7, ptr"));
+        assert!(ir.contains("getelementptr inbounds %struct."));
+    }
+
+    #[test]
+    fn rejects_address_of_temporary_expressions() {
+        let error = compile("fn main() -> i32 { let p: ptr = &(1 + 2); return 0; }").unwrap_err();
+        assert!(error.contains("address-of requires a variable, array element, or struct field"));
+    }
+
+    #[test]
     fn rejects_invalid_struct_literals_and_fields() {
         let missing = compile("struct Point { x: i32, y: i32 } fn main() -> i32 { let p: Point = Point { x: 1 }; return 0; }").unwrap_err();
         assert!(missing.contains("missing field 'y'"));
