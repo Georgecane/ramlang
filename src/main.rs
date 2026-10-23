@@ -6703,6 +6703,34 @@ mod tests {
     }
 
     #[test]
+    fn lowers_native_async_functions_and_typed_future_await() {
+        let source = r#"
+            async fn add_one(value: i32) -> i32 {
+                return value + 1;
+            }
+
+            fn main() -> i32 {
+                let future: Future<i32> = add_one(41);
+                let result: i32 = await future;
+                print(result);
+                return 0;
+            }
+        "#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("%__ramlang_async_args_"));
+        assert!(ir.contains("@ramlang_future_spawn_i64(ptr @__ramlang_async_entry_"));
+        assert!(ir.contains("@ramlang_future_await_i64(ptr"));
+        assert!(ir.contains("@ramlang_future_close(ptr"));
+        assert!(ir.contains("trunc i64"));
+    }
+
+    #[test]
+    fn rejects_awaiting_a_non_future_value() {
+        let error = compile("fn main() -> i32 { let result: i32 = await 41; return 0; }").unwrap_err();
+        assert!(error.contains("await expects Future<T>"), "unexpected error: {error}");
+    }
+
+    #[test]
     fn rejects_casts_to_void_and_float_pointer_casts() {
         let void_cast = compile("fn main() -> i32 { let x: i32 = 1 as void; return 0; }").unwrap_err();
         assert!(void_cast.contains("cast a value to void"));
