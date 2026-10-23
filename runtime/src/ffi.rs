@@ -159,6 +159,11 @@ fn fail_i64(error: impl std::fmt::Display) -> i64 {
     -1
 }
 
+fn fail_i32(error: impl std::fmt::Display) -> i32 {
+    set_last_error(&error.to_string());
+    -1
+}
+
 fn read_c_string(value: *const c_char, label: &str) -> Result<String, String> {
     if value.is_null() {
         return Err(format!("{label} must not be null"));
