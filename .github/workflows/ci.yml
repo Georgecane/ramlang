@@ -103,6 +103,10 @@ jobs:
           cargo run --release -- examples/hello.ram --emit-asm -o target/hello.s
           clang target/hello.s -o target/hello-from-assembly
           test "$(target/hello-from-assembly)" = "49"
+      - name: Compile and run bounds-checked arrays example
+        run: |
+          cargo run --release -- examples/arrays.ram -o target/arrays
+          test "$(target/arrays)" = "30"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
