@@ -13,6 +13,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Type aliases for scalar, array, struct, and enum types, including chained aliases
 - Simple enums with automatic or explicit integer discriminants, including cross-file type resolution
 - `extern static` declarations for C-defined scalar and raw-pointer globals
+- Variadic `extern fn` calls with C default argument promotions for extra scalar arguments
 - Global scalar, boolean, null-pointer, and UTF-8 string constants, available across source files
 - Static global storage with immutable `static` and mutable `static mut` variables
 - Target-aware `size_of(Type)`, `align_of(Type)`, and `offset_of(Type, field)` layout queries, including `packed struct` layouts
@@ -221,6 +222,25 @@ fn main() -> i32 {
 ```
 
 This example links against the host C runtime and prints `42`. At present, FFI uses the supported scalar and raw-pointer types; variadic declarations and per-library link metadata inside source files are not implemented. Pass library search paths and link flags on the compiler command line.
+
+### Variadic C ABI functions
+
+Declare an external C function with a trailing `...` in its parameter list. Calls must provide all fixed parameters, then may pass additional supported scalar/pointer arguments. For the extra arguments, RamLang applies C default argument promotions: `bool`, `i8`, `u8`, `i16`, and `u16` are promoted to `i32`; `f64` is passed as C `double`.
+
+```rust
+extern fn variadic_sum(base: i32, ...) -> i32;
+
+fn main() -> i32 {
+    let small: i8 = -5;
+    let medium: u16 = 250;
+    let enabled: bool = true;
+    let result: i32 = variadic_sum(10, small, medium, enabled, 2.0);
+    print(result);
+    return result - 258;
+}
+```
+
+The companion C function is in `examples/variadic_ffi.c`, and CI links it against the RamLang object file. Variadic calls cannot safely infer types from a C format string, and arrays/structs passed by value through `...` are rejected. Make sure the declared fixed parameters and every extra argument exactly match the foreign function's ABI contract.
 
 ### External global variables
 
