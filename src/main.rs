@@ -2488,6 +2488,24 @@ mod tests {
     }
 
     #[test]
+    fn lowers_size_of_for_scalar_array_pointer_and_struct_types() {
+        let source = "struct Cell { value: i32 } fn main() -> i32 { let a: i64 = size_of(i32); let b: i64 = size_of([i32; 4]); let c: i64 = size_of(ptr); let d: i64 = size_of(Cell); print(a); print(b); print(c); print(d); return 0; }";
+        let ir = compile(source).unwrap();
+        let cell_id = struct_type_id("Cell");
+        assert!(ir.contains("store i64 4, ptr"));
+        assert!(ir.contains("store i64 16, ptr"));
+        assert!(ir.contains("getelementptr ptr, ptr null, i64 1"));
+        assert!(ir.contains(&format!("getelementptr %struct.{cell_id:016x}, ptr null, i64 1")));
+        assert!(ir.contains("ptrtoint ptr"));
+    }
+
+    #[test]
+    fn rejects_size_of_void() {
+        let error = compile("fn main() -> i32 { let n: i64 = size_of(void); return 0; }").unwrap_err();
+        assert!(error.contains("size_of(void) is invalid"));
+    }
+
+    #[test]
     fn rejects_address_of_temporary_expressions() {
         let error = compile("fn main() -> i32 { let p: ptr = &(1 + 2); return 0; }").unwrap_err();
         assert!(error.contains("address-of requires a variable, array element, or struct field"));
