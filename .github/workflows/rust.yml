@@ -16,7 +16,7 @@ jobs:
       - name: Install LLVM and Clang
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang llvm llvm-dev
+          sudo apt-get install --yes clang llvm llvm-dev libpolly-18-dev
           LLVM_CONFIG="$(command -v llvm-config-18 || command -v llvm-config)"
           LLVM_VERSION="$("$LLVM_CONFIG" --version)"
           test "${LLVM_VERSION%%.*}" = "18"
