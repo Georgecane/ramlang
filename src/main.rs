@@ -2521,6 +2521,7 @@ fn compile(options: Options) -> Result<(), String> {
         program.functions.append(&mut parsed.functions);
         program.structs.append(&mut parsed.structs);
         program.constants.append(&mut parsed.constants);
+        program.static_vars.append(&mut parsed.static_vars);
         for (type_id, type_name) in parsed.type_references {
             if let Some(existing) = program.type_references.get(&type_id) {
                 if existing != &type_name {
