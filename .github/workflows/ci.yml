@@ -191,6 +191,13 @@ jobs:
           grep -Fq '@MMIO_BASE = global ptr inttoptr (i64 1073741824 to ptr)' target/mmio-registers.ll
           grep -Fq 'load volatile i32, ptr' target/mmio-registers.ll
           grep -Fq 'store volatile i32' target/mmio-registers.ll
+      - name: Link RamLang against external C globals
+        run: |
+          cargo run --release -- examples/extern_globals.ram --emit-obj -o target/extern-globals.o
+          clang -c examples/extern_globals.c -o target/extern-globals-c.o
+          clang target/extern-globals.o target/extern-globals-c.o -o target/extern-globals
+          expected="$(printf '%s\n%s' '42' '100')"
+          test "$(target/extern-globals)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
