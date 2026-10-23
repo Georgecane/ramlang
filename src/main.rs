@@ -5574,7 +5574,7 @@ mod tests {
 
     #[test]
     fn allows_declaring_and_calling_printf_as_variadic_ffi() {
-        let source = r#"extern fn printf(format: str, ...) -> i32; fn main() -> i32 { let code: i8 = 65; printf("%d %d %.1f\\n", code, true, 2.5); return 0; }"#;
+        let source = r#"extern fn printf(format: str, ...) -> i32; fn main() -> i32 { let code: i8 = 65; printf("%d %d %.1f\n", code, true, 2.5); return 0; }"#;
         let ir = compile(source).unwrap();
         assert_eq!(ir.matches("declare i32 @printf(ptr, ...)").count(), 1);
         assert!(ir.contains("call i32 (ptr, ...) @printf(ptr"));
