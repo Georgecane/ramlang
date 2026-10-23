@@ -1334,10 +1334,55 @@ pub extern "C" fn ramlang_print_u64(value: u64) {
     write_stdout_line(|output| write!(output, "{value}"));
 }
 
-/// Print a floating-point value using Rust's shortest round-trippable decimal formatting.
+fn trim_decimal_zeros(value: &str) -> String {
+    let mut output = value.to_owned();
+    if output.contains('.') {
+        while output.ends_with('0') {
+            output.pop();
+        }
+        if output.ends_with('.') {
+            output.pop();
+        }
+    }
+    output
+}
+
+/// Format like the C printf %g default: six significant digits, switching to scientific
+/// notation when the rounded exponent is less than -4 or at least 6.
+fn format_general_float(value: f64) -> String {
+    if value.is_nan() {
+        return if value.is_sign_negative() { "-nan" } else { "nan" }.to_owned();
+    }
+    if value.is_infinite() {
+        return if value.is_sign_negative() { "-inf" } else { "inf" }.to_owned();
+    }
+    if value == 0.0 {
+        return if value.is_sign_negative() { "-0" } else { "0" }.to_owned();
+    }
+
+    // Round first, then select fixed/scientific notation from the rounded exponent. This
+    // handles values such as 999_999.9 correctly: six significant digits round to 1e+06.
+    let scientific = format!("{value:.5e}");
+    let (mantissa, exponent_text) = scientific
+        .split_once('e')
+        .expect("Rust scientific float formatting includes an exponent");
+    let exponent = exponent_text
+        .parse::<i32>()
+        .expect("Rust scientific float exponent is an integer");
+
+    if exponent < -4 || exponent >= 6 {
+        let mantissa = trim_decimal_zeros(mantissa);
+        format!("{mantissa}e{exponent:+03}")
+    } else {
+        let decimals = (5 - exponent).max(0) as usize;
+        trim_decimal_zeros(&format!("{value:.decimals$}"))
+    }
+}
+
+/// Print a floating-point value using six significant digits, matching the former %g built-in.
 #[unsafe(no_mangle)]
 pub extern "C" fn ramlang_print_f64(value: f64) {
-    write_stdout_line(|output| write!(output, "{value}"));
+    write_stdout_line(|output| write!(output, "{}", format_general_float(value)));
 }
 
 /// Print a NUL-terminated byte string, followed by a newline.
@@ -2220,6 +2265,20 @@ mod tests {
         // SAFETY: the future is live and not being awaited or closed concurrently.
         unsafe { ramlang_future_close(future) };
         assert_eq!(server.join().unwrap(), 0);
+    }
+
+    #[test]
+    fn floating_point_output_uses_six_significant_digits() {
+        assert_eq!(format_general_float(3.875), "3.875");
+        assert_eq!(format_general_float(0.012500000186264515), "0.0125");
+        assert_eq!(format_general_float(0.0001), "0.0001");
+        assert_eq!(format_general_float(0.00001), "1e-05");
+        assert_eq!(format_general_float(100_000.0), "100000");
+        assert_eq!(format_general_float(1_000_000.0), "1e+06");
+        assert_eq!(format_general_float(123_456.7), "123457");
+        assert_eq!(format_general_float(f64::INFINITY), "inf");
+        assert_eq!(format_general_float(f64::NEG_INFINITY), "-inf");
+        assert_eq!(format_general_float(-0.0), "-0");
     }
 
     #[test]
