@@ -332,6 +332,7 @@ struct StructDef {
     id: u64,
     name: String,
     fields: Vec<(String, Type)>,
+    packed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -467,8 +468,15 @@ impl Parser {
     fn parse_program(&mut self) -> Result<Program, String> {
         let mut program = Program::default();
         while !self.at_end() {
+            if self.match_keyword("packed") {
+                if !self.match_keyword("struct") {
+                    return Err(self.error("expected 'struct' after 'packed'".to_owned()));
+                }
+                program.structs.push(self.parse_struct(true)?);
+                continue;
+            }
             if self.match_keyword("struct") {
-                program.structs.push(self.parse_struct()?);
+                program.structs.push(self.parse_struct(false)?);
                 continue;
             }
             if self.match_keyword("const") {
@@ -532,7 +540,7 @@ impl Parser {
         Ok(GlobalConst { name, ty, value })
     }
 
-    fn parse_struct(&mut self) -> Result<StructDef, String> {
+    fn parse_struct(&mut self, packed: bool) -> Result<StructDef, String> {
         let name = self.expect_ident("struct name")?;
         let id = struct_type_id(&name);
         self.type_references.insert(id, name.clone());
@@ -557,7 +565,7 @@ impl Parser {
         if fields.is_empty() {
             return Err(self.error(format!("struct '{name}' must contain at least one field")));
         }
-        Ok(StructDef { id, name, fields })
+        Ok(StructDef { id, name, fields, packed })
     }
 
     fn parse_type(&mut self) -> Result<Type, String> {
@@ -1107,7 +1115,10 @@ impl<'a> FunctionGenerator<'a> {
                 let (element_ptr, element) = self.emit_array_element_ptr(array, index)?;
                 Ok((element_ptr, element.ty()))
             }
-            Expr::Field { base, field } => self.emit_struct_field_ptr(base, field),
+            Expr::Field { base, field } => {
+                let (field_ptr, field_type, _) = self.emit_struct_field_ptr(base, field)?;
+                Ok((field_ptr, field_type))
+            },
             _ => Err("address-of requires a variable, array element, or struct field".to_owned()),
         }
     }
@@ -1151,7 +1162,7 @@ impl<'a> FunctionGenerator<'a> {
         Ok((element_ptr, element))
     }
 
-    fn emit_struct_field_ptr(&mut self, base: &Expr, field: &str) -> Result<(String, Type), String> {
+    fn emit_struct_field_ptr(&mut self, base: &Expr, field: &str) -> Result<(String, Type, bool), String> {
         let (base_value, base_type) = self.emit_expr(base)?;
         let Type::Struct(type_id) = base_type else {
             return Err(format!("field access '.{field}' requires a struct value"));
@@ -1167,7 +1178,7 @@ impl<'a> FunctionGenerator<'a> {
         self.emit(format!(
             "{field_ptr} = getelementptr inbounds %struct.{type_id:016x}, ptr {base_value}, i32 0, i32 {field_index}"
         ));
-        Ok((field_ptr, *field_type))
+        Ok((field_ptr, *field_type, structure.packed))
     }
 
     fn emit_expr(&mut self, expression: &Expr) -> Result<(String, Type), String> {
@@ -2396,7 +2407,11 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
             .map(|(_, ty)| ty.llvm())
             .collect::<Vec<_>>()
             .join(", ");
-        module.push_str(&format!("%struct.{:016x} = type {{ {fields} }}\n", structure.id));
+        if structure.packed {
+            module.push_str(&format!("%struct.{:016x} = type <{{ {fields} }}>\n", structure.id));
+        } else {
+            module.push_str(&format!("%struct.{:016x} = type {{ {fields} }}\n", structure.id));
+        }
     }
     if !program.structs.is_empty() {
         module.push('\n');
