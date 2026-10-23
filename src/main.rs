@@ -334,10 +334,18 @@ struct StructDef {
     fields: Vec<(String, Type)>,
 }
 
+#[derive(Debug, Clone)]
+struct GlobalConst {
+    name: String,
+    ty: Type,
+    value: Expr,
+}
+
 #[derive(Debug, Clone, Default)]
 struct Program {
     functions: Vec<Function>,
     structs: Vec<StructDef>,
+    constants: Vec<GlobalConst>,
     type_references: HashMap<u64, String>,
 }
 
@@ -451,17 +459,34 @@ impl Parser {
                 program.structs.push(self.parse_struct()?);
                 continue;
             }
+            if self.match_keyword("const") {
+                program.constants.push(self.parse_global_const()?);
+                continue;
+            }
             let external = self.match_keyword("extern");
             if !self.match_keyword("fn") {
                 return Err(self.error("expected a struct declaration, function declaration, or 'extern fn'".to_owned()));
             }
             program.functions.push(self.parse_function(external)?);
         }
-        if program.functions.is_empty() && program.structs.is_empty() {
+        if program.functions.is_empty() && program.structs.is_empty() && program.constants.is_empty() {
             return Err("source file does not contain any declarations".to_owned());
         }
         program.type_references = std::mem::take(&mut self.type_references);
         Ok(program)
+    }
+
+    fn parse_global_const(&mut self) -> Result<GlobalConst, String> {
+        let name = self.expect_ident("constant name")?;
+        self.expect_symbol(":")?;
+        let ty = self.parse_type()?;
+        if ty == Type::Void {
+            return Err(self.error("a global constant cannot have type void".to_owned()));
+        }
+        self.expect_symbol("=")?;
+        let value = self.parse_expression()?;
+        self.expect_symbol(";")?;
+        Ok(GlobalConst { name, ty, value })
     }
 
     fn parse_struct(&mut self) -> Result<StructDef, String> {
