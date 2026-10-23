@@ -151,6 +151,11 @@ jobs:
         run: |
           cargo run --release -- examples/volatile_memory.ram -o target/volatile-memory
           test "$(target/volatile-memory)" = "42"
+      - name: Compile and run align_of example
+        run: |
+          cargo run --release -- examples/alignof.ram -o target/alignof
+          expected="$(printf '%s\n%s\n%s\n%s' '1' '4' '2' '8')"
+          test "$(target/alignof)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
