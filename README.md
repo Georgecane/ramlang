@@ -11,6 +11,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Global scalar, boolean, null-pointer, and UTF-8 string constants, available across source files
+- Target-aware `size_of(Type)`, `align_of(Type)`, and `offset_of(Type, field)` layout queries
 - Runtime `assert(bool)` with a trap on failure, `panic(str)` for non-returning errors, `assume(bool)` lowered to `llvm.assume`, volatile memory access built-ins, and LLVM memory-order fences
 - Immutable local variables with `let` and mutable locals with `let mut`
 - Explicit casts with `as` between signed integer widths, integers and `f64`, integers and `bool`, `bool` and `f64`, and `str` / `ptr`
@@ -256,6 +257,27 @@ fn main() -> i32 {
 ```
 
 Array types support scalar and pointer elements, including explicit-length literals such as `let values: [i32; 4] = [10, 20, 30, 40];`. Array literals use stack storage and must not outlive the function call. An array type is a pointer plus a declared length, so the bounds check protects the declared index range; it cannot prove that the underlying allocation actually contains that much memory. The programmer must keep the allocation size and array type consistent.
+
+## Struct field offsets
+
+Use `offset_of(Type, field)` (or `offsetof(Type, field)`) to query a field's byte offset within a named struct. It uses LLVM's layout for the active target, including padding inserted for field alignment.
+
+```rust
+struct Packet {
+    tag: u8,
+    value: i64,
+    tail: u32,
+}
+
+fn main() -> i32 {
+    print(offset_of(Packet, tag));
+    print(offset_of(Packet, value));
+    print(offset_of(Packet, tail));
+    return 0;
+}
+```
+
+Offsets depend on the selected target ABI and the struct's declaration order. RamLang does not yet provide packed structs or an explicit C-layout/packing annotation, so use this only where the language's current LLVM struct layout matches the ABI you need.
 
 ## Type alignment
 
