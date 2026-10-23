@@ -3636,6 +3636,9 @@ struct Options {
     link_search_paths: Vec<PathBuf>,
     link_args: Vec<String>,
     target: Option<String>,
+    target_cpu: Option<String>,
+    target_features: Vec<String>,
+    sysroot: Option<PathBuf>,
     opt_level: String,
     opt_level_explicit: bool,
 }
@@ -3650,10 +3653,10 @@ where
 {
     let mut args = arguments.into_iter().peekable();
     let Some(source) = args.next() else {
-        return Err("usage: ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
+        return Err("usage: ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc] [-o output] [--target TRIPLE] [--target-cpu CPU] [--target-feature FEATURE ...] [--sysroot PATH] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
     };
     if source == "--help" || source == "-h" {
-        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --emit-obj              Emit a native object file without linking\n  --emit-asm              Emit target assembly without linking\n  --emit-bc               Emit LLVM bitcode without linking\n  --target <triple>       Select the Clang compilation target\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
+        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --emit-obj              Emit a native object file without linking\n  --emit-asm              Emit target assembly without linking\n  --emit-bc               Emit LLVM bitcode without linking\n  --target <triple>       Select the Clang compilation target\n  --target-cpu <name>    Select the LLVM target CPU\n  --target-feature <f>   Enable (+) or disable (-) an LLVM target feature; repeatable\n  --sysroot <path>       Use a target sysroot when invoking Clang\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
         process::exit(0);
     }
 
@@ -3669,6 +3672,9 @@ where
         link_search_paths: Vec::new(),
         link_args: Vec::new(),
         target: None,
+        target_cpu: None,
+        target_features: Vec::new(),
+        sysroot: None,
         opt_level: "2".to_owned(),
         opt_level_explicit: false,
     };
@@ -3696,6 +3702,28 @@ where
                     return Err(format!("invalid target triple '{target}'"));
                 }
                 options.target = Some(target);
+            }
+            "--target-cpu" => {
+                let Some(cpu) = args.next() else { return Err("expected a CPU name after --target-cpu".to_owned()); };
+                if cpu.is_empty() || cpu.starts_with('-') {
+                    return Err(format!("invalid target CPU '{cpu}'"));
+                }
+                options.target_cpu = Some(cpu);
+            }
+            "--target-feature" => {
+                let Some(feature) = args.next() else { return Err("expected a feature such as +avx2 or -sse4.2 after --target-feature".to_owned()); };
+                let valid_body = feature.get(1..).is_some_and(|body| !body.is_empty() && body.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.')));
+                if !matches!(feature.as_bytes().first(), Some(b'+') | Some(b'-')) || !valid_body {
+                    return Err(format!("invalid target feature '{feature}'; expected +feature or -feature"));
+                }
+                options.target_features.push(feature);
+            }
+            "--sysroot" => {
+                let Some(path) = args.next() else { return Err("expected a path after --sysroot".to_owned()); };
+                if path.is_empty() {
+                    return Err("sysroot path cannot be empty".to_owned());
+                }
+                options.sysroot = Some(PathBuf::from(path));
             }
             "--opt-level" => {
                 let Some(level) = args.next() else { return Err("expected a level after --opt-level".to_owned()); };
@@ -3742,6 +3770,11 @@ where
     }
     if options.emit_llvm && options.opt_level_explicit {
         return Err("optimization options cannot be combined with --emit-llvm".to_owned());
+    }
+    if (options.check_only || options.emit_llvm)
+        && (options.target_cpu.is_some() || !options.target_features.is_empty() || options.sysroot.is_some())
+    {
+        return Err("target CPU, target features, and sysroot require backend code generation and cannot be combined with --check or --emit-llvm".to_owned());
     }
     if (options.check_only || output_mode_count > 0) && link_options_present {
         return Err("linker options require native linking and cannot be combined with --check or an emit-only mode".to_owned());
@@ -3836,6 +3869,15 @@ fn compile(options: Options) -> Result<(), String> {
     command.arg(format!("-O{}", options.opt_level)).arg("-Wno-override-module");
     if let Some(target) = &options.target {
         command.arg("-target").arg(target);
+    }
+    if let Some(cpu) = &options.target_cpu {
+        command.args(["-Xclang", "-target-cpu", "-Xclang"]).arg(cpu);
+    }
+    for feature in &options.target_features {
+        command.args(["-Xclang", "-target-feature", "-Xclang"]).arg(feature);
+    }
+    if let Some(sysroot) = &options.sysroot {
+        command.arg("--sysroot").arg(sysroot);
     }
     if options.emit_object {
         command.arg("-c");
