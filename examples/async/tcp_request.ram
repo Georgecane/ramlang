@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    let response: str = await tcp_request("127.0.0.1:39874", "hello over RamLang", 3000);
+    print(response);
+    free(response as ptr);
+    return 0;
+}
