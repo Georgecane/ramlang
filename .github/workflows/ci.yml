@@ -47,6 +47,12 @@ jobs:
           cargo run --release -- examples/async/basic.ram -o target/async-basic
           output="$(target/async-basic)"
           test "$output" = "42"
+      - name: Compile and run native timer Future
+        run: |
+          cargo run --release -- examples/async/timer.ram -o target/async-timer
+          output="$(target/async-timer)"
+          expected="$(printf 'timer started\ntimer finished')"
+          test "$output" = "$expected"
       - name: Compile and run native async TCP request
         shell: bash
         run: |
