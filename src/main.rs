@@ -923,6 +923,7 @@ struct Binding {
 
 struct FunctionGenerator<'a> {
     signatures: &'a HashMap<String, Signature>,
+    structs: &'a HashMap<u64, StructDef>,
     return_type: Type,
     allocas: Vec<String>,
     lines: Vec<String>,
@@ -939,9 +940,14 @@ struct FunctionGenerator<'a> {
 }
 
 impl<'a> FunctionGenerator<'a> {
-    fn new(signatures: &'a HashMap<String, Signature>, return_type: Type, function_name: &str) -> Self {
+    fn new(
+        signatures: &'a HashMap<String, Signature>,
+        structs: &'a HashMap<u64, StructDef>,
+        return_type: Type,
+        function_name: &str,
+    ) -> Self {
         Self {
-            signatures, return_type, allocas: Vec::new(), lines: Vec::new(),
+            signatures, structs, return_type, allocas: Vec::new(), lines: Vec::new(),
             scopes: vec![HashMap::new()], current_block: "entry".to_owned(),
             function_name: function_name.to_owned(), string_counter: 0,
             string_globals: Vec::new(), loop_stack: Vec::new(),
@@ -1029,6 +1035,25 @@ impl<'a> FunctionGenerator<'a> {
         Ok((element_ptr, element))
     }
 
+    fn emit_struct_field_ptr(&mut self, base: &Expr, field: &str) -> Result<(String, Type), String> {
+        let (base_value, base_type) = self.emit_expr(base)?;
+        let Type::Struct(type_id) = base_type else {
+            return Err(format!("field access '.{field}' requires a struct value"));
+        };
+        let structure = self.structs.get(&type_id).cloned()
+            .ok_or_else(|| format!("unknown struct type id {type_id:016x}"))?;
+        let Some((field_index, (_, field_type))) = structure.fields.iter().enumerate()
+            .find(|(_, (field_name, _))| field_name == field)
+        else {
+            return Err(format!("struct '{}' has no field '{field}'", structure.name));
+        };
+        let field_ptr = self.fresh_value();
+        self.emit(format!(
+            "{field_ptr} = getelementptr inbounds %struct.{type_id:016x}, ptr {base_value}, i32 0, i32 {field_index}"
+        ));
+        Ok((field_ptr, *field_type))
+    }
+
     fn emit_expr(&mut self, expression: &Expr) -> Result<(String, Type), String> {
         self.emit_expr_expected(expression, None)
     }
@@ -1063,6 +1088,42 @@ impl<'a> FunctionGenerator<'a> {
 
     fn emit_expr_expected(&mut self, expression: &Expr, expected: Option<Type>) -> Result<(String, Type), String> {
         match expression {
+            Expr::StructLiteral { type_id, fields } => {
+                let structure = self.structs.get(type_id).cloned()
+                    .ok_or_else(|| format!("unknown struct type id {type_id:016x}"))?;
+                let declared_names = structure.fields.iter().map(|(name, _)| name.as_str()).collect::<HashSet<_>>();
+                let mut supplied = HashMap::<String, &Expr>::new();
+                for (field_name, expression) in fields {
+                    if !declared_names.contains(field_name.as_str()) {
+                        return Err(format!("struct '{}' has no field '{field_name}'", structure.name));
+                    }
+                    if supplied.insert(field_name.clone(), expression).is_some() {
+                        return Err(format!("field '{field_name}' is initialized more than once in struct '{}'", structure.name));
+                    }
+                }
+                if supplied.len() != structure.fields.len() {
+                    let missing = structure.fields.iter()
+                        .find(|(field_name, _)| !supplied.contains_key(field_name))
+                        .map(|(field_name, _)| field_name.as_str())
+                        .unwrap_or("unknown");
+                    return Err(format!("struct literal for '{}' is missing field '{missing}'", structure.name));
+                }
+
+                let ir_type = format!("%struct.{type_id:016x}");
+                let storage = self.fresh_value();
+                self.allocas.push(format!("  {storage} = alloca {ir_type}"));
+                for (field_index, (field_name, field_type)) in structure.fields.iter().enumerate() {
+                    let expression = supplied.get(field_name).expect("validated struct field set");
+                    let (value, actual_type) = self.emit_expr_expected(expression, Some(*field_type))?;
+                    self.require_same(*field_type, actual_type, &format!("initializer for field '{field_name}'"))?;
+                    let field_ptr = self.fresh_value();
+                    self.emit(format!(
+                        "{field_ptr} = getelementptr inbounds {ir_type}, ptr {storage}, i32 0, i32 {field_index}"
+                    ));
+                    self.emit(format!("store {} {value}, ptr {field_ptr}", field_type.llvm()));
+                }
+                Ok((storage, Type::Struct(*type_id)))
+            }
             Expr::ArrayLiteral(elements) => {
                 let Some(Type::Array(element, length)) = expected else {
                     return Err("array literals require an explicit fixed-length array type, for example [i32; 4]".to_owned());
@@ -1168,6 +1229,12 @@ impl<'a> FunctionGenerator<'a> {
                 self.emit(format!("{result} = load {}, ptr {element_ptr}", element.llvm()));
                 Ok((result, element.ty()))
             }
+            Expr::Field { base, field } => {
+                let (field_ptr, field_type) = self.emit_struct_field_ptr(base, field)?;
+                let result = self.fresh_value();
+                self.emit(format!("{result} = load {}, ptr {field_ptr}", field_type.llvm()));
+                Ok((result, field_type))
+            }
             Expr::Cast { value, target } => {
                 if *target == Type::Void {
                     return Err("cannot cast a value to void".to_owned());
@@ -1178,6 +1245,7 @@ impl<'a> FunctionGenerator<'a> {
                 }
                 if matches!((source_type, *target), (Type::Str, Type::Ptr) | (Type::Ptr, Type::Str))
                     || matches!((source_type, *target), (Type::Ptr, Type::Array(_, _)) | (Type::Array(_, _), Type::Ptr))
+                    || matches!((source_type, *target), (Type::Ptr, Type::Struct(_)) | (Type::Struct(_), Type::Ptr))
                 {
                     return Ok((source, *target));
                 }
@@ -1186,7 +1254,7 @@ impl<'a> FunctionGenerator<'a> {
                     self.emit(format!("{result} = inttoptr {} {source} to ptr", source_type.llvm()));
                     return Ok((result, Type::Ptr));
                 }
-                if matches!(source_type, Type::Ptr | Type::Str | Type::Array(_, _)) && target.is_integer() {
+                if matches!(source_type, Type::Ptr | Type::Str | Type::Array(_, _) | Type::Struct(_)) && target.is_integer() {
                     let result = self.fresh_value();
                     self.emit(format!("{result} = ptrtoint ptr {source} to {}", target.llvm()));
                     return Ok((result, *target));
@@ -1414,6 +1482,7 @@ impl<'a> FunctionGenerator<'a> {
                         Type::Str => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.str, ptr {value})")),
                         Type::Ptr => return Err("print does not accept raw pointers".to_owned()),
                         Type::Array(_, _) => return Err("print does not accept arrays directly".to_owned()),
+                        Type::Struct(_) => return Err("print does not accept structs directly".to_owned()),
                         Type::Void => return Err("print cannot print a void expression".to_owned()),
                     }
                     return Ok((String::new(), Type::Void));
@@ -1554,6 +1623,12 @@ impl<'a> FunctionGenerator<'a> {
                 let slot = self.fresh_slot(ty);
                 self.emit(format!("store {} {value}, ptr {slot}", ty.llvm()));
                 self.scopes.last_mut().unwrap().insert(name.clone(), Binding { ty, slot, mutable: *mutable });
+            }
+            Stmt::FieldAssign { base, field, value } => {
+                let (field_ptr, field_type) = self.emit_struct_field_ptr(base, field)?;
+                let (stored_value, actual_type) = self.emit_expr_expected(value, Some(field_type))?;
+                self.require_same(field_type, actual_type, &format!("assignment to field '{field}'"))?;
+                self.emit(format!("store {} {stored_value}, ptr {field_ptr}", field_type.llvm()));
             }
             Stmt::IndexAssign { array, index, value } => {
                 let (element_ptr, element) = self.emit_array_element_ptr(array, index)?;
