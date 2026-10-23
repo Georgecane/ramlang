@@ -2699,6 +2699,14 @@ mod tests {
     }
 
     #[test]
+    fn lowers_static_pointer_address_initializers() {
+        let source = "static mut UART_BASE: ptr = 1073741824 as ptr; fn main() -> i32 { let address: ptr = UART_BASE; return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("@UART_BASE = global ptr inttoptr (i64 1073741824 to ptr)"));
+        assert!(ir.contains("load ptr, ptr @UART_BASE"));
+    }
+
+    #[test]
     fn rejects_assignment_to_immutable_static_variables() {
         let error = compile("static VALUE: i32 = 1; fn main() -> i32 { VALUE = 2; return 0; }").unwrap_err();
         assert!(error.contains("cannot assign to immutable variable 'VALUE'"));
