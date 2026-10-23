@@ -368,6 +368,7 @@ struct Program {
     enums: Vec<EnumDef>,
     constants: Vec<GlobalConst>,
     static_vars: Vec<GlobalVar>,
+    imports: Vec<String>,
     type_references: HashMap<u64, String>,
 }
 
@@ -481,6 +482,19 @@ impl Parser {
     fn parse_program(&mut self) -> Result<Program, String> {
         let mut program = Program::default();
         while !self.at_end() {
+            if self.match_keyword("import") {
+                if !matches!(self.current().kind, TokenKind::String) {
+                    return Err(self.error("import expects a quoted relative source path".to_owned()));
+                }
+                let path = self.current().text.clone();
+                self.index += 1;
+                if path.is_empty() {
+                    return Err(self.error("import path cannot be empty".to_owned()));
+                }
+                self.expect_symbol(";")?;
+                program.imports.push(path);
+                continue;
+            }
             if self.match_keyword("packed") {
                 if !self.match_keyword("struct") {
                     return Err(self.error("expected 'struct' after 'packed'".to_owned()));
@@ -510,12 +524,12 @@ impl Parser {
                 continue;
             }
             if !self.match_keyword("fn") {
-                return Err(self.error("expected a struct, enum, const, static, function declaration, 'extern static', or 'extern fn'".to_owned()));
+                return Err(self.error("expected an import, struct, enum, const, static, function declaration, 'extern static', or 'extern fn'".to_owned()));
             }
             program.functions.push(self.parse_function(external)?);
         }
         if program.functions.is_empty() && program.structs.is_empty() && program.enums.is_empty()
-            && program.constants.is_empty() && program.static_vars.is_empty()
+            && program.constants.is_empty() && program.static_vars.is_empty() && program.imports.is_empty()
         {
             return Err("source file does not contain any declarations".to_owned());
         }
