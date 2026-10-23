@@ -221,6 +221,7 @@ enum ArrayElement {
     Bool,
     Ptr,
     Str,
+    Alias(u64),
 }
 
 impl ArrayElement {
@@ -229,6 +230,25 @@ impl ArrayElement {
             Type::I8 => Some(Self::I8),
             Type::I16 => Some(Self::I16),
             Type::I32 => Some(Self::I32),
+            Type::I64 => Some(Self::I64),
+            Type::U8 => Some(Self::U8),
+            Type::U16 => Some(Self::U16),
+            Type::U32 => Some(Self::U32),
+            Type::U64 => Some(Self::U64),
+            Type::F64 => Some(Self::F64),
+            Type::Bool => Some(Self::Bool),
+            Type::Ptr => Some(Self::Ptr),
+            Type::Str => Some(Self::Str),
+            Type::Struct(type_id) => Some(Self::Alias(type_id)),
+            _ => None,
+        }
+    }
+
+    fn from_resolved_type(ty: Type) -> Option<Self> {
+        match ty {
+            Type::I8 => Some(Self::I8),
+            Type::I16 => Some(Self::I16),
+            Type::I32 | Type::Enum(_) => Some(Self::I32),
             Type::I64 => Some(Self::I64),
             Type::U8 => Some(Self::U8),
             Type::U16 => Some(Self::U16),
@@ -256,6 +276,7 @@ impl ArrayElement {
             Self::Bool => Type::Bool,
             Self::Ptr => Type::Ptr,
             Self::Str => Type::Str,
+            Self::Alias(type_id) => Type::Struct(type_id),
         }
     }
 
