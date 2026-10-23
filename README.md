@@ -8,10 +8,10 @@ RamLang is a statically typed systems-language experiment written in Rust. Its R
 
 - Rust-based lexer, parser, compiler driver, and LLVM backend using Inkwell
 - In-process LLVM IR parsing, verification, target-machine code generation, object emission, assembly emission, and bitcode emission; the system linker driver is used only for final executable linking
-- LLVM 18-23 bindings selectable with Cargo features (default: LLVM 23.1)
+- LLVM 18-23 bindings selectable with Cargo features (default: LLVM 18.1)
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
-- Optional Tokio-backed TCP and UDP runtime exposed as a C-compatible shared library, including non-blocking request handles, cancellation scopes, and a structured task-group API for Rust consumers
+- Rust-owned Tokio runtime with native RamLang `async fn`, `Future<T>`, `await`, `tcp_request` and `udp_request` built-ins, plus explicit TCP/UDP handle APIs and cancellation scopes
 - Type aliases for scalar, array, struct, and enum types, including chained aliases
 - Simple enums with automatic or explicit integer discriminants, including cross-file type resolution
 - `extern static` declarations for C-defined scalar and raw-pointer globals
@@ -39,16 +39,16 @@ RamLang is a statically typed systems-language experiment written in Rust. Its R
 
 ## TCP networking runtime
 
-Build the optional networking runtime with `cargo build --release -p ramlang-runtime`. Current RamLang programs can use blocking TCP/UDP calls or submit non-blocking TCP/UDP request handles and collect results later. Explicit cancellation scopes can cancel groups of pending request handles together. Native language-level `async fn` and `await` are not implemented yet. See [docs/NETWORKING_FROM_RAMLANG.md](docs/NETWORKING_FROM_RAMLANG.md) for the ABI, protocols, and runnable client examples.
+Build the compiler and runtime with `cargo build --release`. RamLang has an initial native `Future<T>` / `async fn` / `await` path and UTF-8 TCP/UDP request built-ins that return `Future<str>`. The current `await` bridge still blocks the calling OS thread; state-machine lowering that suspends and resumes without blocking remains in progress. Legacy handle APIs are available for binary protocols and explicit cancellation. See [docs/NETWORKING_FROM_RAMLANG.md](docs/NETWORKING_FROM_RAMLANG.md) for examples and limitations.
 
 ## Requirements
 
 - Rust 1.99.1 stable (edition 2024; pinned by `rust-toolchain.toml`)
 - Cargo manifest declares Rust 1.99 as the minimum supported version
-- LLVM development libraries and matching `llvm-config` for one supported major version, 18 through 23 (default: LLVM 23.1)
+- LLVM development libraries and matching `llvm-config` for one supported major version, 18 through 23 (default: LLVM 18.1)
 - A native system linker and platform runtime for executable linking
 
-On CachyOS, use the feature matching the installed LLVM major. For example, LLVM 22 uses `cargo build --no-default-features --features llvm22`. The default feature targets LLVM 23 and expects a matching `llvm-config` to be available.
+On CachyOS, use the feature matching the installed LLVM major. For example, LLVM 23 uses `cargo build --no-default-features --features llvm23`. The default feature targets LLVM 18 and expects a matching `llvm-config` to be available.
 
 On Arch Linux / CachyOS, install the required tools with:
 
@@ -184,7 +184,7 @@ fn main() -> i32 {
 
 ## Strings
 
-String literals are stored as immutable UTF-8 constants in the generated LLVM module. The `str` type is passed as a NUL-terminated pointer when calling the current C runtime. Supported escape sequences are `\\n`, `\\r`, `\\t`, `\\0`, `\\\\`, and `\\\"`.
+String literals are stored as immutable UTF-8 constants in the generated LLVM module. The `str` type uses a NUL-terminated pointer representation for built-ins and runtime calls; native networking responses are runtime-owned allocations that must be released explicitly. Supported escape sequences are `\\n`, `\\r`, `\\t`, `\\0`, `\\\\`, and `\\\"`.
 
 ```rust
 fn main() -> i32 {
@@ -324,7 +324,7 @@ fn main() -> i32 {
 Do not dereference arbitrary integer-derived addresses. On targets with pointers wider than the chosen integer type, an integer round-trip may lose information; prefer the target's native pointer-width integer type when adding platform abstractions.
 
 ## Assertions and optimizer assumptions
-`panic(message)` writes a string message to standard output through the current C `printf` runtime and then traps. It is treated as a non-returning operation by the function code generator.
+`panic(message)` writes a string message to standard output through the Rust-owned RamLang runtime and then traps. It is treated as a non-returning operation by the function code generator.
 
 ```rust
 fn fail(message: str) -> void {
