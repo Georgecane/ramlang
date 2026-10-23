@@ -8,12 +8,12 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 
 - Rust-based lexer, parser, compiler driver, and LLVM IR backend
 - Native compilation through Clang (LLVM 15 or newer, using opaque pointers)
-- Static types: `i8`, `i32`, `i64`, `f64`, `bool`, `ptr`, and `void`
+- Static types: `i8`, `i32`, `i64`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Immutable local variables with `let` and mutable locals with `let mut`
 - Arithmetic (`+`, `-`, `*`, `/`, `%`), comparisons, unary `-` and `!`, and short-circuit `&&` / `||`
 - `if` / `else`, `while`, nested blocks, line and block comments
-- Built-in `print(value)` for integer, floating-point, and boolean values
+- UTF-8 string literals with `\\n`, `\\r`, `\\t`, `\\0`, `\\\\`, and `\\\"` escapes\n- Built-in `print(value)` for integers, floating-point values, booleans, and strings
 - Unit tests for code generation and common semantic errors
 
 ## Requirements
@@ -65,6 +65,21 @@ Expected output:
 ```text
 49
 ```
+
+## Strings
+
+String literals are stored as immutable UTF-8 constants in the generated LLVM module. The `str` type is passed as a NUL-terminated pointer when calling the current C runtime. Supported escape sequences are `\\n`, `\\r`, `\\t`, `\\0`, `\\\\`, and `\\\"`.
+
+```rust
+fn main() -> i32 {
+    let greeting: str = "Hello, LLVM!";
+    print(greeting);
+    print("UTF-8 is supported: café");
+    return 0;
+}
+```
+
+String values currently follow C-string behavior: embedded NUL bytes terminate output, strings are immutable, and there is no string concatenation, slicing, or managed lifetime system yet.
 
 ## C ABI interoperability
 
