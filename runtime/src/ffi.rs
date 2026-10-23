@@ -14,6 +14,8 @@ use tokio::runtime::{Builder, Runtime};
 
 use crate::{TcpConnection, UdpEndpoint};
 
+const MAX_FFI_TCP_FRAME_SIZE: usize = 16 * 1024 * 1024;
+
 thread_local! {
     static LAST_ERROR: std::cell::RefCell<CString> =
         std::cell::RefCell::new(CString::new("").expect("empty C string is valid"));
@@ -145,6 +147,9 @@ pub unsafe extern "C" fn ramlang_tcp_write_frame(
         Ok(length) => length,
         Err(_) => return fail_i64("frame length does not fit this platform"),
     };
+    if length > MAX_FFI_TCP_FRAME_SIZE {
+        return fail_i64("TCP frame exceeds the C ABI maximum of 16 MiB");
+    }
     if length > 0 && data.is_null() {
         return fail_i64("data must not be null when length is nonzero");
     }
@@ -194,6 +199,9 @@ pub unsafe extern "C" fn ramlang_tcp_read_frame(
         Ok(capacity) => capacity,
         Err(_) => return fail_i64("buffer capacity does not fit this platform"),
     };
+    if capacity > MAX_FFI_TCP_FRAME_SIZE {
+        return fail_i64("TCP frame buffer exceeds the C ABI maximum of 16 MiB");
+    }
     if capacity > 0 && output.is_null() {
         return fail_i64("output must not be null when capacity is nonzero");
     }
