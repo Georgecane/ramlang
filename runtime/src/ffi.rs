@@ -2193,7 +2193,9 @@ mod tests {
         let (received_tx, received_rx) = std::sync::mpsc::channel();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
             let mut header = [0_u8; 4];
             stream.read_exact(&mut header).unwrap();
             let payload_length = u32::from_be_bytes(header) as usize;
@@ -2208,9 +2210,8 @@ mod tests {
         let address = CString::new(address.to_string()).unwrap();
         let payload = CString::new("cancel pending TCP future").unwrap();
         // SAFETY: address and payload are valid NUL-terminated strings copied on entry.
-        let future = unsafe {
-            ramlang_tcp_request_future(address.as_ptr(), payload.as_ptr(), 5_000)
-        };
+        let future =
+            unsafe { ramlang_tcp_request_future(address.as_ptr(), payload.as_ptr(), 5_000) };
         assert!(!future.is_null(), "{}", unsafe {
             CStr::from_ptr(ramlang_last_error()).to_string_lossy()
         });
