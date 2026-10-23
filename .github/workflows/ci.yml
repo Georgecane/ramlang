@@ -79,7 +79,7 @@ jobs:
           test "$(target/unsigned)" = "$expected"
       - name: Compile and link native library FFI example
         run: |
-          cargo run --release -- examples/ffi_math.ram -o target/ffi-math --link-search /usr/lib/x86_64-linux-gnu --link-lib m
+          cargo run --release -- examples/ffi_math.ram -o target/ffi-math --target x86_64-unknown-linux-gnu --opt-level 0 --link-search /usr/lib/x86_64-linux-gnu --link-lib m
           test "$(target/ffi-math)" = "9"
       - name: Verify LLVM IR output path
         run: |
