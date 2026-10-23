@@ -25,6 +25,33 @@ jobs:
         run: cargo test --all-targets
       - name: Build compiler
         run: cargo build --release
+      - name: Build TCP runtime shared library
+        run: cargo build --release -p ramlang-runtime
+      - name: Compile and run RamLang TCP networking example
+        shell: bash
+        run: |
+          cargo run --release -- examples/network/tcp_client.ram \
+            --link-search target/release --link-lib ramlang_runtime \
+            -o target/tcp-client
+          cargo run --release -p ramlang-runtime --example tcp_echo_server -- 127.0.0.1:39871 > target/tcp-echo-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 50); do
+            if grep -q READY target/tcp-echo-server.log; then
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat target/tcp-echo-server.log
+              exit 1
+            fi
+            sleep 0.1
+          done
+          grep -q READY target/tcp-echo-server.log
+          export LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH"
+          output="$(target/tcp-client)"
+          expected="$(printf '4\n112')"
+          test "$output" = "$expected"
+          wait "$server_pid"
       - name: Compile and run hello example
         run: |
           cargo run --release -- examples/hello.ram -o target/hello
