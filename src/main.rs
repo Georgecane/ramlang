@@ -582,6 +582,22 @@ impl Parser {
             });
         }
         if matches!(self.current().kind, TokenKind::Ident)
+            && self.tokens.get(self.index + 1).is_some_and(|t| t.kind == TokenKind::Symbol("[".to_owned()))
+        {
+            let saved_index = self.index;
+            let name = self.current().text.clone();
+            self.index += 1;
+            self.expect_symbol("[")?;
+            let index = self.parse_expression()?;
+            self.expect_symbol("]")?;
+            if self.match_symbol("=") {
+                let value = self.parse_expression()?;
+                self.expect_symbol(";")?;
+                return Ok(Stmt::IndexAssign { array: Expr::Variable(name), index, value });
+            }
+            self.index = saved_index;
+        }
+        if matches!(self.current().kind, TokenKind::Ident)
             && self.tokens.get(self.index + 1).is_some_and(|t| t.kind == TokenKind::Symbol("=".to_owned()))
         {
             let name = self.current().text.clone();
