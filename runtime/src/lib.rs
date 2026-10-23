@@ -4,6 +4,8 @@
 //! yet lower native async fn / await syntax; see docs/ASYNC_DESIGN.md.
 //! Network frames are length-prefixed and bounded to avoid untrusted allocations.
 
+pub mod ffi;
+
 use std::{io, net::SocketAddr, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
