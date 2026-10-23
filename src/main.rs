@@ -2550,6 +2550,97 @@ impl<'a> FunctionGenerator<'a> {
                     }
                 }
 
+                // Use an LLVM switch for compile-time constant patterns. If any
+                // pattern is dynamic, retain the expression-comparison chain below.
+                let mut switch_values = Vec::<String>::new();
+                let mut switch_possible = true;
+                let mut unique_switch_values = HashSet::<String>::new();
+                for (pattern, _) in arms {
+                    let case_value = if let Type::Enum(enum_id) = scrutinee_type {
+                        if let Some((pattern_enum_id, discriminant)) = self.enum_variant_identity(pattern) {
+                            if pattern_enum_id != enum_id {
+                                switch_possible = false;
+                                break;
+                            }
+                            Some(discriminant.to_string())
+                        } else {
+                            None
+                        }
+                    } else if scrutinee_type == Type::Bool {
+                        match pattern {
+                            Expr::Bool(value) => Some(if *value { "true" } else { "false" }.to_owned()),
+                            _ => None,
+                        }
+                    } else if scrutinee_type.is_integer() {
+                        constant_integer_value(pattern)?.map(|value| value.to_string())
+                    } else {
+                        None
+                    };
+
+                    let Some(case_value) = case_value else {
+                        switch_possible = false;
+                        break;
+                    };
+                    let (_, pattern_type) = self.emit_expr_expected(pattern, Some(scrutinee_type))?;
+                    self.require_same(scrutinee_type, pattern_type, "match arm pattern")?;
+                    if !unique_switch_values.insert(case_value.clone()) {
+                        switch_possible = false;
+                        break;
+                    }
+                    switch_values.push(case_value);
+                }
+
+                if switch_possible {
+                    let end_label = self.fresh_label("match.end");
+                    let arm_labels = arms.iter().map(|_| self.fresh_label("match.arm")).collect::<Vec<_>>();
+                    let fallback_label = self.fresh_label(if default.is_some() { "match.default" } else { "match.invalid" });
+                    let mut switch = format!(
+                        "switch {} {scrutinee}, label %{fallback_label} [",
+                        scrutinee_type.llvm()
+                    );
+                    for (case_value, arm_label) in switch_values.iter().zip(&arm_labels) {
+                        switch.push_str(&format!(
+                            "\n    {} {case_value}, label %{arm_label}",
+                            scrutinee_type.llvm()
+                        ));
+                    }
+                    switch.push_str("\n  ]");
+                    self.emit(switch);
+                    self.terminated = true;
+
+                    let mut has_fallthrough = false;
+                    for ((_, body), arm_label) in arms.iter().zip(&arm_labels) {
+                        self.label(arm_label);
+                        self.emit_stmt(body)?;
+                        if !self.terminated {
+                            self.emit(format!("br label %{end_label}"));
+                            self.terminated = true;
+                            has_fallthrough = true;
+                        }
+                    }
+
+                    self.label(&fallback_label);
+                    if let Some(default) = default {
+                        self.emit_stmt(default)?;
+                        if !self.terminated {
+                            self.emit(format!("br label %{end_label}"));
+                            self.terminated = true;
+                            has_fallthrough = true;
+                        }
+                    } else {
+                        self.emit("call void @llvm.trap()");
+                        self.emit("unreachable");
+                        self.terminated = true;
+                    }
+
+                    if has_fallthrough {
+                        self.label(&end_label);
+                    } else {
+                        self.terminated = true;
+                    }
+                    return Ok(());
+                }
+
                 let end_label = self.fresh_label("match.end");
                 let mut has_fallthrough = false;
                 for (pattern, body) in arms {
