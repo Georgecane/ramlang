@@ -1852,6 +1852,82 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((result, value_type));
                 }
 
+                let mut atomic_builtin: Option<(&str, Type, &str)> = None;
+                let atomic_types = [
+                    ("i8", Type::I8), ("i16", Type::I16), ("i32", Type::I32), ("i64", Type::I64),
+                    ("u8", Type::U8), ("u16", Type::U16), ("u32", Type::U32), ("u64", Type::U64),
+                ];
+                let atomic_ops = [
+                    ("load", "load"), ("store", "store"), ("exchange", "xchg"),
+                    ("fetch_add", "add"), ("fetch_sub", "sub"), ("fetch_and", "and"),
+                    ("fetch_or", "or"), ("fetch_xor", "xor"),
+                ];
+                'atomic_parse: for (operation, _) in atomic_ops {
+                    let Some(rest) = name.strip_prefix(&format!("atomic_{operation}_")) else {
+                        continue;
+                    };
+                    for (type_name, atomic_type) in atomic_types {
+                        if rest == type_name {
+                            atomic_builtin = Some((operation, atomic_type, "seq_cst"));
+                            break 'atomic_parse;
+                        }
+                        let Some(order_suffix) = rest.strip_prefix(&format!("{type_name}_")) else {
+                            continue;
+                        };
+                        let order = match order_suffix {
+                            "relaxed" => Some("monotonic"),
+                            "acquire" => Some("acquire"),
+                            "release" => Some("release"),
+                            "acq_rel" => Some("acq_rel"),
+                            "seq_cst" => Some("seq_cst"),
+                            _ => None,
+                        };
+                        if let Some(order) = order {
+                            atomic_builtin = Some((operation, atomic_type, order));
+                            break 'atomic_parse;
+                        }
+                    }
+                }
+                if let Some((operation, atomic_type, order)) = atomic_builtin {
+                    let expected_args = if operation == "load" { 1 } else { 2 };
+                    if args.len() != expected_args {
+                        return Err(format!("atomic_{operation}_* expects {expected_args} argument(s)"));
+                    }
+                    if operation == "load" && matches!(order, "release" | "acq_rel") {
+                        return Err("atomic loads support relaxed, acquire, or seq_cst ordering".to_owned());
+                    }
+                    if operation == "store" && matches!(order, "acquire" | "acq_rel") {
+                        return Err("atomic stores support relaxed, release, or seq_cst ordering".to_owned());
+                    }
+                    let pointer = self.emit_raw_pointer_expr(&args[0], "atomic address")?;
+                    let llvm_type = atomic_type.llvm();
+                    let alignment = atomic_type.integer_width().unwrap() / 8;
+                    if operation == "load" {
+                        let result = self.fresh_value();
+                        self.emit(format!(
+                            "{result} = load atomic {llvm_type}, ptr {pointer} {order}, align {alignment}"
+                        ));
+                        return Ok((result, atomic_type));
+                    }
+                    let (value, value_type) = self.emit_expr_expected(&args[1], Some(atomic_type))?;
+                    self.require_same(atomic_type, value_type, &format!("atomic_{operation} value"))?;
+                    if operation == "store" {
+                        self.emit(format!(
+                            "store atomic {llvm_type} {value}, ptr {pointer} {order}, align {alignment}"
+                        ));
+                        return Ok((String::new(), Type::Void));
+                    }
+                    let llvm_operation = atomic_ops.iter()
+                        .find(|(name, _)| *name == operation)
+                        .map(|(_, llvm_name)| *llvm_name)
+                        .unwrap();
+                    let result = self.fresh_value();
+                    self.emit(format!(
+                        "{result} = atomicrmw {llvm_operation} ptr {pointer}, {llvm_type} {value} {order}"
+                    ));
+                    return Ok((result, atomic_type));
+                }
+
                 let fence_order = match name.as_str() {
                     "fence_acquire" => Some("acquire"),
                     "fence_release" => Some("release"),
