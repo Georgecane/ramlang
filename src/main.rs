@@ -2159,6 +2159,25 @@ mod tests {
     }
 
     #[test]
+    fn lowers_stack_backed_array_literals() {
+        let source = "fn main() -> i32 { let values: [i32; 4] = [10, 20, 30, 42]; print(values[3]); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("alloca [4 x i32]"));
+        assert!(ir.contains("store i32 20"));
+        assert!(ir.contains("store i32 42"));
+        assert!(ir.contains("getelementptr inbounds [4 x i32]"));
+        assert!(ir.contains("call void @llvm.trap()"));
+    }
+
+    #[test]
+    fn rejects_array_literal_length_and_element_type_mismatches() {
+        let length_error = compile("fn main() -> i32 { let values: [i32; 2] = [1, 2, 3]; return 0; }").unwrap_err();
+        assert!(length_error.contains("type requires 2"));
+        let type_error = compile("fn main() -> i32 { let values: [i32; 2] = [1, true]; return 0; }").unwrap_err();
+        assert!(type_error.contains("array literal element"));
+    }
+
+    #[test]
     fn rejects_non_integer_array_indices() {
         let source = "fn main() -> i32 { let data: [i32; 2] = alloc(8) as [i32; 2]; print(data[true]); free(data as ptr); return 0; }";
         assert!(compile(source).unwrap_err().contains("array index must be an integer"));
