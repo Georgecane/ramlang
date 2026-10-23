@@ -11,6 +11,7 @@ extern "C" {
 typedef struct RamlangTcpConnection RamlangTcpConnection;
 typedef struct RamlangTcpRequest RamlangTcpRequest;
 typedef struct RamlangUdpEndpoint RamlangUdpEndpoint;
+typedef struct RamlangUdpRequest RamlangUdpRequest;
 
 /*
  * Blocking C ABI for the current RamLang compiler.
@@ -92,6 +93,29 @@ int64_t ramlang_udp_recv_from(
     uint64_t peer_capacity
 );
 void ramlang_udp_close(RamlangUdpEndpoint *endpoint);
+
+/*
+ * Non-blocking UDP request API. Starts a datagram send followed by one response receive
+ * on a shared multithread runtime, returning a request handle immediately. It resolves
+ * the destination and accepts a reply only from the selected destination address.
+ * Payload and response limits are 65,507 bytes.
+ */
+RamlangUdpRequest *ramlang_udp_request_start(
+    const char *destination,
+    const uint8_t *data,
+    uint64_t length,
+    uint64_t response_capacity,
+    uint64_t timeout_ms
+);
+int32_t ramlang_udp_request_is_ready(RamlangUdpRequest *request);
+int32_t ramlang_udp_request_wait(RamlangUdpRequest *request, uint64_t wait_timeout_ms);
+int64_t ramlang_udp_request_read_result(
+    RamlangUdpRequest *request,
+    uint8_t *output,
+    uint64_t capacity
+);
+int32_t ramlang_udp_request_cancel(RamlangUdpRequest *request);
+void ramlang_udp_request_close(RamlangUdpRequest *request);
 
 #ifdef __cplusplus
 }
