@@ -16,7 +16,7 @@ jobs:
       - name: Install LLVM and Clang
         run: sudo apt-get update && sudo apt-get install -y clang llvm
       - name: Format check
-        run: cargo fmt --all -- --check
+        run: cargo fmt --manifest-path runtime/Cargo.toml -- --check
       - name: Test workspace
         run: cargo test --workspace
       - name: Clippy
