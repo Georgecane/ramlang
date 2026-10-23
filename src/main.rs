@@ -1837,7 +1837,7 @@ mod tests {
             "--link-lib".to_owned(),
             "m".to_owned(),
         ]).unwrap_err();
-        assert!(error.contains("require native compilation"));
+        assert!(error.contains("linker options require native linking"));
     }
 
     #[test]
@@ -1848,7 +1848,7 @@ mod tests {
             "--opt-level".to_owned(),
             "2".to_owned(),
         ]).unwrap_err();
-        assert!(error.contains("require native compilation"));
+        assert!(error.contains("target and optimization options require native code generation"));
     }
 
     #[test]
