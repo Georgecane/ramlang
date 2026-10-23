@@ -1,7 +1,8 @@
 //! Async runtime building blocks for RamLang.
 //!
-//! This crate is a Rust runtime foundation. The current RamLang compiler does not
-//! yet lower native async fn / await syntax; see docs/ASYNC_DESIGN.md.
+//! The compiler exposes an initial native async fn / Future<T> / await bridge plus
+//! Tokio-backed TCP, UDP, timer, memory, and string services. Await currently blocks the caller
+//! thread; resumable state-machine lowering remains future work.
 //! Network frames are length-prefixed and bounded to avoid untrusted allocations.
 
 pub mod ffi;
