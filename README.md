@@ -257,6 +257,27 @@ fn main() -> i32 {
 
 Array types support scalar and pointer elements, including explicit-length literals such as `let values: [i32; 4] = [10, 20, 30, 40];`. Array literals use stack storage and must not outlive the function call. An array type is a pointer plus a declared length, so the bounds check protects the declared index range; it cannot prove that the underlying allocation actually contains that much memory. The programmer must keep the allocation size and array type consistent.
 
+## Type alignment
+
+Use `align_of(Type)` (or `alignof(Type)`) to query ABI alignment in bytes for the selected target. The compiler derives it from LLVM's data layout rules for scalar, fixed-array, pointer, and struct types.
+
+```rust
+struct Aligned {
+    byte: u8,
+    wide: i64,
+}
+
+fn main() -> i32 {
+    print(align_of(i8));
+    print(align_of(i32));
+    print(align_of([i16; 4]));
+    print(align_of(Aligned));
+    return 0;
+}
+```
+
+This is ABI alignment for the target selected by Clang, not a guarantee that an arbitrary address or manually allocated pointer is aligned. The compiler does not yet enforce typed-pointer alignment or validate raw pointer addresses.
+
 ## Type sizes
 
 Use `size_of(Type)` (or `sizeof(Type)`) to obtain the size in bytes as an `i64`. LLVM determines struct and pointer sizes for the selected compilation target, and fixed-length arrays use the element size multiplied by the declared length.
