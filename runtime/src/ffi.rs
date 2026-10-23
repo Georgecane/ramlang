@@ -289,6 +289,266 @@ pub unsafe extern "C" fn ramlang_tcp_read_frame(
     }
 }
 
+
+/// Start a TCP request on the shared background runtime without waiting for completion.
+///
+/// The function connects to address, writes one length-prefixed frame, then reads one
+/// length-prefixed response frame. It returns an opaque request handle immediately.
+/// Connect, write, and read each use timeout_ms as their individual timeout.
+///
+/// Returns null on validation/runtime setup failure. Use ramlang_last_error() for errors.
+///
+/// # Safety
+///
+/// address must be a valid NUL-terminated UTF-8 C string. If length is nonzero, data must
+/// point to at least length readable bytes. Input strings and bytes are copied before return.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_request_start(
+    address: *const c_char,
+    data: *const u8,
+    length: u64,
+    timeout_ms: u64,
+) -> *mut RamlangTcpRequest {
+    let address = match read_c_string(address, "address") {
+        Ok(address) => address,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    if timeout_ms == 0 {
+        set_last_error("timeout_ms must be greater than zero");
+        return ptr::null_mut();
+    }
+    let length = match usize::try_from(length) {
+        Ok(length) => length,
+        Err(_) => {
+            set_last_error("TCP request length does not fit this platform");
+            return ptr::null_mut();
+        }
+    };
+    if length > MAX_FFI_TCP_FRAME_SIZE {
+        set_last_error("TCP request frame exceeds the C ABI maximum of 16 MiB");
+        return ptr::null_mut();
+    }
+    if length > 0 && data.is_null() {
+        set_last_error("data must not be null when length is nonzero");
+        return ptr::null_mut();
+    }
+    let payload = if length == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: validated by the caller contract and null check above.
+        unsafe { slice::from_raw_parts(data, length) }.to_vec()
+    };
+
+    let runtime = match async_request_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+
+    let state = Arc::new(AsyncTcpRequestState::new());
+    let worker_state = Arc::clone(&state);
+    let task = runtime.spawn(async move {
+        let result = async {
+            let mut connection = TcpConnection::connect(
+                &address,
+                Duration::from_millis(timeout_ms),
+            )
+            .await?;
+            connection.write_frame(&payload).await?;
+            connection.read_frame(MAX_FFI_TCP_FRAME_SIZE).await
+        }
+        .await
+        .map_err(|error: io::Error| error.to_string());
+
+        worker_state.complete(result);
+    });
+    state.set_abort_handle(task.abort_handle());
+    drop(task);
+
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangTcpRequest { state }))
+}
+
+/// Return 1 when the request completed, 0 while it is still running, or -1 on error.
+///
+/// Completion includes failed requests. Use ramlang_tcp_request_read_result() to
+/// retrieve the response or inspect the network error.
+///
+/// # Safety
+///
+/// request must be a live handle returned by ramlang_tcp_request_start.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_request_is_ready(
+    request: *mut RamlangTcpRequest,
+) -> i32 {
+    if request.is_null() {
+        set_last_error("request must not be null");
+        return -1;
+    }
+    // SAFETY: pointer validity is part of this function's documented contract.
+    let request = unsafe { &*request };
+    match request.state.result.lock() {
+        Ok(result) => {
+            clear_last_error();
+            i32::from(result.is_some())
+        }
+        Err(_) => {
+            set_last_error("TCP request result lock is poisoned");
+            -1
+        }
+    }
+}
+
+/// Wait up to wait_timeout_ms for a TCP request to complete.
+///
+/// Returns 1 if completed, 0 if the wait timed out, or -1 on error. A timeout of zero
+/// performs a non-blocking readiness check.
+///
+/// # Safety
+///
+/// request must be a live handle returned by ramlang_tcp_request_start.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_request_wait(
+    request: *mut RamlangTcpRequest,
+    wait_timeout_ms: u64,
+) -> i32 {
+    if request.is_null() {
+        set_last_error("request must not be null");
+        return -1;
+    }
+    // SAFETY: pointer validity is part of this function's documented contract.
+    let request = unsafe { &*request };
+    let total_wait = Duration::from_millis(wait_timeout_ms);
+    let start = Instant::now();
+    let mut result = match request.state.result.lock() {
+        Ok(result) => result,
+        Err(_) => {
+            set_last_error("TCP request result lock is poisoned");
+            return -1;
+        }
+    };
+
+    loop {
+        if result.is_some() {
+            clear_last_error();
+            return 1;
+        }
+
+        let remaining = total_wait.saturating_sub(start.elapsed());
+        if remaining.is_zero() {
+            clear_last_error();
+            return 0;
+        }
+
+        match request.state.ready.wait_timeout(result, remaining) {
+            Ok((next, _)) => result = next,
+            Err(_) => {
+                set_last_error("TCP request wait lock is poisoned");
+                return -1;
+            }
+        }
+    }
+}
+
+/// Copy a completed response frame into caller-owned memory.
+///
+/// Returns the response byte count, or -1 if the request failed, has not completed, or
+/// the output buffer is too small. The stored response remains available for repeated
+/// reads. The supplied capacity must be at most 16 MiB.
+///
+/// # Safety
+///
+/// request must be a live handle returned by ramlang_tcp_request_start. If capacity is
+/// nonzero, output must point to at least capacity writable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_request_read_result(
+    request: *mut RamlangTcpRequest,
+    output: *mut u8,
+    capacity: u64,
+) -> i64 {
+    if request.is_null() {
+        return fail_i64("request must not be null");
+    }
+    let capacity = match usize::try_from(capacity) {
+        Ok(capacity) => capacity,
+        Err(_) => return fail_i64("response buffer capacity does not fit this platform"),
+    };
+    if capacity > MAX_FFI_TCP_FRAME_SIZE {
+        return fail_i64("response buffer exceeds the C ABI maximum of 16 MiB");
+    }
+    if capacity > 0 && output.is_null() {
+        return fail_i64("output must not be null when capacity is nonzero");
+    }
+
+    // SAFETY: pointer validity is part of this function's documented contract.
+    let request = unsafe { &*request };
+    let result = match request.state.result.lock() {
+        Ok(result) => result,
+        Err(_) => return fail_i64("TCP request result lock is poisoned"),
+    };
+    let response = match result.as_ref() {
+        Some(Ok(response)) => response,
+        Some(Err(error)) => return fail_i64(error),
+        None => return fail_i64("TCP request has not completed"),
+    };
+    if response.len() > capacity {
+        return fail_i64(format!(
+            "response needs {} bytes but output capacity is {}",
+            response.len(),
+            capacity
+        ));
+    }
+    if !response.is_empty() {
+        // SAFETY: response length is at most capacity, checked above.
+        unsafe { ptr::copy_nonoverlapping(response.as_ptr(), output, response.len()) };
+    }
+    clear_last_error();
+    response.len() as i64
+}
+
+/// Cancel a pending request. Returns zero on success, or -1 on error.
+///
+/// A request that has already completed keeps its original result.
+///
+/// # Safety
+///
+/// request must be a live handle returned by ramlang_tcp_request_start.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_request_cancel(
+    request: *mut RamlangTcpRequest,
+) -> i32 {
+    if request.is_null() {
+        set_last_error("request must not be null");
+        return -1;
+    }
+    // SAFETY: pointer validity is part of this function's documented contract.
+    unsafe { &*request }.state.cancel();
+    clear_last_error();
+    0
+}
+
+/// Cancel unfinished work and release the caller's request handle. Passing null is a no-op.
+///
+/// # Safety
+///
+/// A non-null handle must have been returned by ramlang_tcp_request_start and must not
+/// be used again or closed concurrently after this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_request_close(request: *mut RamlangTcpRequest) {
+    if !request.is_null() {
+        // SAFETY: pointer validity is part of this function's documented contract.
+        let request = unsafe { Box::from_raw(request) };
+        request.state.cancel();
+        drop(request);
+    }
+    clear_last_error();
+}
+
 /// Close a TCP handle. Passing null is a no-op.
 ///
 /// # Safety
