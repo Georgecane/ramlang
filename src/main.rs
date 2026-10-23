@@ -2441,6 +2441,48 @@ impl<'a> FunctionGenerator<'a> {
                 Ok((result, result_ty))
             }
             Expr::Call { name, args } => {
+                if name == "__ramlang_await" {
+                    if args.len() != 1 {
+                        return Err("await expects exactly one Future<T> expression".to_owned());
+                    }
+                    let (future, future_type) = self.emit_expr(&args[0])?;
+                    let Type::Future(output) = future_type else {
+                        return Err(format!(
+                            "await expects Future<T>, found {}",
+                            future_type.llvm()
+                        ));
+                    };
+                    let encoded = self.fresh_value();
+                    self.emit(format!(
+                        "{encoded} = call i64 @ramlang_future_await_i64(ptr {future})"
+                    ));
+                    self.emit(format!("call void @ramlang_future_close(ptr {future})"));
+                    let output_type = output.ty();
+                    if output_type == Type::Void {
+                        return Ok((String::new(), Type::Void));
+                    }
+                    let decoded = self.fresh_value();
+                    match output_type {
+                        Type::I8 => self.emit(format!("{decoded} = trunc i64 {encoded} to i8")),
+                        Type::I16 => self.emit(format!("{decoded} = trunc i64 {encoded} to i16")),
+                        Type::I32 | Type::Enum(_) => self.emit(format!("{decoded} = trunc i64 {encoded} to i32")),
+                        Type::I64 => return Ok((encoded, Type::I64)),
+                        Type::U8 => self.emit(format!("{decoded} = trunc i64 {encoded} to i8")),
+                        Type::U16 => self.emit(format!("{decoded} = trunc i64 {encoded} to i16")),
+                        Type::U32 => self.emit(format!("{decoded} = trunc i64 {encoded} to i32")),
+                        Type::U64 => return Ok((encoded, Type::U64)),
+                        Type::Bool => self.emit(format!("{decoded} = trunc i64 {encoded} to i1")),
+                        Type::F32 => {
+                            let bits = self.fresh_value();
+                            self.emit(format!("{bits} = trunc i64 {encoded} to i32"));
+                            self.emit(format!("{decoded} = bitcast i32 {bits} to float"));
+                        }
+                        Type::F64 => self.emit(format!("{decoded} = bitcast i64 {encoded} to double")),
+                        _ => return Err("unsupported Future<T> output type in await".to_owned()),
+                    }
+                    return Ok((decoded, output_type));
+                }
+
                 if name == "print" {
                     if args.len() != 1 {
                         return Err("print expects exactly one argument".to_owned());
@@ -3096,10 +3138,12 @@ impl<'a> FunctionGenerator<'a> {
                     });
                 }
                 let mut lowered = Vec::new();
+                let mut lowered_values = Vec::<(Type, String)>::new();
                 for (arg, expected) in args.iter().take(signature.params.len()).zip(signature.params.iter()) {
                     let (value, actual) = self.emit_expr_expected(arg, Some(*expected))?;
                     self.require_same(*expected, actual, &format!("argument to '{name}'"))?;
                     lowered.push(format!("{} {value}", actual.llvm()));
+                    lowered_values.push((actual, value));
                 }
                 if signature.variadic {
                     for arg in args.iter().skip(signature.params.len()) {
@@ -3150,6 +3194,37 @@ impl<'a> FunctionGenerator<'a> {
                         lowered.push(format!("{} {value}", actual.llvm()));
                     }
                 }
+                if signature.asynchronous {
+                    let output = FutureOutput::from_type(signature.return_type).ok_or_else(|| {
+                        format!("async function '{name}' has an unsupported Future output type")
+                    })?;
+                    let frame_type = async_frame_type_name(name);
+                    let size_pointer = self.fresh_value();
+                    self.emit(format!(
+                        "{size_pointer} = getelementptr {frame_type}, ptr null, i64 1"
+                    ));
+                    let frame_size = self.fresh_value();
+                    self.emit(format!("{frame_size} = ptrtoint ptr {size_pointer} to i64"));
+                    let frame = self.fresh_value();
+                    self.emit(format!("{frame} = call ptr @ramlang_alloc(i64 {frame_size})"));
+                    for (index, (argument_type, value)) in lowered_values.iter().enumerate() {
+                        let field = self.fresh_value();
+                        self.emit(format!(
+                            "{field} = getelementptr inbounds {frame_type}, ptr {frame}, i32 0, i32 {index}"
+                        ));
+                        self.emit(format!(
+                            "store {} {value}, ptr {field}",
+                            argument_type.llvm()
+                        ));
+                    }
+                    let future = self.fresh_value();
+                    let entry = async_entry_symbol(name);
+                    self.emit(format!(
+                        "{future} = call ptr @ramlang_future_spawn_i64(ptr @{entry}, ptr {frame})"
+                    ));
+                    return Ok((future, Type::Future(output)));
+                }
+
                 let arguments = lowered.join(", ");
                 if signature.return_type == Type::Void {
                     if signature.variadic {
