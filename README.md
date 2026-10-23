@@ -13,7 +13,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - `extern static` declarations for C-defined scalar and raw-pointer globals
 - Global scalar, boolean, null-pointer, and UTF-8 string constants, available across source files
 - Static global storage with immutable `static` and mutable `static mut` variables
-- Target-aware `size_of(Type)`, `align_of(Type)`, and `offset_of(Type, field)` layout queries
+- Target-aware `size_of(Type)`, `align_of(Type)`, and `offset_of(Type, field)` layout queries, including `packed struct` layouts
 - LLVM bit intrinsics for population count, leading/trailing zero counts, byte swap, and bit reversal
 - Runtime `assert(bool)` with a trap on failure, `panic(str)` for non-returning errors, `assume(bool)` lowered to `llvm.assume`, volatile memory access built-ins, and LLVM memory-order fences
 - Immutable local variables with `let` and mutable locals with `let mut`
@@ -320,7 +320,24 @@ fn main() -> i32 {
 }
 ```
 
-Offsets depend on the selected target ABI and the struct's declaration order. RamLang does not yet provide packed structs or an explicit C-layout/packing annotation, so use this only where the language's current LLVM struct layout matches the ABI you need.
+Offsets depend on the selected target ABI and the struct's declaration order. Use `packed struct` to disable padding between fields; field reads, writes, and literal initialization then use LLVM alignment `1` so unaligned fields are not incorrectly assumed to have natural alignment.
+
+```rust
+packed struct Packet {
+    tag: u8,
+    value: i32,
+    tail: u16,
+}
+
+fn main() -> i32 {
+    print(offset_of(Packet, value));
+    print(size_of(Packet));
+    print(align_of(Packet));
+    return 0;
+}
+```
+
+For this layout, `value` is at byte offset 1, the total size is 7 bytes, and the struct alignment is 1 byte. A packed layout is not automatically compatible with every C ABI or device protocol; match the target's actual definition and access rules.
 
 ## Type alignment
 
