@@ -217,6 +217,7 @@ enum ArrayElement {
     U16,
     U32,
     U64,
+    F32,
     F64,
     Bool,
     Ptr,
@@ -235,6 +236,7 @@ impl ArrayElement {
             Type::U16 => Some(Self::U16),
             Type::U32 => Some(Self::U32),
             Type::U64 => Some(Self::U64),
+            Type::F32 => Some(Self::F32),
             Type::F64 => Some(Self::F64),
             Type::Bool => Some(Self::Bool),
             Type::Ptr => Some(Self::Ptr),
@@ -254,6 +256,7 @@ impl ArrayElement {
             Type::U16 => Some(Self::U16),
             Type::U32 => Some(Self::U32),
             Type::U64 => Some(Self::U64),
+            Type::F32 => Some(Self::F32),
             Type::F64 => Some(Self::F64),
             Type::Bool => Some(Self::Bool),
             Type::Ptr => Some(Self::Ptr),
@@ -272,6 +275,7 @@ impl ArrayElement {
             Self::U16 => Type::U16,
             Self::U32 => Type::U32,
             Self::U64 => Type::U64,
+            Self::F32 => Type::F32,
             Self::F64 => Type::F64,
             Self::Bool => Type::Bool,
             Self::Ptr => Type::Ptr,
@@ -316,6 +320,7 @@ impl Type {
             Self::U16 => "i16",
             Self::U32 => "i32",
             Self::U64 => "i64",
+            Self::F32 => "float",
             Self::F64 => "double",
             Self::Bool => "i1",
             Self::Str => "ptr",
@@ -329,6 +334,10 @@ impl Type {
 
     fn is_numeric(self) -> bool {
         matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::F64 | Self::Enum(_))
+    }
+
+    fn is_float(self) -> bool {
+        matches!(self, Self::F32 | Self::F64)
     }
 
     fn is_integer(self) -> bool {
@@ -719,6 +728,7 @@ impl Parser {
             "u16" => Ok(Type::U16),
             "u32" => Ok(Type::U32),
             "u64" => Ok(Type::U64),
+            "f32" => Ok(Type::F32),
             "f64" => Ok(Type::F64),
             "bool" => Ok(Type::Bool),
             "str" => Ok(Type::Str),
@@ -1772,13 +1782,13 @@ impl<'a> FunctionGenerator<'a> {
                     Type::Void => Err("size_of(void) is invalid".to_owned()),
                     Type::I8 | Type::U8 | Type::Bool => Ok(("1".to_owned(), Type::I64)),
                     Type::I16 | Type::U16 => Ok(("2".to_owned(), Type::I64)),
-                    Type::I32 | Type::U32 | Type::Enum(_) => Ok(("4".to_owned(), Type::I64)),
+                    Type::I32 | Type::U32 | Type::F32 | Type::Enum(_) => Ok(("4".to_owned(), Type::I64)),
                     Type::I64 | Type::U64 | Type::F64 => Ok(("8".to_owned(), Type::I64)),
                     Type::Array(element, length) => {
                         let element_size = match element {
                             ArrayElement::I8 | ArrayElement::U8 | ArrayElement::Bool => Some(1_u64),
                             ArrayElement::I16 | ArrayElement::U16 => Some(2_u64),
-                            ArrayElement::I32 | ArrayElement::U32 => Some(4_u64),
+                            ArrayElement::I32 | ArrayElement::U32 | ArrayElement::F32 => Some(4_u64),
                             ArrayElement::I64 | ArrayElement::U64 | ArrayElement::F64 => Some(8_u64),
                             ArrayElement::Ptr | ArrayElement::Str => None,
                             ArrayElement::Alias(_) => return Err("unresolved array element alias reached LLVM lowering".to_owned()),
@@ -1910,10 +1920,29 @@ impl<'a> FunctionGenerator<'a> {
                     if !value.is_finite() {
                         return Err(format!("floating-point literal '{text}' is outside the supported finite range"));
                     }
-                    Ok((format!("{value:.17e}"), Type::F64))
+                    if expected == Some(Type::F32) {
+                        let single = value as f32;
+                        if !single.is_finite() {
+                            return Err(format!("floating-point literal '{text}' is outside the f32 finite range"));
+                        }
+                        Ok((format!("{single:.8e}"), Type::F32))
+                    } else {
+                        Ok((format!("{value:.17e}"), Type::F64))
+                    }
                 } else {
                     let value: u128 = text.parse()
                         .map_err(|_| format!("integer literal '{text}' is outside the u64 range"))?;
+                    if matches!(expected, Some(Type::F32 | Type::F64)) {
+                        let value = value as f64;
+                        if expected == Some(Type::F32) {
+                            let single = value as f32;
+                            if !single.is_finite() {
+                                return Err(format!("integer literal '{text}' is outside the f32 finite range"));
+                            }
+                            return Ok((format!("{single:.8e}"), Type::F32));
+                        }
+                        return Ok((format!("{value:.17e}"), Type::F64));
+                    }
                     let fits = |maximum: u128| value <= maximum;
                     let expected_signed_max = match expected {
                         Some(Type::I8) => Some(i8::MAX as u128),
@@ -2024,15 +2053,24 @@ impl<'a> FunctionGenerator<'a> {
                     self.emit(format!("{result} = icmp ne {} {source}, 0", source_type.llvm()));
                     return Ok((result, Type::Bool));
                 }
-                if source_type == Type::Bool && *target == Type::F64 {
+                if source_type == Type::Bool && target.is_float() {
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = uitofp i1 {source} to double"));
-                    return Ok((result, Type::F64));
+                    self.emit(format!("{result} = uitofp i1 {source} to {}", target.llvm()));
+                    return Ok((result, *target));
                 }
-                if source_type == Type::F64 && *target == Type::Bool {
+                if source_type.is_float() && *target == Type::Bool {
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = fcmp une double {source}, 0.000000e+00"));
+                    self.emit(format!("{result} = fcmp une {} {source}, 0.000000e+00", source_type.llvm()));
                     return Ok((result, Type::Bool));
+                }
+                if source_type.is_float() && target.is_float() {
+                    let result = self.fresh_value();
+                    match (source_type, *target) {
+                        (Type::F32, Type::F64) => self.emit(format!("{result} = fpext float {source} to double")),
+                        (Type::F64, Type::F32) => self.emit(format!("{result} = fptrunc double {source} to float")),
+                        _ => return Ok((source, *target)),
+                    }
+                    return Ok((result, *target));
                 }
 
                 if let (Some(source_width), Some(target_width)) =
@@ -2052,20 +2090,16 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((result, *target));
                 }
 
-                if source_type.is_integer() && *target == Type::F64 {
+                if source_type.is_integer() && target.is_float() {
                     let result = self.fresh_value();
-                    let instruction = if source_type.is_unsigned() {
-                        "uitofp"
-                    } else {
-                        "sitofp"
-                    };
-                    self.emit(format!("{result} = {instruction} {} {source} to double", source_type.llvm()));
-                    return Ok((result, Type::F64));
+                    let instruction = if source_type.is_unsigned() { "uitofp" } else { "sitofp" };
+                    self.emit(format!("{result} = {instruction} {} {source} to {}", source_type.llvm(), target.llvm()));
+                    return Ok((result, *target));
                 }
-                if source_type == Type::F64 && target.is_integer() {
+                if source_type.is_float() && target.is_integer() {
                     let result = self.fresh_value();
                     let instruction = if target.is_unsigned() { "fptoui" } else { "fptosi" };
-                    self.emit(format!("{result} = {instruction} double {source} to {}", target.llvm()));
+                    self.emit(format!("{result} = {instruction} {} {source} to {}", source_type.llvm(), target.llvm()));
                     return Ok((result, *target));
                 }
 
@@ -2120,8 +2154,8 @@ impl<'a> FunctionGenerator<'a> {
                     }
                     "-" if ty.is_numeric() => {
                         let result = self.fresh_value();
-                        if ty == Type::F64 {
-                            self.emit(format!("{result} = fneg double {value}"));
+                        if ty.is_float() {
+                            self.emit(format!("{result} = fneg {} {value}", ty.llvm()));
                         } else {
                             self.emit(format!("{result} = sub {} 0, {value}", ty.llvm()));
                         }
@@ -2162,10 +2196,10 @@ impl<'a> FunctionGenerator<'a> {
 
                 let result = self.fresh_value();
                 let instruction = match (lhs_ty, op.as_str()) {
-                    (Type::F64, "+") => format!("{result} = fadd double {lhs}, {rhs}"),
-                    (Type::F64, "-") => format!("{result} = fsub double {lhs}, {rhs}"),
-                    (Type::F64, "*") => format!("{result} = fmul double {lhs}, {rhs}"),
-                    (Type::F64, "/") => format!("{result} = fdiv double {lhs}, {rhs}"),
+                    (Type::F32 | Type::F64, "+") => format!("{result} = fadd {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::F32 | Type::F64, "-") => format!("{result} = fsub {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::F32 | Type::F64, "*") => format!("{result} = fmul {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::F32 | Type::F64, "/") => format!("{result} = fdiv {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64, "+") => format!("{result} = add {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64, "-") => format!("{result} = sub {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64, "*") => format!("{result} = mul {} {lhs}, {rhs}", lhs_ty.llvm()),
@@ -2179,12 +2213,12 @@ impl<'a> FunctionGenerator<'a> {
                     (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64, "<<") => format!("{result} = shl {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I16 | Type::I32 | Type::I64, ">>") => format!("{result} = ashr {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::U8 | Type::U16 | Type::U32 | Type::U64, ">>") => format!("{result} = lshr {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::F64, "==") => format!("{result} = fcmp oeq double {lhs}, {rhs}"),
-                    (Type::F64, "!=") => format!("{result} = fcmp une double {lhs}, {rhs}"),
-                    (Type::F64, "<") => format!("{result} = fcmp olt double {lhs}, {rhs}"),
-                    (Type::F64, "<=") => format!("{result} = fcmp ole double {lhs}, {rhs}"),
-                    (Type::F64, ">") => format!("{result} = fcmp ogt double {lhs}, {rhs}"),
-                    (Type::F64, ">=") => format!("{result} = fcmp oge double {lhs}, {rhs}"),
+                    (Type::F32 | Type::F64, "==") => format!("{result} = fcmp oeq {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::F32 | Type::F64, "!=") => format!("{result} = fcmp une {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::F32 | Type::F64, "<") => format!("{result} = fcmp olt {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::F32 | Type::F64, "<=") => format!("{result} = fcmp ole {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::F32 | Type::F64, ">") => format!("{result} = fcmp ogt {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::F32 | Type::F64, ">=") => format!("{result} = fcmp oge {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (_, "==") => format!("{result} = icmp eq {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (_, "!=") => format!("{result} = icmp ne {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::Enum(_), "<") => format!("{result} = icmp slt {} {lhs}, {rhs}", lhs_ty.llvm()),
@@ -2232,6 +2266,11 @@ impl<'a> FunctionGenerator<'a> {
                         Type::I64 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i64, i64 {value})")),
                         Type::U32 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.u32, i32 {value})")),
                         Type::U64 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.u64, i64 {value})")),
+                        Type::F32 => {
+                            let promoted = self.fresh_value();
+                            self.emit(format!("{promoted} = fpext float {value} to double"));
+                            self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.f64, double {promoted})"));
+                        }
                         Type::F64 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.f64, double {value})")),
                         Type::Bool => {
                             let promoted = self.fresh_value();
@@ -2619,6 +2658,7 @@ impl<'a> FunctionGenerator<'a> {
                     "asm_u16" => Some(Type::U16),
                     "asm_u32" => Some(Type::U32),
                     "asm_u64" => Some(Type::U64),
+                    "asm_f32" => Some(Type::F32),
                     "asm_f64" => Some(Type::F64),
                     "asm_bool" => Some(Type::Bool),
                     "asm_ptr" => Some(Type::Ptr),
@@ -2736,6 +2776,7 @@ impl<'a> FunctionGenerator<'a> {
                     "load_u16" | "volatile_load_u16" | "load_unaligned_u16" | "volatile_load_unaligned_u16" => Some(Type::U16),
                     "load_u32" | "volatile_load_u32" | "load_unaligned_u32" | "volatile_load_unaligned_u32" => Some(Type::U32),
                     "load_u64" | "volatile_load_u64" | "load_unaligned_u64" | "volatile_load_unaligned_u64" => Some(Type::U64),
+                    "load_f32" | "volatile_load_f32" | "load_unaligned_f32" | "volatile_load_unaligned_f32" => Some(Type::F32),
                     "load_f64" | "volatile_load_f64" | "load_unaligned_f64" | "volatile_load_unaligned_f64" => Some(Type::F64),
                     "load_bool" | "volatile_load_bool" | "load_unaligned_bool" | "volatile_load_unaligned_bool" => Some(Type::Bool),
                     "load_ptr" | "volatile_load_ptr" | "load_unaligned_ptr" | "volatile_load_unaligned_ptr" => Some(Type::Ptr),
@@ -2771,6 +2812,7 @@ impl<'a> FunctionGenerator<'a> {
                     "store_u16" | "volatile_store_u16" | "store_unaligned_u16" | "volatile_store_unaligned_u16" => Some(Type::U16),
                     "store_u32" | "volatile_store_u32" | "store_unaligned_u32" | "volatile_store_unaligned_u32" => Some(Type::U32),
                     "store_u64" | "volatile_store_u64" | "store_unaligned_u64" | "volatile_store_unaligned_u64" => Some(Type::U64),
+                    "store_f32" | "volatile_store_f32" | "store_unaligned_f32" | "volatile_store_unaligned_f32" => Some(Type::F32),
                     "store_f64" | "volatile_store_f64" | "store_unaligned_f64" | "volatile_store_unaligned_f64" => Some(Type::F64),
                     "store_bool" | "volatile_store_bool" | "store_unaligned_bool" | "volatile_store_unaligned_bool" => Some(Type::Bool),
                     "store_ptr" | "volatile_store_ptr" | "store_unaligned_ptr" | "volatile_store_unaligned_ptr" => Some(Type::Ptr),
@@ -2846,6 +2888,12 @@ impl<'a> FunctionGenerator<'a> {
                                 self.emit(format!("{promoted} = zext i16 {value} to i32"));
                                 value = promoted;
                                 actual = Type::I32;
+                            }
+                            Type::F32 => {
+                                let promoted = self.fresh_value();
+                                self.emit(format!("{promoted} = fpext float {value} to double"));
+                                value = promoted;
+                                actual = Type::F64;
                             }
                             Type::Array(_, _) | Type::Struct(_) => {
                                 return Err(format!("variadic argument to '{name}' cannot pass arrays or structs by value"));
@@ -3469,7 +3517,7 @@ fn constant_float_value_with_globals(
 ) -> Result<Option<f64>, String> {
     match expression {
         Expr::Variable(name) => {
-            if let Some((Type::F64, value)) = globals.get(name) {
+            if let Some((Type::F32 | Type::F64, value)) = globals.get(name) {
                 return value.parse::<f64>().map(Some)
                     .map_err(|_| format!("floating-point constant '{name}' is invalid"));
             }
@@ -3567,6 +3615,17 @@ fn lower_global_constant(
     if constant.ty == Type::Bool {
         if let Some(value) = constant_bool_value_with_globals(&constant.value, globals)? {
             return Ok((if value { "true" } else { "false" }.to_owned(), None));
+        }
+        return Err(mismatch());
+    }
+
+    if constant.ty == Type::F32 {
+        if let Some(value) = constant_float_value_with_globals(&constant.value, globals)? {
+            let single = value as f32;
+            if !single.is_finite() {
+                return Err(format!("floating-point constant '{name}' is outside the f32 finite range"));
+            }
+            return Ok((format!("{single:.8e}"), None));
         }
         return Err(mismatch());
     }
