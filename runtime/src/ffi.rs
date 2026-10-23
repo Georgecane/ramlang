@@ -14,7 +14,7 @@ use std::{
 };
 use tokio::runtime::{Builder, Runtime};
 
-use crate::{TcpConnection, UdpEndpoint};
+use crate::{TcpConnection, TcpServer, UdpEndpoint};
 
 const MAX_FFI_TCP_FRAME_SIZE: usize = 16 * 1024 * 1024;
 
@@ -142,6 +142,31 @@ thread_local! {
 pub struct RamlangTcpConnection {
     connection: Mutex<TcpConnection>,
     runtime: Runtime,
+}
+
+/// Handle for a native RamLang TCP listener. Cloned accept tasks retain shared state.
+pub struct RamlangNativeTcpListener {
+    inner: Arc<NativeTcpListenerInner>,
+}
+
+struct NativeTcpListenerInner {
+    server: TcpServer,
+    closed: tokio::sync::watch::Sender<bool>,
+}
+
+/// Handle for a native RamLang TCP connection returned by tcp_accept.
+pub struct RamlangNativeTcpConnection {
+    inner: Arc<tokio::sync::Mutex<TcpConnection>>,
+}
+
+unsafe extern "C" fn cleanup_native_tcp_listener(pointer: *mut c_void) {
+    // SAFETY: the future owns the listener handle until ownership is transferred by await.
+    unsafe { ramlang_tcp_listener_close(pointer.cast::<RamlangNativeTcpListener>()) };
+}
+
+unsafe extern "C" fn cleanup_native_tcp_connection(pointer: *mut c_void) {
+    // SAFETY: the future owns the connection handle until ownership is transferred by await.
+    unsafe { ramlang_tcp_native_close(pointer.cast::<RamlangNativeTcpConnection>()) };
 }
 
 fn set_last_error(message: &str) {
