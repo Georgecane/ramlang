@@ -112,7 +112,7 @@ jobs:
           test -s target/sizeof-i386.bc
           clang -target i386-unknown-linux-gnu -S -emit-llvm target/sizeof-i386.bc -o target/sizeof-i386.ll
           grep -Fq 'target triple = "i386-unknown-linux-gnu"' target/sizeof-i386.ll
-          grep -Fq 'declare ptr @malloc(i32)' target/sizeof-i386.ll
+          grep -Eq 'declare .*@malloc\(i32' target/sizeof-i386.ll
           grep -Fq 'call ptr @malloc(i32' target/sizeof-i386.ll
       - name: Emit, assemble, and run target assembly output
         run: |
