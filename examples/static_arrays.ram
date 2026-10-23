@@ -1,0 +1,8 @@
+static mut VALUES: [i32; 3] = [10, 20, 30];
+
+fn main() -> i32 {
+    print(VALUES[1]);
+    VALUES[1] = 42;
+    print(VALUES[1]);
+    return 0;
+}
