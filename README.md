@@ -11,7 +11,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Global scalar, boolean, null-pointer, and UTF-8 string constants, available across source files
-- Runtime `assert(bool)` with a trap on failure, `panic(str)` for non-returning errors, `assume(bool)` lowered to `llvm.assume`, and volatile memory access built-ins
+- Runtime `assert(bool)` with a trap on failure, `panic(str)` for non-returning errors, `assume(bool)` lowered to `llvm.assume`, volatile memory access built-ins, and LLVM memory-order fences
 - Immutable local variables with `let` and mutable locals with `let mut`
 - Explicit casts with `as` between signed integer widths, integers and `f64`, integers and `bool`, `bool` and `f64`, and `str` / `ptr`
 - Arithmetic (`+`, `-`, `*`, `/`, `%`), signed comparisons, bitwise (`&`, `|`, `^`, `~`) and shift (`<<`, `>>`) operations, unary `-` and `!`, and short-circuit `&&` / `||`
@@ -299,6 +299,26 @@ fn main() -> i32 {
 ```
 
 `size_of(void)` is invalid. Cross-compiling may change pointer and struct sizes; use this intrinsic instead of hardcoding ABI-dependent byte counts. The current allocator interface uses an `i64` size and targets a 64-bit host ABI in the provided examples.
+
+## Memory-order fences
+
+RamLang exposes `fence_acquire()`, `fence_release()`, `fence_acq_rel()`, and `fence_seq_cst()`, which lower to LLVM fence instructions with the corresponding ordering. They are intended for code that interoperates with atomic or synchronization mechanisms in native libraries.
+
+```rust
+fn main() -> i32 {
+    let mut shared_value: u32 = 0;
+    let address: ptr = &shared_value;
+    fence_release();
+    volatile_store_u32(address, 42 as u32);
+    fence_seq_cst();
+    let observed: u32 = volatile_load_u32(address);
+    fence_acquire();
+    print(observed);
+    return 0;
+}
+```
+
+Fences alone do not make non-atomic data-race access safe and do not replace atomic operations, locks, or target-specific device barriers. Pair the ordering primitives with a correct synchronization protocol; MMIO requirements are architecture and device specific.
 
 ## Volatile memory access
 
