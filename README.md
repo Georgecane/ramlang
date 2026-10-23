@@ -121,7 +121,7 @@ fn main() -> i32 {
 }
 ```
 
-Scientific notation accepts an optional exponent sign, such as `1.25e2` or `1.25E-2`. When passing an `f32` to a variadic C function, RamLang performs the C default argument promotion to `double`; fixed parameters retain the type declared by the function signature. Non-finite literals are rejected, but ordinary floating-point operations can still produce infinities or NaNs at runtime.
+Scientific notation accepts an optional exponent sign, such as `1.25e2` or `1.25E-2`. LLVM receives `f32` constants in exact hexadecimal form so values that are not exactly representable in decimal are preserved. When passing an `f32` to a variadic C function, RamLang performs the C default argument promotion to `double`; fixed parameters retain the type declared by the function signature. The `examples/f32_memory.ram` program also exercises ordinary, volatile, and unaligned `f32` memory access, including a mutable static global. Non-finite literals are rejected, but ordinary floating-point operations can still produce infinities or NaNs at runtime.
 
 ## Explicit casts
 
