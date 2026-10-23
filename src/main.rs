@@ -5309,7 +5309,7 @@ mod tests {
         assert!(header.contains("extern int32_t counter;"));
         assert!(header.contains("extern const uint32_t limit;"));
         assert!(header.contains("extern const float ratio;"));
-        assert!(header.contains("extern uint64_t C_LIMIT;"));
+        assert!(header.contains("extern const uint64_t C_LIMIT;"));
         assert!(!header.contains("main("));
     }
 
