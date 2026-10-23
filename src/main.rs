@@ -1451,7 +1451,14 @@ struct Options {
 }
 
 fn parse_args() -> Result<Options, String> {
-    let mut args = env::args().skip(1).peekable();
+    parse_args_from(env::args().skip(1))
+}
+
+fn parse_args_from<I>(arguments: I) -> Result<Options, String>
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut args = arguments.into_iter().peekable();
     let Some(source) = args.next() else {
         return Err("usage: ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
     };
@@ -1586,6 +1593,36 @@ mod tests {
         let ir = compile("fn main() -> i32 { let x: i32 = 20 + 22; return x; }").unwrap();
         assert!(ir.contains("add i32 20, 22"));
         assert!(ir.contains("ret i32"));
+    }
+
+    #[test]
+    fn parses_native_linker_options() {
+        let options = parse_args_from([
+            "example.ram".to_owned(),
+            "--link-lib".to_owned(),
+            "m".to_owned(),
+            "--link-search".to_owned(),
+            "/usr/lib".to_owned(),
+            "--link-arg".to_owned(),
+            "-Wl,--as-needed".to_owned(),
+            "-o".to_owned(),
+            "example".to_owned(),
+        ]).unwrap();
+        assert_eq!(options.link_libs, vec!["m"]);
+        assert_eq!(options.link_search_paths, vec![PathBuf::from("/usr/lib")]);
+        assert_eq!(options.link_args, vec!["-Wl,--as-needed"]);
+        assert_eq!(options.output, Some(PathBuf::from("example")));
+    }
+
+    #[test]
+    fn rejects_linker_options_for_ir_only_modes() {
+        let error = parse_args_from([
+            "example.ram".to_owned(),
+            "--emit-llvm".to_owned(),
+            "--link-lib".to_owned(),
+            "m".to_owned(),
+        ]).unwrap_err();
+        assert!(error.contains("linker options require native compilation"));
     }
 
     #[test]
