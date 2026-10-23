@@ -1,0 +1,22 @@
+struct Cell {
+    value: i32,
+}
+
+fn main() -> i32 {
+    let integer_size: i64 = size_of(i32);
+    let array_size: i64 = size_of([i32; 4]);
+    let pointer_size: i64 = size_of(ptr);
+    let cell_size: i64 = size_of(Cell);
+
+    print(integer_size);
+    print(array_size);
+    print(pointer_size);
+    print(cell_size);
+
+    let memory: ptr = alloc(cell_size);
+    let mut cell: Cell = memory as Cell;
+    cell.value = 42;
+    print(cell.value);
+    free(memory);
+    return 0;
+}
