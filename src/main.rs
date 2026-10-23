@@ -2864,6 +2864,18 @@ mod tests {
     }
 
     #[test]
+    fn lowers_unaligned_memory_accesses_with_alignment_one() {
+        let source = "fn main() -> i32 { let p: ptr = alloc(8); let q: ptr = ptr_offset(p, 1); store_unaligned_i32(q, 42); let value: i32 = load_unaligned_i32(q); volatile_store_unaligned_i16(q, 7); let other: i16 = volatile_load_unaligned_i16(q); print(value); print(other); free(p); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("store i32 42, ptr"));
+        assert!(ir.contains("load i32, ptr"));
+        assert!(ir.contains("store volatile i16 7, ptr"));
+        assert!(ir.contains("load volatile i16, ptr"));
+        assert!(ir.contains(", align 1"));
+        assert!(ir.contains("store i32 42, ptr") && ir.contains("align 1"));
+    }
+
+    #[test]
     fn lowers_memory_order_fences() {
         let source = "fn main() -> i32 { fence_acquire(); fence_release(); fence_acq_rel(); fence_seq_cst(); return 0; }";
         let ir = compile(source).unwrap();
