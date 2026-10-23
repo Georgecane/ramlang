@@ -2218,6 +2218,7 @@ impl<'a> FunctionGenerator<'a> {
 fn statement_always_returns(statement: &Stmt) -> bool {
     match statement {
         Stmt::Return(_) => true,
+        Stmt::Expression(Expr::Call { name, .. }) if name == "panic" => true,
         Stmt::Block(statements) => statements.iter().any(statement_always_returns),
         Stmt::If { then_branch, else_branch: Some(else_branch), .. } => {
             statement_always_returns(then_branch) && statement_always_returns(else_branch)
