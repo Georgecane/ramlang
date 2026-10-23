@@ -1255,6 +1255,7 @@ struct Binding {
     ty: Type,
     slot: String,
     mutable: bool,
+    read_only_pointee: bool,
 }
 
 struct FunctionGenerator<'a> {
@@ -3115,7 +3116,9 @@ impl<'a> FunctionGenerator<'a> {
                 self.require_same(ty, inferred_type, &format!("initializer for '{name}'"))?;
                 let slot = self.fresh_slot(ty);
                 self.emit(format!("store {} {value}, ptr {slot}", ty.llvm()));
-                self.scopes.last_mut().unwrap().insert(name.clone(), Binding { ty, slot, mutable: *mutable });
+                self.scopes.last_mut().unwrap().insert(name.clone(), Binding {
+                    ty, slot, mutable: *mutable, read_only_pointee: false,
+                });
             }
             Stmt::FieldAssign { base, field, value } => {
                 if let Expr::Variable(base_name) = base {
@@ -3135,6 +3138,11 @@ impl<'a> FunctionGenerator<'a> {
                 }
             }
             Stmt::IndexAssign { array, index, value } => {
+                if let Expr::Variable(name) = array {
+                    if self.lookup(name).is_some_and(|binding| binding.read_only_pointee) {
+                        return Err(format!("cannot assign to an element of immutable static array '{name}'"));
+                    }
+                }
                 let (element_ptr, element) = self.emit_array_element_ptr(array, index)?;
                 let element_type = element.ty();
                 let (stored_value, value_type) = self.emit_expr_expected(value, Some(element_type))?;
@@ -3469,7 +3477,9 @@ impl<'a> FunctionGenerator<'a> {
             }
             let slot = self.fresh_slot(*ty);
             self.emit(format!("store {} %arg{index}, ptr {slot}", ty.llvm()));
-            self.scopes[0].insert(name.clone(), Binding { ty: *ty, slot, mutable: false });
+            self.scopes[0].insert(name.clone(), Binding {
+                ty: *ty, slot, mutable: false, read_only_pointee: false,
+            });
         }
 
         let body_statement = function.body.as_ref()
@@ -4224,9 +4234,6 @@ fn compile_to_llvm_for_target(
             let initializer_value = variable.value.as_ref()
                 .ok_or_else(|| format!("static variable '{}' is missing an initializer", variable.name))?;
             if let (Type::Array(element, length), Expr::ArrayLiteral(elements)) = (variable.ty, initializer_value) {
-                if !variable.mutable {
-                    return Err(format!("static array literal '{}' currently requires 'static mut'", variable.name));
-                }
                 if elements.len() != length as usize {
                     return Err(format!(
                         "static array '{}' has {} initializer element(s), but its type requires {length}",
@@ -4249,8 +4256,9 @@ fn compile_to_llvm_for_target(
                     }
                     initializers.push(format!("{} {value}", element.llvm()));
                 }
+                let storage = if variable.mutable { "global" } else { "constant" };
                 global_declarations.push(format!(
-                    "@{storage_name} = global {aggregate_type} [{}]",
+                    "@{storage_name} = {storage} {aggregate_type} [{}]",
                     initializers.join(", ")
                 ));
                 global_declarations.push(format!(
@@ -4283,6 +4291,9 @@ fn compile_to_llvm_for_target(
             ty: variable.ty,
             slot: format!("@{}", variable.name),
             mutable: variable.mutable,
+            read_only_pointee: !variable.mutable
+                && matches!(variable.ty, Type::Array(_, _))
+                && matches!(variable.value.as_ref(), Some(Expr::ArrayLiteral(_))),
         });
     }
 
