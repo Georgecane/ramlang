@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    let numerator: i32 = 10;
+    let denominator: i32 = 0;
+    print(numerator / denominator);
+    return 0;
+}
