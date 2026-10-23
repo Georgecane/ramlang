@@ -3219,7 +3219,8 @@ mod tests {
     fn lowers_size_t_based_apis_for_32bit_targets() {
         let source = "fn main() -> i32 { let p: ptr = calloc(2, size_of(i32)); let text_length: i64 = strlen(\"hello\"); memset(p, 0, text_length); memcpy(p, p, text_length); let order: i32 = memcmp(p, p, text_length); let found: ptr = memchr(p, 0, text_length); let q: ptr = realloc(p, text_length); free(q); return order; }";
         let program = parse_source(source).unwrap();
-        let ir = compile_to_llvm_for_pointer_width(&program, 32).unwrap();
+        let ir = compile_to_llvm_for_target(&program, 32, Some("i386-unknown-linux-gnu")).unwrap();
+        assert!(ir.contains("target triple = \"i386-unknown-linux-gnu\""));
         assert!(ir.contains("declare ptr @malloc(i32)"));
         assert!(ir.contains("declare ptr @calloc(i32, i32)"));
         assert!(ir.contains("declare ptr @realloc(ptr, i32)"));
@@ -3356,6 +3357,19 @@ mod tests {
     }
 
     #[test]
+    fn allows_target_specific_llvm_ir_emission() {
+        let options = parse_args_from([
+            "example.ram".to_owned(),
+            "--emit-llvm".to_owned(),
+            "example.ll".to_owned(),
+            "--target".to_owned(),
+            "i386-unknown-linux-gnu".to_owned(),
+        ]).unwrap();
+        assert!(options.emit_llvm);
+        assert_eq!(options.target.as_deref(), Some("i386-unknown-linux-gnu"));
+    }
+
+    #[test]
     fn rejects_target_and_explicit_optimization_for_ir_only_modes() {
         let error = parse_args_from([
             "example.ram".to_owned(),
@@ -3363,7 +3377,7 @@ mod tests {
             "--opt-level".to_owned(),
             "2".to_owned(),
         ]).unwrap_err();
-        assert!(error.contains("target and optimization options require native code generation"));
+        assert!(error.contains("optimization options require native code generation"));
     }
 
     #[test]
