@@ -5514,11 +5514,11 @@ mod tests {
         assert!(ir.contains("declare ptr @ramlang_realloc(ptr, i32)"));
         assert!(ir.contains("declare ptr @ramlang_memcpy(ptr, ptr, i32)"));
         assert!(ir.contains("declare ptr @ramlang_memset(ptr, i32, i32)"));
-        assert!(ir.contains("declare i64 @ramlang_strlen(ptr)"));
+        assert!(ir.contains("declare i32 @ramlang_strlen(ptr)"));
         assert!(ir.contains("declare i32 @ramlang_strncmp(ptr, ptr, i32)"));
         assert!(ir.contains("declare ptr @ramlang_memchr(ptr, i32, i32)"));
         assert!(ir.contains("call ptr @calloc(i32"));
-        assert!(ir.contains("call i64 @ramlang_strlen(ptr"));
+        assert!(ir.contains("call i32 @ramlang_strlen(ptr"));
         assert!(ir.contains("zext i32"));
         assert!(ir.contains("trunc i64"));
         assert!(ir.contains("size_t.trap"));
