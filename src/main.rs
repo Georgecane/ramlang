@@ -1913,14 +1913,6 @@ impl<'a> FunctionGenerator<'a> {
                         ));
                         return Ok((result, atomic_type));
                     }
-                    let (value, value_type) = self.emit_expr_expected(&args[1], Some(atomic_type))?;
-                    self.require_same(atomic_type, value_type, &format!("atomic_{operation} value"))?;
-                    if operation == "store" {
-                        self.emit(format!(
-                            "store atomic {llvm_type} {value}, ptr {pointer} {order}, align {alignment}"
-                        ));
-                        return Ok((String::new(), Type::Void));
-                    }
                     if operation == "compare_exchange" {
                         let expected_pointer = self.emit_raw_pointer_expr(&args[1], "atomic expected-value address")?;
                         let expected_value = self.fresh_value();
@@ -1951,6 +1943,14 @@ impl<'a> FunctionGenerator<'a> {
                             "store {llvm_type} {observed}, ptr {expected_pointer}, align {alignment}"
                         ));
                         return Ok((success, Type::Bool));
+                    }
+                    let (value, value_type) = self.emit_expr_expected(&args[1], Some(atomic_type))?;
+                    self.require_same(atomic_type, value_type, &format!("atomic_{operation} value"))?;
+                    if operation == "store" {
+                        self.emit(format!(
+                            "store atomic {llvm_type} {value}, ptr {pointer} {order}, align {alignment}"
+                        ));
+                        return Ok((String::new(), Type::Void));
                     }
                     let llvm_operation = atomic_ops.iter()
                         .find(|(name, _)| *name == operation)
