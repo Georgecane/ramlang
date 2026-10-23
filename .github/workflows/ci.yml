@@ -124,6 +124,11 @@ jobs:
         run: |
           cargo run --release -- examples/address_of.ram -o target/address-of
           test "$(target/address-of)" = "42"
+      - name: Compile and run size_of example
+        run: |
+          cargo run --release -- examples/sizeof.ram -o target/sizeof
+          expected="$(printf '%s\n%s\n%s\n%s\n%s' '4' '16' '8' '4' '42')"
+          test "$(target/sizeof)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
