@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    let value: i32 = asm_i32("mov $1, $0", "=r,r", 42);
+    asm_void("nop", "");
+    print(value);
+    return 0;
+}
