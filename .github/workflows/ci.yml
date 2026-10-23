@@ -48,6 +48,11 @@ jobs:
         run: |
           cargo run --release -- examples/logical.ram -o target/logical
           test "$(target/logical)" = "0"
+      - name: Compile and run string-literal example
+        run: |
+          cargo run --release -- examples/strings.ram -o target/strings
+          expected="$(printf 'Hello, LLVM!\nUTF-8 strings work.')"
+          test "$(target/strings)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
