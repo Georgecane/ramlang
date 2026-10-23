@@ -3601,6 +3601,61 @@ impl<'a> FunctionGenerator<'a> {
     }
 }
 
+fn async_frame_type_name(name: &str) -> String {
+    format!("%__ramlang_async_args_{:016x}", struct_type_id(name))
+}
+
+fn async_entry_symbol(name: &str) -> String {
+    format!("__ramlang_async_entry_{:016x}", struct_type_id(name))
+}
+
+fn emit_async_entry_wrapper(function: &Function) -> String {
+    let frame_type = async_frame_type_name(&function.name);
+    let entry = async_entry_symbol(&function.name);
+    let mut output = format!("define i64 @{entry}(ptr %context) {{\nentry:\n");
+    let mut args = Vec::new();
+    for (index, (_, ty)) in function.params.iter().enumerate() {
+        let field_ptr = format!("%field_ptr{index}");
+        let value = format!("%arg{index}");
+        output.push_str(&format!(
+            "  {field_ptr} = getelementptr inbounds {frame_type}, ptr %context, i32 0, i32 {index}\n"
+        ));
+        output.push_str(&format!("  {value} = load {}, ptr {field_ptr}\n", ty.llvm()));
+        args.push(format!("{} {value}", ty.llvm()));
+    }
+    let arguments = args.join(", ");
+    if function.return_type == Type::Void {
+        output.push_str(&format!("  call void @{}({arguments})\n", function.name));
+        output.push_str("  call void @ramlang_free(ptr %context)\n  ret i64 0\n}\n");
+        return output;
+    }
+
+    output.push_str(&format!(
+        "  %result = call {} @{}({arguments})\n",
+        function.return_type.llvm(),
+        function.name
+    ));
+    output.push_str("  call void @ramlang_free(ptr %context)\n");
+    match function.return_type {
+        Type::I8 => output.push_str("  %encoded = sext i8 %result to i64\n  ret i64 %encoded\n"),
+        Type::I16 => output.push_str("  %encoded = sext i16 %result to i64\n  ret i64 %encoded\n"),
+        Type::I32 | Type::Enum(_) => output.push_str("  %encoded = sext i32 %result to i64\n  ret i64 %encoded\n"),
+        Type::I64 => output.push_str("  ret i64 %result\n"),
+        Type::U8 | Type::Bool => output.push_str("  %encoded = zext i8 %result to i64\n  ret i64 %encoded\n"),
+        Type::U16 => output.push_str("  %encoded = zext i16 %result to i64\n  ret i64 %encoded\n"),
+        Type::U32 => output.push_str("  %encoded = zext i32 %result to i64\n  ret i64 %encoded\n"),
+        Type::U64 => output.push_str("  ret i64 %result\n"),
+        Type::F32 => {
+            output.push_str("  %result_bits = bitcast float %result to i32\n");
+            output.push_str("  %encoded = zext i32 %result_bits to i64\n  ret i64 %encoded\n");
+        }
+        Type::F64 => output.push_str("  %encoded = bitcast double %result to i64\n  ret i64 %encoded\n"),
+        _ => output.push_str("  ret i64 0\n"),
+    }
+    output.push_str("}\n");
+    output
+}
+
 fn statement_always_returns(statement: &Stmt) -> bool {
     match statement {
         Stmt::Return(_) => true,
@@ -4455,7 +4510,16 @@ fn compile_to_llvm_for_target(
             module.push_str(&format!("%struct.{:016x} = type {{ {fields} }}\n", structure.id));
         }
     }
-    if !program.structs.is_empty() {
+    for function in functions.iter().filter(|function| function.asynchronous) {
+        let id = struct_type_id(&function.name);
+        let fields = if function.params.is_empty() {
+            "i8".to_owned()
+        } else {
+            function.params.iter().map(|(_, ty)| ty.llvm()).collect::<Vec<_>>().join(", ")
+        };
+        module.push_str(&format!("%__ramlang_async_args_{id:016x} = type {{ {fields} }}\n"));
+    }
+    if !program.structs.is_empty() || functions.iter().any(|function| function.asynchronous) {
         module.push('\n');
     }
     for declaration in &global_declarations {
@@ -4485,6 +4549,11 @@ fn compile_to_llvm_for_target(
     module.push_str("declare i32 @strcmp(ptr, ptr)\n");
     module.push_str(&format!("declare i32 @strncmp(ptr, ptr, {size_t})\n"));
     module.push_str(&format!("declare ptr @memchr(ptr, i32, {size_t})\n"));
+    module.push_str("declare ptr @ramlang_alloc(i64)\n");
+    module.push_str("declare void @ramlang_free(ptr)\n");
+    module.push_str("declare ptr @ramlang_future_spawn_i64(ptr, ptr)\n");
+    module.push_str("declare i64 @ramlang_future_await_i64(ptr)\n");
+    module.push_str("declare void @ramlang_future_close(ptr)\n");
     module.push_str("declare void @llvm.trap() cold noreturn nounwind\n");
     module.push_str("declare void @llvm.assume(i1) nounwind\n");
 
@@ -4539,6 +4608,10 @@ fn compile_to_llvm_for_target(
         module.push_str(&header);
         module.push_str(&body);
         module.push_str("}\n\n");
+        if function.asynchronous {
+            module.push_str(&emit_async_entry_wrapper(function));
+            module.push_str("\n");
+        }
     }
     Ok(module)
 }
@@ -4896,7 +4969,7 @@ fn generate_c_header(program: &Program) -> Result<String, String> {
     }
 
     for function in &program.functions {
-        if function.name == "main" {
+        if function.name == "main" || function.asynchronous {
             continue;
         }
         validate_c_identifier(&function.name, "function")?;
