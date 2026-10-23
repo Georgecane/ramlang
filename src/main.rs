@@ -4022,7 +4022,7 @@ fn compile_to_llvm_for_target(
                 .map(|(_, ty)| ty.llvm())
                 .collect::<Vec<_>>();
             if function.variadic {
-                params.push("...".to_owned());
+                params.push("...");
             }
             module.push_str(&format!("declare {} @{}({})\n\n", function.return_type.llvm(), function.name, params.join(", ")));
             continue;
