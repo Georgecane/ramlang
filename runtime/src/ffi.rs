@@ -2187,6 +2187,41 @@ mod tests {
     }
 
     #[test]
+    fn closing_pending_native_tcp_future_cancels_network_io() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (received_tx, received_rx) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut header = [0_u8; 4];
+            stream.read_exact(&mut header).unwrap();
+            let payload_length = u32::from_be_bytes(header) as usize;
+            let mut payload = vec![0_u8; payload_length];
+            stream.read_exact(&mut payload).unwrap();
+            received_tx.send(()).unwrap();
+
+            let mut extra = [0_u8; 1];
+            stream.read(&mut extra).unwrap()
+        });
+
+        let address = CString::new(address.to_string()).unwrap();
+        let payload = CString::new("cancel pending TCP future").unwrap();
+        // SAFETY: address and payload are valid NUL-terminated strings copied on entry.
+        let future = unsafe {
+            ramlang_tcp_request_future(address.as_ptr(), payload.as_ptr(), 5_000)
+        };
+        assert!(!future.is_null(), "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+        received_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        // SAFETY: the future is live and not being awaited or closed concurrently.
+        unsafe { ramlang_future_close(future) };
+        assert_eq!(server.join().unwrap(), 0);
+    }
+
+    #[test]
     fn native_sleep_future_completes_after_timer() {
         let future = ramlang_sleep_future(1);
         assert!(!future.is_null());
