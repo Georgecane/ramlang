@@ -11,6 +11,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Static types: `i8`, `i16`, `i32`, `i64`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Immutable local variables with `let` and mutable locals with `let mut`
+- Explicit casts with `as` between signed integer widths, integers and `f64`, integers and `bool`, `bool` and `f64`, and `str` / `ptr`
 - Arithmetic (`+`, `-`, `*`, `/`, `%`), signed comparisons, bitwise (`&`, `|`, `^`, `~`) and shift (`<<`, `>>`) operations, unary `-` and `!`, and short-circuit `&&` / `||`
 - `if` / `else`, `while`, `break`, `continue`, nested loops and blocks, line and block comments
 - UTF-8 string literals with `\\n`, `\\r`, `\\t`, `\\0`, `\\\\`, and `\\\"` escapes\n- Built-in `print(value)` for integers, floating-point values, booleans, and strings
@@ -65,6 +66,26 @@ Expected output:
 ```text
 49
 ```
+
+## Explicit casts
+
+RamLang requires explicit conversions between different numeric types. Casts lower to LLVM conversion instructions; narrowing integer casts truncate bits, while widening signed integers sign-extend. Floating-point to integer casts truncate toward zero for values representable by the destination type. As with other low-level languages, casts do not perform run-time range checks.
+
+```rust
+fn main() -> i32 {
+    let fraction: f64 = 258.75;
+    let number: i32 = fraction as i32;
+    let byte: i8 = number as i8;
+    let widened: i64 = byte as i64;
+    let flag: bool = byte as bool;
+    print(number);
+    print(widened);
+    print(flag);
+    return 0;
+}
+```
+
+`bool` converts to integers as 0 or 1; integer zero converts to `false` and any nonzero value converts to `true`. Casts to `void` and integer/pointer casts are currently rejected.
 
 ## Strings
 
