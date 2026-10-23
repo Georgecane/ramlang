@@ -42,6 +42,11 @@ jobs:
           "$LLVM_BINDIR/llvm-dis" target/hello-rust-llvm.bc -o /dev/null
       - name: Build TCP runtime shared library
         run: cargo build --release -p ramlang-runtime
+      - name: Compile and run native async/await example
+        run: |
+          cargo run --release -- examples/async/basic.ram -o target/async-basic
+          output="$(target/async-basic)"
+          test "$output" = "42"
       - name: Compile and run C ABI header smoke test
         run: |
           clang -std=c11 -Wall -Wextra -Werror -Iruntime/include \
