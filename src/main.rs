@@ -1699,6 +1699,47 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((String::new(), Type::Void));
                 }
 
+                let bit_intrinsic = ["ctpop", "ctlz", "cttz", "bswap", "bitreverse"]
+                    .iter()
+                    .find_map(|intrinsic| {
+                        let suffix = name.strip_prefix(&format!("{intrinsic}_"))?;
+                        let width = match suffix {
+                            "8" => 8,
+                            "16" => 16,
+                            "32" => 32,
+                            "64" => 64,
+                            _ => return None,
+                        };
+                        if *intrinsic == "bswap" && width == 8 {
+                            return None;
+                        }
+                        Some((*intrinsic, width))
+                    });
+                if let Some((intrinsic, width)) = bit_intrinsic {
+                    if args.len() != 1 {
+                        return Err(format!("{name} expects exactly one integer argument"));
+                    }
+                    let (value, value_type) = self.emit_expr(&args[0])?;
+                    if value_type.integer_width() != Some(width) {
+                        return Err(format!("{name} expects an integer with width {width}, found {}", value_type.llvm()));
+                    }
+                    let llvm_type = value_type.llvm();
+                    let result = self.fresh_value();
+                    match intrinsic {
+                        "ctlz" | "cttz" => {
+                            self.emit(format!(
+                                "{result} = call {llvm_type} @llvm.{intrinsic}.{llvm_type}({llvm_type} {value}, i1 false)"
+                            ));
+                        }
+                        _ => {
+                            self.emit(format!(
+                                "{result} = call {llvm_type} @llvm.{intrinsic}.{llvm_type}({llvm_type} {value})"
+                            ));
+                        }
+                    }
+                    return Ok((result, value_type));
+                }
+
                 let fence_order = match name.as_str() {
                     "fence_acquire" => Some("acquire"),
                     "fence_release" => Some("release"),
@@ -2265,7 +2306,18 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
     module.push_str("declare ptr @malloc(i64)\n");
     module.push_str("declare void @free(ptr)\n");
     module.push_str("declare void @llvm.trap() cold noreturn nounwind\n");
-    module.push_str("declare void @llvm.assume(i1) nounwind\n\n");
+    module.push_str("declare void @llvm.assume(i1) nounwind\n");
+
+    for llvm_type in ["i8", "i16", "i32", "i64"] {
+        module.push_str(&format!("declare {llvm_type} @llvm.ctpop.{llvm_type}({llvm_type})\n"));
+        module.push_str(&format!("declare {llvm_type} @llvm.ctlz.{llvm_type}({llvm_type}, i1 immarg)\n"));
+        module.push_str(&format!("declare {llvm_type} @llvm.cttz.{llvm_type}({llvm_type}, i1 immarg)\n"));
+        module.push_str(&format!("declare {llvm_type} @llvm.bitreverse.{llvm_type}({llvm_type})\n"));
+        if llvm_type != "i8" {
+            module.push_str(&format!("declare {llvm_type} @llvm.bswap.{llvm_type}({llvm_type})\n"));
+        }
+    }
+    module.push('\n');
 
     for function in functions {
         if function.external {
