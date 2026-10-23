@@ -45,7 +45,7 @@ Build the optional networking runtime with `cargo build --release -p ramlang-run
 
 - Rust 1.99.1 stable (edition 2024; pinned by `rust-toolchain.toml`)
 - Cargo manifest declares Rust 1.99 as the minimum supported version
-- LLVM development libraries and matching `llvm-config` for one supported major version, 18 through 23 (default: LLVM 18.1)
+- LLVM development libraries and matching `llvm-config` for one supported major version, 18 through 23 (default: LLVM 23.1)
 - A native system linker and platform runtime for executable linking
 
 On CachyOS, use the feature matching the installed LLVM major when it is not 18. For example, LLVM 23 uses `cargo build --no-default-features --features llvm23`. The default feature targets LLVM 18 and expects a matching `llvm-config` to be available.
