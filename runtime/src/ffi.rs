@@ -1848,14 +1848,14 @@ pub unsafe extern "C" fn ramlang_future_spawn_i64(
     let state = Arc::new(FutureState::new(false));
     let task_state = Arc::clone(&state);
     let context_address = context as usize;
-    let task = runtime.spawn_blocking(move || {
+    // Detach this task rather than aborting it on Future drop. Generated wrappers release
+    // their heap argument frame when invoked, so abort-before-start would leak that frame.
+    runtime.spawn_blocking(move || {
         // Convert through usize so the task closure is Send. The generated callback wrapper
         // owns the opaque context and guarantees its lifetime until invocation.
         let value = unsafe { callback(context_address as *mut c_void) };
         task_state.complete(value);
     });
-    state.set_abort_handle(task.abort_handle());
-    drop(task);
     clear_last_error();
     Box::into_raw(Box::new(RamlangFuture { state }))
 }
@@ -2155,10 +2155,14 @@ pub unsafe extern "C" fn ramlang_future_is_ready(future: *mut RamlangFuture) -> 
 /// the runtime task completes.
 /// Release the caller's future handle. Passing null is a no-op.
 ///
+/// Native network and timer futures cancel pending work when their handle closes. A future
+/// wrapping a user-declared async function detaches its worker instead, because that wrapper
+/// owns the argument-frame cleanup and may already be executing.
+///
 /// # Safety
 ///
 /// A non-null future must be a live handle returned by a RamLang future API. It must not be
-/// used again or closed concurrently. Closing the handle does not cancel its running task.
+/// used again or closed concurrently.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_future_close(future: *mut RamlangFuture) {
     if !future.is_null() {
