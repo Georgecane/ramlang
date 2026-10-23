@@ -1771,6 +1771,48 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((String::new(), Type::Void));
                 }
 
+                if name == "strlen" {
+                    if args.len() != 1 {
+                        return Err("strlen expects exactly one string or pointer argument".to_owned());
+                    }
+                    let pointer = self.emit_raw_pointer_expr(&args[0], "strlen argument")?;
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = call i64 @strlen(ptr {pointer})"));
+                    return Ok((result, Type::I64));
+                }
+
+                if matches!(name.as_str(), "strcmp" | "strncmp") {
+                    let expected_args = if name == "strcmp" { 2 } else { 3 };
+                    if args.len() != expected_args {
+                        return Err(format!("{name} expects {expected_args} arguments"));
+                    }
+                    let left = self.emit_raw_pointer_expr(&args[0], &format!("{name} left operand"))?;
+                    let right = self.emit_raw_pointer_expr(&args[1], &format!("{name} right operand"))?;
+                    let result = self.fresh_value();
+                    if name == "strcmp" {
+                        self.emit(format!("{result} = call i32 @strcmp(ptr {left}, ptr {right})"));
+                    } else {
+                        let (count, count_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
+                        self.require_same(Type::I64, count_type, "strncmp byte count")?;
+                        self.emit(format!("{result} = call i32 @strncmp(ptr {left}, ptr {right}, i64 {count})"));
+                    }
+                    return Ok((result, Type::I32));
+                }
+
+                if name == "memchr" {
+                    if args.len() != 3 {
+                        return Err("memchr expects a pointer, byte value, and byte count".to_owned());
+                    }
+                    let pointer = self.emit_raw_pointer_expr(&args[0], "memchr buffer")?;
+                    let (byte, byte_type) = self.emit_expr_expected(&args[1], Some(Type::I32))?;
+                    self.require_same(Type::I32, byte_type, "memchr byte value")?;
+                    let (count, count_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
+                    self.require_same(Type::I64, count_type, "memchr byte count")?;
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = call ptr @memchr(ptr {pointer}, i32 {byte}, i64 {count})"));
+                    return Ok((result, Type::Ptr));
+                }
+
                 if matches!(name.as_str(), "memcpy" | "memmove") {
                     if args.len() != 3 {
                         return Err(format!("{name} expects destination, source, and byte count"));
@@ -2531,7 +2573,7 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
         if signatures.contains_key(&constant.name) {
             return Err(format!("global constant '{}' conflicts with a function", constant.name));
         }
-        if matches!(constant.name.as_str(), "printf" | "malloc" | "calloc" | "realloc" | "free" | "memcpy" | "memmove" | "memset" | "memcmp" | "llvm.trap") {
+        if matches!(constant.name.as_str(), "printf" | "malloc" | "calloc" | "realloc" | "free" | "memcpy" | "memmove" | "memset" | "memcmp" | "strlen" | "strcmp" | "strncmp" | "memchr" | "llvm.trap") {
             return Err(format!("global constant '{}' conflicts with a reserved runtime symbol", constant.name));
         }
         if global_values.contains_key(&constant.name) || global_bindings.contains_key(&constant.name) {
@@ -2645,6 +2687,10 @@ fn compile_to_llvm(program: &Program) -> Result<String, String> {
     module.push_str("declare ptr @memmove(ptr, ptr, i64)\n");
     module.push_str("declare ptr @memset(ptr, i32, i64)\n");
     module.push_str("declare i32 @memcmp(ptr, ptr, i64)\n");
+    module.push_str("declare i64 @strlen(ptr)\n");
+    module.push_str("declare i32 @strcmp(ptr, ptr)\n");
+    module.push_str("declare i32 @strncmp(ptr, ptr, i64)\n");
+    module.push_str("declare ptr @memchr(ptr, i32, i64)\n");
     module.push_str("declare void @llvm.trap() cold noreturn nounwind\n");
     module.push_str("declare void @llvm.assume(i1) nounwind\n");
 
