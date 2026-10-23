@@ -1,0 +1,18 @@
+enum Color {
+    Red,
+    Green = 4,
+    Blue,
+}
+
+fn color_code(color: Color) -> i32 {
+    return color as i32;
+}
+
+fn main() -> i32 {
+    let mut color: Color = Color.Green;
+    print(color);
+    print(color == Color.Green);
+    print(color < Color.Blue);
+    print(size_of(Color));
+    return color_code(Color.Blue) - 5;
+}
