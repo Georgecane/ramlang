@@ -11,7 +11,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
 - Global scalar, boolean, null-pointer, and UTF-8 string constants, available across source files
-- Runtime `assert(bool)` with a trap on failure, `panic(str)` for non-returning errors, and `assume(bool)` lowered to `llvm.assume`
+- Runtime `assert(bool)` with a trap on failure, `panic(str)` for non-returning errors, `assume(bool)` lowered to `llvm.assume`, and volatile memory access built-ins
 - Immutable local variables with `let` and mutable locals with `let mut`
 - Explicit casts with `as` between signed integer widths, integers and `f64`, integers and `bool`, `bool` and `f64`, and `str` / `ptr`
 - Arithmetic (`+`, `-`, `*`, `/`, `%`), signed comparisons, bitwise (`&`, `|`, `^`, `~`) and shift (`<<`, `>>`) operations, unary `-` and `!`, and short-circuit `&&` / `||`
@@ -278,6 +278,23 @@ fn main() -> i32 {
 ```
 
 `size_of(void)` is invalid. Cross-compiling may change pointer and struct sizes; use this intrinsic instead of hardcoding ABI-dependent byte counts. The current allocator interface uses an `i64` size and targets a 64-bit host ABI in the provided examples.
+
+## Volatile memory access
+
+Use `volatile_load_i32(ptr)`, `volatile_store_i32(ptr, value)`, and the matching built-ins for `i8/i16/i64`, `u8/u16/u32/u64`, `f64`, `bool`, and `ptr` when reads and writes must remain observable to LLVM. These lower to LLVM's `load volatile` and `store volatile` instructions and are intended for memory-mapped device registers, hardware status words, and similar externally changing memory.
+
+```rust
+fn main() -> i32 {
+    let mut register_shadow: u32 = 0;
+    let register: ptr = &register_shadow;
+    volatile_store_u32(register, 42 as u32);
+    let value: u32 = volatile_load_u32(register);
+    print(value);
+    return 0;
+}
+```
+
+Volatile access is not a synchronization primitive and does not provide atomicity, thread ordering, device-specific barriers, or safe access to arbitrary addresses. A real MMIO program must use a valid target-specific address, suitable access width/alignment, and any barriers required by the hardware.
 
 ## Address-of
 
