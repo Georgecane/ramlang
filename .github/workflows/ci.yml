@@ -337,6 +337,11 @@ jobs:
           cargo run --release -- examples/checked_arithmetic.ram -o target/checked-arithmetic
           expected="$(printf '%s\n%s\n%s\n%s' '-2147483648' '1' '0' '1')"
           test "$(target/checked-arithmetic)" = "$expected"
+      - name: Compile and run f32 type example
+        run: |
+          cargo run --release -- examples/f32.ram -o target/f32-example
+          expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s' '3.875' '3.875' '3.88' '3' '8' '4')"
+          test "$(target/f32-example)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
