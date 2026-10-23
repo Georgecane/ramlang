@@ -203,6 +203,10 @@ enum Type {
     I16,
     I32,
     I64,
+    U8,
+    U16,
+    U32,
+    U64,
     F64,
     Bool,
     Str,
@@ -217,6 +221,10 @@ impl Type {
             Self::I16 => "i16",
             Self::I32 => "i32",
             Self::I64 => "i64",
+            Self::U8 => "i8",
+            Self::U16 => "i16",
+            Self::U32 => "i32",
+            Self::U64 => "i64",
             Self::F64 => "double",
             Self::Bool => "i1",
             Self::Str => "ptr",
@@ -226,19 +234,23 @@ impl Type {
     }
 
     fn is_numeric(self) -> bool {
-        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::F64)
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::F64)
     }
 
     fn is_integer(self) -> bool {
-        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64)
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::U8 | Self::U16 | Self::U32 | Self::U64)
+    }
+
+    fn is_unsigned(self) -> bool {
+        matches!(self, Self::U8 | Self::U16 | Self::U32 | Self::U64)
     }
 
     fn integer_width(self) -> Option<u32> {
         match self {
-            Self::I8 => Some(8),
-            Self::I16 => Some(16),
-            Self::I32 => Some(32),
-            Self::I64 => Some(64),
+            Self::I8 | Self::U8 => Some(8),
+            Self::I16 | Self::U16 => Some(16),
+            Self::I32 | Self::U32 => Some(32),
+            Self::I64 | Self::U64 => Some(64),
             _ => None,
         }
     }
@@ -363,12 +375,16 @@ impl Parser {
             "i16" => Ok(Type::I16),
             "i32" => Ok(Type::I32),
             "i64" => Ok(Type::I64),
+            "u8" => Ok(Type::U8),
+            "u16" => Ok(Type::U16),
+            "u32" => Ok(Type::U32),
+            "u64" => Ok(Type::U64),
             "f64" => Ok(Type::F64),
             "bool" => Ok(Type::Bool),
             "str" => Ok(Type::Str),
             "ptr" => Ok(Type::Ptr),
             "void" => Ok(Type::Void),
-            _ => Err(self.error(format!("unknown type '{name}'; expected i8, i16, i32, i64, f64, bool, str, ptr, or void"))),
+            _ => Err(self.error(format!("unknown type '{name}'; expected i8, i16, i32, i64, u8, u16, u32, u64, f64, bool, str, ptr, or void"))),
         }
     }
 
