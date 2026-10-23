@@ -25,7 +25,10 @@ pub enum OutputKind {
 }
 
 fn parse_module<'ctx>(context: &'ctx Context, ir: &str) -> Result<inkwell::module::Module<'ctx>, String> {
-    let buffer = MemoryBuffer::create_from_string(ir);
+    let mut nul_terminated_ir = ir.as_bytes().to_vec();
+    nul_terminated_ir.push(0);
+    let buffer =
+        MemoryBuffer::create_from_memory_range_copy(&nul_terminated_ir, "ramlang-generated.ll");
     let module = context
         .create_module_from_ir(buffer)
         .map_err(|error| format!("LLVM could not parse generated IR: {error}"))?;
