@@ -715,6 +715,19 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((String::new(), Type::Void));
                 }
 
+                if name == "ptr_offset" {
+                    if args.len() != 2 {
+                        return Err("ptr_offset expects a ptr and a byte offset".to_owned());
+                    }
+                    let (pointer, pointer_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, pointer_type, "ptr_offset pointer")?;
+                    let (offset, offset_type) = self.emit_expr_expected(&args[1], Some(Type::I64))?;
+                    self.require_same(Type::I64, offset_type, "ptr_offset byte offset")?;
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = getelementptr i8, ptr {pointer}, i64 {offset}"));
+                    return Ok((result, Type::Ptr));
+                }
+
                 let loaded_type = match name.as_str() {
                     "load_i32" => Some(Type::I32),
                     "load_i64" => Some(Type::I64),
@@ -989,7 +1002,7 @@ struct Options {
 }
 
 fn parse_args() -> Result<Options, String> {
-    let mut args = env::args().skip(1);
+    let mut args = env::args().skip(1).peekable();
     let Some(source) = args.next() else {
         return Err("usage: ramcomp <source.ram> [--check] [--emit-llvm [output.ll]] [-o output]".to_owned());
     };
@@ -1009,11 +1022,8 @@ fn parse_args() -> Result<Options, String> {
             "--check" => options.check_only = true,
             "--emit-llvm" => {
                 options.emit_llvm = true;
-                if let Some(next) = args.next() {
-                    if next.starts_with('-') {
-                        return Err(format!("unexpected option '{next}' after --emit-llvm"));
-                    }
-                    options.output = Some(PathBuf::from(next));
+                if args.peek().is_some_and(|next| !next.starts_with('-')) {
+                    options.output = args.next().map(PathBuf::from);
                 }
             }
             "-o" => {
@@ -1141,7 +1151,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_nested_comments_and_precedence() {
+    fn parses_comments_and_precedence() {
         let source = "/* head */ fn main() -> i32 { // body\n return 1 + 2 * 3; }";
         let ir = compile(source).unwrap();
         assert!(ir.contains("mul i32"));
@@ -1166,12 +1176,13 @@ mod tests {
 
     #[test]
     fn emits_explicit_memory_operations() {
-        let source = "fn main() -> i32 { let p: ptr = alloc(4); store_i32(p, 42); print(load_i32(p)); free(p); return 0; }";
+        let source = "fn main() -> i32 { let p: ptr = alloc(8); store_i32(p, 7); let q: ptr = ptr_offset(p, 4); store_i32(q, 42); print(load_i32(q)); free(p); return 0; }";
         let ir = compile(source).unwrap();
         assert!(ir.contains("call ptr @malloc(i64 4)"));
         assert!(ir.contains("store i32 42"));
         assert!(ir.contains("load i32, ptr"));
         assert!(ir.contains("call void @free(ptr"));
+        assert!(ir.contains("getelementptr i8, ptr"));
     }
 
     #[test]
