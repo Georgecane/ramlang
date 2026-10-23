@@ -191,6 +191,21 @@ ramcomp examples/multi_file/main.ram examples/multi_file/math.ram -o program
 ./program
 ```
 
+The compiler can also emit intermediate native artifacts without linking:
+
+```sh
+# LLVM IR
+ramcomp examples/hello.ram --emit-llvm output.ll
+
+# Object file
+ramcomp examples/hello.ram --emit-obj -o output.o
+
+# Target assembly
+ramcomp examples/hello.ram --emit-asm -o output.s
+```
+
+The `--emit-obj` and `--emit-asm` modes still use Clang's backend. You can then link the object file with another native object or library, or assemble/link the `.s` output with the system toolchain.
+
 ## Compiler options
 
 ```sh
