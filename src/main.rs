@@ -1362,7 +1362,7 @@ impl<'a> FunctionGenerator<'a> {
                     Type::Void => Err("size_of(void) is invalid".to_owned()),
                     Type::I8 | Type::U8 | Type::Bool => Ok(("1".to_owned(), Type::I64)),
                     Type::I16 | Type::U16 => Ok(("2".to_owned(), Type::I64)),
-                    Type::I32 | Type::U32 => Ok(("4".to_owned(), Type::I64)),
+                    Type::I32 | Type::U32 | Type::Enum(_) => Ok(("4".to_owned(), Type::I64)),
                     Type::I64 | Type::U64 | Type::F64 => Ok(("8".to_owned(), Type::I64)),
                     Type::Array(element, length) => {
                         let element_size = match element {
@@ -1775,13 +1775,13 @@ impl<'a> FunctionGenerator<'a> {
                     (Type::F64, ">=") => format!("{result} = fcmp oge double {lhs}, {rhs}"),
                     (_, "==") => format!("{result} = icmp eq {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (_, "!=") => format!("{result} = icmp ne {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "<") => format!("{result} = icmp slt {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::Enum(_), "<") => format!("{result} = icmp slt {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::U8 | Type::U16 | Type::U32 | Type::U64, "<") => format!("{result} = icmp ult {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, "<=") => format!("{result} = icmp sle {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::Enum(_), "<=") => format!("{result} = icmp sle {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::U8 | Type::U16 | Type::U32 | Type::U64, "<=") => format!("{result} = icmp ule {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, ">") => format!("{result} = icmp sgt {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::Enum(_), ">") => format!("{result} = icmp sgt {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::U8 | Type::U16 | Type::U32 | Type::U64, ">") => format!("{result} = icmp ugt {} {lhs}, {rhs}", lhs_ty.llvm()),
-                    (Type::I8 | Type::I16 | Type::I32 | Type::I64, ">=") => format!("{result} = icmp sge {} {lhs}, {rhs}", lhs_ty.llvm()),
+                    (Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::Enum(_), ">=") => format!("{result} = icmp sge {} {lhs}, {rhs}", lhs_ty.llvm()),
                     (Type::U8 | Type::U16 | Type::U32 | Type::U64, ">=") => format!("{result} = icmp uge {} {lhs}, {rhs}", lhs_ty.llvm()),
                     _ => return Err(format!("operator '{op}' is not valid for {}", lhs_ty.llvm())),
                 };
@@ -1816,7 +1816,7 @@ impl<'a> FunctionGenerator<'a> {
                             self.emit(format!("{promoted} = zext i16 {value} to i32"));
                             self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.u32, i32 {promoted})"));
                         }
-                        Type::I32 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 {value})")),
+                        Type::I32 | Type::Enum(_) => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i32, i32 {value})")),
                         Type::I64 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.i64, i64 {value})")),
                         Type::U32 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.u32, i32 {value})")),
                         Type::U64 => self.emit(format!("call i32 (ptr, ...) @printf(ptr @.fmt.u64, i64 {value})")),
