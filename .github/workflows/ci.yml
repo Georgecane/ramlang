@@ -292,6 +292,11 @@ jobs:
           cargo run --release -- examples/boolean_match.ram -o target/boolean-match
           expected="$(printf '%s\n%s' 'ready' '0')"
           test "$(target/boolean-match)" = "$expected"
+      - name: Compile and run value-producing match expression example
+        run: |
+          cargo run --release -- examples/match_expr.ram -o target/match-expr
+          expected="$(printf '%s\n%s' '42' '7')"
+          test "$(target/match-expr)" = "$expected"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
