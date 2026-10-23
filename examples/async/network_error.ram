@@ -1,0 +1,11 @@
+fn main() -> i32 {
+    let response: str = await tcp_request("", "payload", 100);
+    if ((response as ptr) == null) {
+        print(last_error());
+        return 0;
+    }
+
+    print("unexpected TCP success for an empty address");
+    free(response as ptr);
+    return 1;
+}
