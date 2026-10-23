@@ -640,7 +640,10 @@ pub unsafe extern "C" fn ramlang_udp_request_start(
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "UDP DNS lookup timed out"))??;
             let target = addresses.next().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::NotFound, "UDP destination resolved to no addresses")
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "UDP destination resolved to no addresses",
+                )
             })?;
             let bind_address = if target.is_ipv4() {
                 "0.0.0.0:0"
@@ -1337,8 +1340,7 @@ mod tests {
         assert_eq!(unsafe { ramlang_udp_request_wait(request, 2_000) }, 1);
         let mut output = [0_u8; 128];
         // SAFETY: the request is live and output has 128 writable bytes.
-        let length =
-            unsafe { ramlang_udp_request_read_result(request, output.as_mut_ptr(), 128) };
+        let length = unsafe { ramlang_udp_request_read_result(request, output.as_mut_ptr(), 128) };
         assert_eq!(length, payload.len() as i64);
         assert_eq!(&output[..length as usize], payload);
 
