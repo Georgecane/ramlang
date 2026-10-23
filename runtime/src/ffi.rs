@@ -1643,7 +1643,7 @@ pub unsafe extern "C" fn ramlang_memchr(
         .position(|candidate| *candidate == byte as u8)
         .map(|offset| {
             // SAFETY: offset is within the readable range and the pointer originated from value.
-            unsafe { value.cast::<u8>().add(offset).cast::<c_void>() }
+            unsafe { value.cast::<u8>().add(offset).cast::<c_void>().cast_mut() }
         })
         .unwrap_or(ptr::null_mut());
     clear_last_error();
