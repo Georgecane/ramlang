@@ -2382,6 +2382,57 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((result, Type::I32));
                 }
 
+                let overflow_ops = [
+                    ("sadd_overflow", "sadd", false),
+                    ("ssub_overflow", "ssub", false),
+                    ("smul_overflow", "smul", false),
+                    ("uadd_overflow", "uadd", true),
+                    ("usub_overflow", "usub", true),
+                    ("umul_overflow", "umul", true),
+                ];
+                let overflow_builtin = overflow_ops.iter().find_map(|(public_name, llvm_name, unsigned)| {
+                    let type_name = name.strip_prefix(&format!("{public_name}_"))?;
+                    let ty = match type_name {
+                        "i8" => Type::I8,
+                        "i16" => Type::I16,
+                        "i32" => Type::I32,
+                        "i64" => Type::I64,
+                        "u8" => Type::U8,
+                        "u16" => Type::U16,
+                        "u32" => Type::U32,
+                        "u64" => Type::U64,
+                        _ => return None,
+                    };
+                    if ty.is_unsigned() != *unsigned {
+                        return None;
+                    }
+                    Some((*llvm_name, ty))
+                });
+                if let Some((llvm_name, ty)) = overflow_builtin {
+                    if args.len() != 3 {
+                        return Err(format!("{name} expects left value, right value, and an output ptr"));
+                    }
+                    let (left, left_type) = self.emit_expr_expected(&args[0], Some(ty))?;
+                    self.require_same(ty, left_type, &format!("{name} left operand"))?;
+                    let (right, right_type) = self.emit_expr_expected(&args[1], Some(ty))?;
+                    self.require_same(ty, right_type, &format!("{name} right operand"))?;
+                    let (output, output_type) = self.emit_expr_expected(&args[2], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, output_type, &format!("{name} output pointer"))?;
+
+                    let llvm_type = ty.llvm();
+                    let aggregate_type = format!("{{ {llvm_type}, i1 }}");
+                    let aggregate = self.fresh_value();
+                    self.emit(format!(
+                        "{aggregate} = call {aggregate_type} @llvm.{llvm_name}.with.overflow.{llvm_type}({llvm_type} {left}, {llvm_type} {right})"
+                    ));
+                    let result_value = self.fresh_value();
+                    self.emit(format!("{result_value} = extractvalue {aggregate_type} {aggregate}, 0"));
+                    let overflow = self.fresh_value();
+                    self.emit(format!("{overflow} = extractvalue {aggregate_type} {aggregate}, 1"));
+                    self.emit(format!("store {llvm_type} {result_value}, ptr {output}"));
+                    return Ok((overflow, Type::Bool));
+                }
+
                 let bit_intrinsic = ["ctpop", "ctlz", "cttz", "bswap", "bitreverse"]
                     .iter()
                     .find_map(|intrinsic| {
@@ -4061,6 +4112,11 @@ fn compile_to_llvm_for_target(
     module.push_str("declare void @llvm.assume(i1) nounwind\n");
 
     for llvm_type in ["i8", "i16", "i32", "i64"] {
+        for intrinsic in ["sadd", "ssub", "smul", "uadd", "usub", "umul"] {
+            module.push_str(&format!(
+                "declare {{ {llvm_type}, i1 }} @llvm.{intrinsic}.with.overflow.{llvm_type}({llvm_type}, {llvm_type})\n"
+            ));
+        }
         module.push_str(&format!("declare {llvm_type} @llvm.ctpop.{llvm_type}({llvm_type})\n"));
         module.push_str(&format!("declare {llvm_type} @llvm.ctlz.{llvm_type}({llvm_type}, i1 immarg)\n"));
         module.push_str(&format!("declare {llvm_type} @llvm.cttz.{llvm_type}({llvm_type}, i1 immarg)\n"));
@@ -5212,6 +5268,26 @@ mod tests {
         assert!(ir.contains("call i32 @llvm.cttz.i32(i32 8, i1 false)"));
         assert!(ir.contains("call i32 @llvm.bswap.i32(i32 16909060)"));
         assert!(ir.contains("call i32 @llvm.bitreverse.i32(i32 1)"));
+    }
+
+    #[test]
+    fn lowers_checked_signed_and_unsigned_arithmetic() {
+        let source = "fn main() -> i32 { let mut signed_result: i32 = 0; let signed_out: ptr = &signed_result; let signed_overflow: bool = sadd_overflow_i32(2147483647, 1, signed_out); print(signed_result); print(signed_overflow); let mut unsigned_result: u16 = 0; let unsigned_out: ptr = &unsigned_result; let unsigned_overflow: bool = uadd_overflow_u16(65535, 1, unsigned_out); print(unsigned_result); print(unsigned_overflow); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("call { i32, i1 } @llvm.sadd.with.overflow.i32(i32 2147483647, i32 1)"));
+        assert!(ir.contains("call { i16, i1 } @llvm.uadd.with.overflow.i16(i16 65535, i16 1)"));
+        assert!(ir.contains("extractvalue { i32, i1 }"));
+        assert!(ir.contains("extractvalue { i16, i1 }"));
+        assert!(ir.contains("store i32"));
+        assert!(ir.contains("store i16"));
+    }
+
+    #[test]
+    fn rejects_invalid_checked_arithmetic_operands() {
+        let count = compile("fn main() -> i32 { let mut result: i32 = 0; let out: ptr = &result; sadd_overflow_i32(1, 2, out, out); return 0; }").unwrap_err();
+        assert!(count.contains("expects left value, right value, and an output ptr"));
+        let sign = compile("fn main() -> i32 { let mut result: u32 = 0; let out: ptr = &result; sadd_overflow_u32(1 as u32, 2 as u32, out); return 0; }").unwrap_err();
+        assert!(sign.contains("unknown function 'sadd_overflow_u32'"));
     }
 
     #[test]
