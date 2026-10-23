@@ -1446,6 +1446,131 @@ impl<'a> FunctionGenerator<'a> {
             }
         }
 
+        // Constant patterns can use an LLVM switch rather than emitting a
+        // chain of comparisons. Keep dynamic patterns on the ordered path below.
+        let mut switch_values = Vec::<String>::new();
+        let mut switch_possible = true;
+        let mut unique_switch_values = HashSet::<String>::new();
+        for (pattern, _) in arms {
+            let case_value = if let Type::Enum(enum_id) = scrutinee_type {
+                match self.enum_variant_identity(pattern) {
+                    Some((pattern_enum_id, discriminant)) if pattern_enum_id == enum_id => {
+                        Some(discriminant.to_string())
+                    }
+                    Some(_) => {
+                        switch_possible = false;
+                        None
+                    }
+                    None => None,
+                }
+            } else if scrutinee_type == Type::Bool {
+                match pattern {
+                    Expr::Bool(value) => Some(if *value { "true" } else { "false" }.to_owned()),
+                    _ => None,
+                }
+            } else if scrutinee_type.is_integer() {
+                constant_integer_value(pattern)?.map(|value| value.to_string())
+            } else {
+                None
+            };
+
+            let Some(case_value) = case_value else {
+                switch_possible = false;
+                break;
+            };
+            let (_, pattern_type) = self.emit_expr_expected(pattern, Some(scrutinee_type))?;
+            self.require_same(scrutinee_type, pattern_type, "match expression pattern")?;
+            if !unique_switch_values.insert(case_value.clone()) {
+                switch_possible = false;
+                break;
+            }
+            switch_values.push(case_value);
+        }
+
+        if switch_possible {
+            let end_label = self.fresh_label("match.expr.end");
+            let arm_labels = arms.iter()
+                .map(|_| self.fresh_label("match.expr.arm"))
+                .collect::<Vec<_>>();
+            let fallback_label = self.fresh_label(if default.is_some() {
+                "match.expr.default"
+            } else {
+                "match.expr.trap"
+            });
+            let mut switch = format!(
+                "switch {} {scrutinee}, label %{fallback_label} [",
+                scrutinee_type.llvm()
+            );
+            for (case_value, arm_label) in switch_values.iter().zip(&arm_labels) {
+                switch.push_str(&format!(
+                    "\n    {} {case_value}, label %{arm_label}",
+                    scrutinee_type.llvm()
+                ));
+            }
+            switch.push_str("\n  ]");
+            self.emit(switch);
+            self.terminated = true;
+
+            let mut result_type = expected;
+            let mut incoming = Vec::<(String, String)>::new();
+            for ((_, result_expression), arm_label) in arms.iter().zip(&arm_labels) {
+                self.label(arm_label);
+                let (result_value, arm_type) = self.emit_expr_expected(result_expression, result_type)?;
+                if self.terminated {
+                    continue;
+                }
+                if arm_type == Type::Void {
+                    return Err("match expression arms must produce a value unless they diverge".to_owned());
+                }
+                if let Some(required_type) = result_type {
+                    self.require_same(required_type, arm_type, "match expression arm")?;
+                } else {
+                    result_type = Some(arm_type);
+                }
+                let predecessor = self.current_block.clone();
+                self.emit(format!("br label %{end_label}"));
+                self.terminated = true;
+                incoming.push((result_value, predecessor));
+            }
+
+            self.label(&fallback_label);
+            if let Some(default_expression) = default {
+                let (result_value, arm_type) = self.emit_expr_expected(default_expression, result_type)?;
+                if !self.terminated {
+                    if arm_type == Type::Void {
+                        return Err("match expression fallback must produce a value unless it diverges".to_owned());
+                    }
+                    if let Some(required_type) = result_type {
+                        self.require_same(required_type, arm_type, "match expression fallback")?;
+                    } else {
+                        result_type = Some(arm_type);
+                    }
+                    let predecessor = self.current_block.clone();
+                    self.emit(format!("br label %{end_label}"));
+                    self.terminated = true;
+                    incoming.push((result_value, predecessor));
+                }
+            } else {
+                self.emit("call void @llvm.trap()");
+                self.emit("unreachable");
+                self.terminated = true;
+            }
+
+            if incoming.is_empty() {
+                return Err("match expression has no value-producing path".to_owned());
+            }
+            let result_type = result_type
+                .ok_or_else(|| "cannot infer match expression result type".to_owned())?;
+            self.label(&end_label);
+            let result = self.fresh_value();
+            let values = incoming.iter()
+                .map(|(value, predecessor)| format!("[ {value}, %{predecessor} ]"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.emit(format!("{result} = phi {} {values}", result_type.llvm()));
+            return Ok((result, result_type));
+        }
+
         let end_label = self.fresh_label("match.expr.end");
         let mut result_type = expected;
         let mut incoming = Vec::<(String, String)>::new();
