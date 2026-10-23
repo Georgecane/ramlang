@@ -479,6 +479,28 @@ fn main() -> i32 {
 
 The pointer is non-owning and follows the lifetime of its underlying storage. Do not return or retain a pointer to a local after its stack frame ends. Taking the address of a temporary expression is rejected.
 
+## Bulk memory operations
+
+RamLang provides `memcpy(destination, source, byte_count)`, `memmove(destination, source, byte_count)`, `memset(destination, fill_value, byte_count)`, and `memcmp(left, right, byte_count)`. These lower to the corresponding C runtime functions; byte counts use `i64`, and pointer-like arguments may be raw pointers, strings, arrays, or struct-backed values.
+
+```rust
+fn main() -> i32 {
+    let source: ptr = alloc(8);
+    let destination: ptr = alloc(8);
+    memset(source, 0, 8);
+    store_i32(source, 42);
+    memcpy(destination, source, 8);
+    print(load_i32(destination));
+    print(memcmp(source, destination, 8));
+    memmove(destination, source, 4);
+    free(source);
+    free(destination);
+    return 0;
+}
+```
+
+`memcpy` requires non-overlapping regions; use `memmove` when the regions may overlap. All operations require valid pointers and sufficient accessible memory. `memcmp` returns a negative, zero, or positive result according to the first differing byte, not necessarily exactly `-1` or `1`.
+
 ## Explicit memory management
 
 Raw memory operations are intentionally explicit. This example allocates four bytes, stores an integer, reads it back, and frees the allocation:
