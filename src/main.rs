@@ -4286,6 +4286,65 @@ mod tests {
     }
 
     #[test]
+    fn resolves_relative_imports_transitively_and_deduplicates_files() {
+        let root = env::temp_dir().join(format!("ramlang-import-test-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("math")).unwrap();
+        fs::write(
+            root.join("main.ram"),
+            "import \"math/add.ram\"; import \"math/add.ram\"; fn main() -> i32 { return add(20, 22) - 42; }",
+        ).unwrap();
+        fs::write(
+            root.join("math/add.ram"),
+            "import \"../constants.ram\"; fn add(a: i32, b: i32) -> i32 { return a + b + OFFSET; }",
+        ).unwrap();
+        fs::write(root.join("constants.ram"), "const OFFSET: i32 = 0;").unwrap();
+
+        let mut program = Program::default();
+        let mut visited = HashSet::new();
+        let loaded = load_source_recursive(&root.join("main.ram"), &mut visited).unwrap();
+        assert_eq!(loaded.len(), 3);
+        for part in loaded {
+            merge_program(&mut program, part).unwrap();
+        }
+        let ir = compile_to_llvm(&program).unwrap();
+        assert!(ir.contains("define i32 @add(i32"));
+        assert!(ir.contains("@OFFSET = constant i32 0"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn import_cycles_do_not_parse_the_same_file_twice() {
+        let root = env::temp_dir().join(format!("ramlang-import-cycle-test-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("main.ram"), "import \"helper.ram\"; fn main() -> i32 { return helper() - 42; }").unwrap();
+        fs::write(root.join("helper.ram"), "import \"main.ram\"; fn helper() -> i32 { return 42; }").unwrap();
+
+        let mut program = Program::default();
+        let mut visited = HashSet::new();
+        let loaded = load_source_recursive(&root.join("main.ram"), &mut visited).unwrap();
+        assert_eq!(loaded.len(), 2);
+        for part in loaded {
+            merge_program(&mut program, part).unwrap();
+        }
+        assert!(compile_to_llvm(&program).is_ok());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reports_missing_import_paths() {
+        let root = env::temp_dir().join(format!("ramlang-missing-import-test-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("main.ram"), "import \"missing.ram\"; fn main() -> i32 { return 0; }").unwrap();
+        let mut visited = HashSet::new();
+        let error = load_source_recursive(&root.join("main.ram"), &mut visited).unwrap_err();
+        assert!(error.contains("missing.ram"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn parses_object_assembly_and_bitcode_emission_modes() {
         let object = parse_args_from([
             "example.ram".to_owned(),
