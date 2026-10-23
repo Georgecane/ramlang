@@ -897,6 +897,16 @@ impl<'a> FunctionGenerator<'a> {
                 if matches!((source_type, *target), (Type::Str, Type::Ptr) | (Type::Ptr, Type::Str)) {
                     return Ok((source, *target));
                 }
+                if source_type.is_integer() && *target == Type::Ptr {
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = inttoptr {} {source} to ptr", source_type.llvm()));
+                    return Ok((result, Type::Ptr));
+                }
+                if matches!(source_type, Type::Ptr | Type::Str) && target.is_integer() {
+                    let result = self.fresh_value();
+                    self.emit(format!("{result} = ptrtoint ptr {source} to {}", target.llvm()));
+                    return Ok((result, *target));
+                }
 
                 if source_type == Type::Bool && target.is_integer() {
                     let result = self.fresh_value();
@@ -1932,11 +1942,19 @@ mod tests {
     }
 
     #[test]
-    fn rejects_casts_to_void_and_pointer_integer_casts() {
+    fn rejects_casts_to_void_and_float_pointer_casts() {
         let void_cast = compile("fn main() -> i32 { let x: i32 = 1 as void; return 0; }").unwrap_err();
         assert!(void_cast.contains("cast a value to void"));
-        let pointer_cast = compile("fn main() -> i32 { let x: i64 = 1 as ptr; return 0; }").unwrap_err();
-        assert!(pointer_cast.contains("cannot cast i32 to ptr"));
+        let pointer_cast = compile("fn main() -> i32 { let x: ptr = 1.0 as ptr; return 0; }").unwrap_err();
+        assert!(pointer_cast.contains("cannot cast double to ptr"));
+    }
+
+    #[test]
+    fn lowers_explicit_integer_pointer_casts() {
+        let source = "fn main() -> i32 { let p: ptr = alloc(4); let address: u64 = p as u64; let q: ptr = address as ptr; store_i32(q, 42); print(load_i32(p)); free(p); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("ptrtoint ptr"));
+        assert!(ir.contains("inttoptr i64"));
     }
 
     #[test]
