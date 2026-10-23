@@ -1163,4 +1163,21 @@ mod tests {
         assert!(ir.contains("fadd double"));
         assert!(ir.contains("@.fmt.f64"));
     }
+
+    #[test]
+    fn emits_explicit_memory_operations() {
+        let source = "fn main() -> i32 { let p: ptr = alloc(4); store_i32(p, 42); print(load_i32(p)); free(p); return 0; }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("call ptr @malloc(i64 4)"));
+        assert!(ir.contains("store i32 42"));
+        assert!(ir.contains("load i32, ptr"));
+        assert!(ir.contains("call void @free(ptr"));
+    }
+
+    #[test]
+    fn accepts_null_pointer_values() {
+        let source = "fn main() -> i32 { let p: ptr = null; if (p == null) { return 0; } else { return 1; } }";
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("icmp eq ptr"));
+    }
 }
