@@ -1009,6 +1009,7 @@ struct FunctionGenerator<'a> {
     signatures: &'a HashMap<String, Signature>,
     structs: &'a HashMap<u64, StructDef>,
     globals: &'a HashMap<String, (Type, String)>,
+    global_bindings: &'a HashMap<String, Binding>,
     return_type: Type,
     allocas: Vec<String>,
     lines: Vec<String>,
@@ -1029,11 +1030,12 @@ impl<'a> FunctionGenerator<'a> {
         signatures: &'a HashMap<String, Signature>,
         structs: &'a HashMap<u64, StructDef>,
         globals: &'a HashMap<String, (Type, String)>,
+        global_bindings: &'a HashMap<String, Binding>,
         return_type: Type,
         function_name: &str,
     ) -> Self {
         Self {
-            signatures, structs, globals, return_type, allocas: Vec::new(), lines: Vec::new(),
+            signatures, structs, globals, global_bindings, return_type, allocas: Vec::new(), lines: Vec::new(),
             scopes: vec![HashMap::new()], current_block: "entry".to_owned(),
             function_name: function_name.to_owned(), string_counter: 0,
             string_globals: Vec::new(), loop_stack: Vec::new(),
@@ -1072,6 +1074,7 @@ impl<'a> FunctionGenerator<'a> {
 
     fn lookup(&self, name: &str) -> Option<Binding> {
         self.scopes.iter().rev().find_map(|scope| scope.get(name).cloned())
+            .or_else(|| self.global_bindings.get(name).cloned())
     }
 
     fn require_same(&self, expected: Type, actual: Type, context: &str) -> Result<(), String> {
