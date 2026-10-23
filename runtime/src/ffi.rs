@@ -1811,6 +1811,111 @@ pub unsafe extern "C" fn ramlang_tcp_request_future(
     Box::into_raw(Box::new(RamlangFuture { state }))
 }
 
+/// Start a native UDP text request that resolves to a Future<str> in generated RamLang.
+///
+/// The request binds an ephemeral socket, sends one UTF-8 datagram to the resolved address,
+/// and accepts one reply only from that exact peer. The response must be UTF-8. The future
+/// result is a Rust-runtime-owned NUL-terminated string that the caller must release using
+/// ramlang_free. Network and decoding errors are surfaced through ramlang_last_error when
+/// the future is awaited.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_request_future(
+    address: *const c_char,
+    payload: *const c_char,
+    timeout_ms: i64,
+) -> *mut RamlangFuture {
+    let address = match read_c_string(address, "UDP destination") {
+        Ok(value) => value,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    let payload = match read_c_string(payload, "UDP payload") {
+        Ok(value) => value,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    if timeout_ms <= 0 {
+        set_last_error("UDP timeout must be greater than zero");
+        return ptr::null_mut();
+    }
+    if payload.len() > 65_507 {
+        set_last_error("UDP request payload exceeds 65,507 bytes");
+        return ptr::null_mut();
+    }
+    let runtime = match async_request_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+
+    let state = Arc::new(FutureState::new());
+    let task_state = Arc::clone(&state);
+    let operation_timeout = Duration::from_millis(timeout_ms as u64);
+    runtime.spawn(async move {
+        let result: Result<i64, String> = async {
+            let mut addresses = tokio::time::timeout(
+                operation_timeout,
+                tokio::net::lookup_host(address.as_str()),
+            )
+            .await
+            .map_err(|_| "UDP DNS lookup timed out".to_owned())?
+            .map_err(|error| error.to_string())?;
+            let target = addresses
+                .next()
+                .ok_or_else(|| "UDP destination resolved to no addresses".to_owned())?;
+            let bind_address = if target.is_ipv4() {
+                "0.0.0.0:0"
+            } else {
+                "[::]:0"
+            };
+            let endpoint = UdpEndpoint::bind(bind_address, operation_timeout)
+                .await
+                .map_err(|error| error.to_string())?;
+            endpoint
+                .send_to(payload.as_bytes(), &target.to_string())
+                .await
+                .map_err(|error| error.to_string())?;
+            let (response, peer) = endpoint
+                .recv_from(65_507)
+                .await
+                .map_err(|error| error.to_string())?;
+            if peer != target {
+                return Err("UDP response came from an unexpected peer".to_owned());
+            }
+            let response = String::from_utf8(response)
+                .map_err(|error| format!("UDP text response is not valid UTF-8: {error}"))?;
+            let allocation_size = response
+                .len()
+                .checked_add(1)
+                .ok_or_else(|| "UDP response size overflow".to_owned())?;
+            let output = ramlang_alloc(
+                u64::try_from(allocation_size)
+                    .map_err(|_| "UDP response size does not fit this platform".to_owned())?,
+            );
+            if output.is_null() {
+                return Err("unable to allocate UDP response string".to_owned());
+            }
+            // SAFETY: the allocation is response length plus one byte, as requested above.
+            unsafe {
+                ptr::copy_nonoverlapping(response.as_ptr(), output.cast::<u8>(), response.len());
+                *output.cast::<u8>().add(response.len()) = 0;
+            }
+            Ok(output as usize as i64)
+        }
+        .await;
+        task_state.complete_result(result);
+    });
+
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangFuture { state }))
+}
+
 /// Block until a future produces its i64 payload.
 ///
 /// # Safety
