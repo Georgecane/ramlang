@@ -2504,6 +2504,23 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((future, Type::Future(FutureOutput::Str)));
                 }
 
+                if name == "udp_request" {
+                    if args.len() != 3 {
+                        return Err("udp_request expects an address, UTF-8 payload, and timeout in milliseconds".to_owned());
+                    }
+                    let (address, address_type) = self.emit_expr_expected(&args[0], Some(Type::Str))?;
+                    self.require_same(Type::Str, address_type, "udp_request address")?;
+                    let (payload, payload_type) = self.emit_expr_expected(&args[1], Some(Type::Str))?;
+                    self.require_same(Type::Str, payload_type, "udp_request payload")?;
+                    let (timeout, timeout_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
+                    self.require_same(Type::I64, timeout_type, "udp_request timeout")?;
+                    let future = self.fresh_value();
+                    self.emit(format!(
+                        "{future} = call ptr @ramlang_udp_request_future(ptr {address}, ptr {payload}, i64 {timeout})"
+                    ));
+                    return Ok((future, Type::Future(FutureOutput::Str)));
+                }
+
                 if name == "print" {
                     if args.len() != 1 {
                         return Err("print expects exactly one argument".to_owned());
@@ -4659,6 +4676,7 @@ fn compile_to_llvm_for_target(
     module.push_str("declare i64 @ramlang_future_await_i64(ptr)\n");
     module.push_str("declare void @ramlang_future_close(ptr)\n");
     module.push_str("declare ptr @ramlang_tcp_request_future(ptr, ptr, i64)\n");
+    module.push_str("declare ptr @ramlang_udp_request_future(ptr, ptr, i64)\\n");
     module.push_str("declare void @llvm.trap() cold noreturn nounwind\n");
     module.push_str("declare void @llvm.assume(i1) nounwind\n");
 
