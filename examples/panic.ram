@@ -1,0 +1,13 @@
+fn fail(message: str) -> void {
+    panic(message);
+}
+
+fn main() -> i32 {
+    let ok: bool = true;
+    if (ok) {
+        print("program is healthy");
+    } else {
+        fail("the program entered an invalid state");
+    }
+    return 0;
+}
