@@ -1,7 +1,9 @@
 fn main() -> i32 {
-    let p: ptr = alloc(4);
-    store_i32(p, 42);
-    print(load_i32(p));
+    let p: ptr = alloc(8);
+    store_i32(p, 7);
+    let q: ptr = ptr_offset(p, 4);
+    store_i32(q, 42);
+    print(load_i32(q));
     free(p);
     return 0;
 }
