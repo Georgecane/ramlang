@@ -1305,6 +1305,49 @@ mod tests {
     }
 
     #[test]
+    fn c_abi_async_udp_request_round_trip() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let address = server.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let mut payload = [0_u8; 128];
+            let (length, peer) = server.recv_from(&mut payload).unwrap();
+            server.send_to(&payload[..length], peer).unwrap();
+        });
+
+        let destination = CString::new(address.to_string()).unwrap();
+        let payload = b"async udp";
+        // SAFETY: the destination and payload are valid and copied before the call returns.
+        let request = unsafe {
+            ramlang_udp_request_start(
+                destination.as_ptr(),
+                payload.as_ptr(),
+                payload.len() as u64,
+                128,
+                2_000,
+            )
+        };
+        assert!(!request.is_null(), "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+
+        // SAFETY: the request is live and has not been closed.
+        assert_eq!(unsafe { ramlang_udp_request_wait(request, 2_000) }, 1);
+        let mut output = [0_u8; 128];
+        // SAFETY: the request is live and output has 128 writable bytes.
+        let length =
+            unsafe { ramlang_udp_request_read_result(request, output.as_mut_ptr(), 128) };
+        assert_eq!(length, payload.len() as i64);
+        assert_eq!(&output[..length as usize], payload);
+
+        // SAFETY: the request is live and has not been closed.
+        unsafe { ramlang_udp_request_close(request) };
+        server.join().unwrap();
+    }
+
+    #[test]
     fn c_abi_udp_datagram_round_trip() {
         let server = UdpSocket::bind("127.0.0.1:0").unwrap();
         server
