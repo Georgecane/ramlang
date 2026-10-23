@@ -39,7 +39,7 @@ jobs:
           cargo run --release -- examples/hello.ram --emit-asm -o target/hello-rust-llvm.s
           test -s target/hello-rust-llvm.s
           cargo run --release -- examples/hello.ram --emit-bc -o target/hello-rust-llvm.bc
-          llvm-dis-23 target/hello-rust-llvm.bc -o /dev/null
+          "$LLVM_BINDIR/llvm-dis" target/hello-rust-llvm.bc -o /dev/null
       - name: Build TCP runtime shared library
         run: cargo build --release -p ramlang-runtime
       - name: Compile and run C ABI header smoke test
