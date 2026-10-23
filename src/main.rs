@@ -2519,34 +2519,50 @@ impl<'a> FunctionGenerator<'a> {
                 }
 
                 if default.is_none() {
-                    let Type::Enum(enum_id) = scrutinee_type else {
-                        return Err("match on non-enum values requires a '_' fallback arm".to_owned());
-                    };
-                    let enumeration = self.enums.get(&enum_id)
-                        .ok_or_else(|| format!("unknown enum type id {enum_id:016x}"))?;
-                    let required = enumeration.variants.iter().map(|(_, value)| *value).collect::<HashSet<_>>();
-                    let mut covered = HashSet::<i32>::new();
-                    for (pattern, _) in arms {
-                        let Some((pattern_enum_id, discriminant)) = self.enum_variant_identity(pattern) else {
-                            return Err(format!("match on enum '{}' requires named enum variants or a '_' fallback", enumeration.name));
+                    if scrutinee_type == Type::Bool {
+                        let mut covered = HashSet::<bool>::new();
+                        for (pattern, _) in arms {
+                            let Expr::Bool(value) = pattern else {
+                                return Err("exhaustive bool match requires true and false literal patterns or a '_' fallback".to_owned());
+                            };
+                            if !covered.insert(*value) {
+                                return Err(format!("duplicate boolean pattern '{value}' in match"));
+                            }
+                        }
+                        if covered.len() != 2 {
+                            let missing = if !covered.contains(&true) { "true" } else { "false" };
+                            return Err(format!("non-exhaustive match on bool; missing pattern: {missing}"));
+                        }
+                    } else {
+                        let Type::Enum(enum_id) = scrutinee_type else {
+                            return Err("match on non-enum values requires a '_' fallback arm".to_owned());
                         };
-                        if pattern_enum_id != enum_id {
-                            return Err(format!("match arm belongs to a different enum than '{}'", enumeration.name));
+                        let enumeration = self.enums.get(&enum_id)
+                            .ok_or_else(|| format!("unknown enum type id {enum_id:016x}"))?;
+                        let required = enumeration.variants.iter().map(|(_, value)| *value).collect::<HashSet<_>>();
+                        let mut covered = HashSet::<i32>::new();
+                        for (pattern, _) in arms {
+                            let Some((pattern_enum_id, discriminant)) = self.enum_variant_identity(pattern) else {
+                                return Err(format!("match on enum '{}' requires named enum variants or a '_' fallback", enumeration.name));
+                            };
+                            if pattern_enum_id != enum_id {
+                                return Err(format!("match arm belongs to a different enum than '{}'", enumeration.name));
+                            }
+                            if !covered.insert(discriminant) {
+                                return Err(format!("duplicate discriminant {discriminant} in match on enum '{}'", enumeration.name));
+                            }
                         }
-                        if !covered.insert(discriminant) {
-                            return Err(format!("duplicate discriminant {discriminant} in match on enum '{}'", enumeration.name));
+                        if covered != required {
+                            let missing = enumeration.variants.iter()
+                                .filter(|(_, value)| !covered.contains(value))
+                                .map(|(name, _)| name.as_str())
+                                .collect::<Vec<_>>();
+                            return Err(format!(
+                                "non-exhaustive match on enum '{}'; missing variant(s): {}",
+                                enumeration.name,
+                                missing.join(", ")
+                            ));
                         }
-                    }
-                    if covered != required {
-                        let missing = enumeration.variants.iter()
-                            .filter(|(_, value)| !covered.contains(value))
-                            .map(|(name, _)| name.as_str())
-                            .collect::<Vec<_>>();
-                        return Err(format!(
-                            "non-exhaustive match on enum '{}'; missing variant(s): {}",
-                            enumeration.name,
-                            missing.join(", ")
-                        ));
                     }
                 }
 
@@ -4195,6 +4211,14 @@ mod tests {
         assert!(ir.contains("switch i1"));
         assert!(ir.contains("i32 1, label %match.arm"));
         assert!(ir.contains("i1 true, label %match.arm"));
+    }
+
+    #[test]
+    fn rejects_non_exhaustive_boolean_match_without_fallback() {
+        let error = compile("fn main() -> i32 { let flag: bool = true; match (flag) { true => { print(1); } } return 0; }").unwrap_err();
+        assert!(error.contains("non-exhaustive match on bool; missing pattern: false"));
+        let duplicate = compile("fn main() -> i32 { let flag: bool = true; match (flag) { true => { print(1); }, true => { print(2); } } return 0; }").unwrap_err();
+        assert!(duplicate.contains("duplicate boolean pattern 'true'"));
     }
 
     #[test]
