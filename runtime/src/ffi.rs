@@ -1,8 +1,9 @@
 //! C ABI bridge for RamLang's native compiler.
 //!
-//! This layer intentionally exposes blocking functions so current RamLang programs can
-//! call the networking runtime through existing extern fn declarations. Native
-//! async fn / await integration remains a separate compiler milestone.
+//! This layer keeps compatibility APIs for direct handle-based use while native
+//! async functions and text TCP/UDP requests use Rust-owned Future handles. The compiler's
+//! current await bridge blocks the calling OS thread; resumable state-machine lowering remains
+//! future work.
 
 use std::{
     alloc::{Layout, alloc as alloc_bytes, dealloc as dealloc_bytes},
@@ -1666,10 +1667,6 @@ impl FutureState {
 
     fn complete(&self, value: i64) {
         self.complete_result(Ok(value));
-    }
-
-    fn fail(&self, error: impl Into<String>) {
-        self.complete_result(Err(error.into()));
     }
 
     fn complete_result(&self, value: Result<i64, String>) {
