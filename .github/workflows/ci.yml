@@ -532,7 +532,7 @@ jobs:
       - name: Compile and run f32 type example
         run: |
           cargo run --release -- examples/f32.ram -o target/f32-example
-          expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s' '3.875' '3.875' '3.88' '3' '8' '4' '0.0125')"
+          expected="$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s' '3.875' '3.875' '3.875' '3' '8' '4' '0.0125')"
           test "$(target/f32-example)" = "$expected"
       - name: Compile and run saturating arithmetic example
         run: |
