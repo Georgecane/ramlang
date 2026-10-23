@@ -3919,7 +3919,7 @@ mod tests {
         assert!(ir.contains("icmp eq i32"));
         assert!(ir.contains("icmp slt i32"));
         assert!(ir.contains("define i32 @color_code(i32"));
-        assert!(ir.contains(&format!("ret i32 5")));
+        assert!(ir.contains("sub i32"));
         assert!(ir.contains("store i64 4, ptr"));
         assert!(!ir.contains(&format!("%struct.{color_id:016x} = type")));
     }
