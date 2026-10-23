@@ -10,6 +10,7 @@ RamLang is a small C-inspired, statically typed systems-language experiment writ
 - Native compilation through Clang (LLVM 15 or newer, using opaque pointers), with LLVM IR, object, assembly, and bitcode output modes
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
+- Type aliases for scalar, array, struct, and enum types, including chained aliases
 - Simple enums with automatic or explicit integer discriminants, including cross-file type resolution
 - `extern static` declarations for C-defined scalar and raw-pointer globals
 - Global scalar, boolean, null-pointer, and UTF-8 string constants, available across source files
@@ -405,6 +406,37 @@ fn main() -> i32 {
 ```
 
 Statement matches and value-producing matches both lower constant enum, integer, and boolean patterns to an LLVM `switch`; value-producing matches merge their results with a `phi` node. If any pattern is dynamic, the compiler retains ordered comparison semantics. The lowered default edge for an exhaustive enum statement match traps if the underlying integer contains an invalid discriminant.
+
+## Type aliases
+
+Use `type Name = ExistingType;` to introduce another name for an existing type. Aliases are resolved to their canonical type before LLVM generation and may refer to scalar types, arrays, structs, enums, or other aliases. Chained aliases and aliases declared in imported source files are supported; circular aliases, duplicate aliases, and collisions with existing type declarations are errors.
+
+```rust
+type Scalar = i32;
+type Number = Scalar;
+type Samples = [i32; 3];
+
+struct Vec2 {
+    x: Number,
+    y: Scalar,
+}
+
+type Position = Vec2;
+
+fn sum(left: Number, right: Scalar) -> Number {
+    return left + right;
+}
+
+fn main() -> i32 {
+    let samples: Samples = [10, 20, 12];
+    let point: Position = Position { x: 5, y: 7 };
+    print(sum(samples[2], point.x));
+    print(point.y);
+    return 0;
+}
+```
+
+Type aliases do not create distinct or strongly typed values; they are names for the underlying type. The alias may be declared before or after the type it names. Arrays can be aliased as a whole, but using a scalar alias directly as the inline element type in a new `[Alias; N]` declaration is not yet supported; write the underlying scalar type there.
 
 ## Named structs
 
