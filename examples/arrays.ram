@@ -1,0 +1,11 @@
+fn main() -> i32 {
+    let values: [i32; 4] = alloc(16) as [i32; 4];
+    let mut index: i32 = 0;
+    while (index < 4) {
+        values[index] = index * 10;
+        index = index + 1;
+    }
+    print(values[3]);
+    free(values as ptr);
+    return 0;
+}
