@@ -2583,7 +2583,7 @@ impl<'a> FunctionGenerator<'a> {
                     let pointer = self.emit_raw_pointer_expr(&args[0], "strlen argument")?;
                     let size_t_type = self.size_t_llvm_type();
                     let raw_result = self.fresh_value();
-                    self.emit(format!("{raw_result} = call {size_t_type} @strlen(ptr {pointer})"));
+                    self.emit(format!("{raw_result} = call {size_t_type} @ramlang_strlen(ptr {pointer})"));
                     let result = self.widen_size_t_to_i64(&raw_result);
                     return Ok((result, Type::I64));
                 }
@@ -2597,13 +2597,13 @@ impl<'a> FunctionGenerator<'a> {
                     let right = self.emit_raw_pointer_expr(&args[1], &format!("{name} right operand"))?;
                     let result = self.fresh_value();
                     if name == "strcmp" {
-                        self.emit(format!("{result} = call i32 @strcmp(ptr {left}, ptr {right})"));
+                        self.emit(format!("{result} = call i32 @ramlang_strcmp(ptr {left}, ptr {right})"));
                     } else {
                         let (count, count_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
                         self.require_same(Type::I64, count_type, "strncmp byte count")?;
                         let count = self.emit_size_t_count(&count, "strncmp byte count")?;
                         let size_t_type = self.size_t_llvm_type();
-                        self.emit(format!("{result} = call i32 @strncmp(ptr {left}, ptr {right}, {size_t_type} {count})"));
+                        self.emit(format!("{result} = call i32 @ramlang_strncmp(ptr {left}, ptr {right}, {size_t_type} {count})"));
                     }
                     return Ok((result, Type::I32));
                 }
@@ -2620,7 +2620,7 @@ impl<'a> FunctionGenerator<'a> {
                     let count = self.emit_size_t_count(&count, "memchr byte count")?;
                     let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call ptr @memchr(ptr {pointer}, i32 {byte}, {size_t_type} {count})"));
+                    self.emit(format!("{result} = call ptr @ramlang_memchr(ptr {pointer}, i32 {byte}, {size_t_type} {count})"));
                     return Ok((result, Type::Ptr));
                 }
 
@@ -2635,7 +2635,7 @@ impl<'a> FunctionGenerator<'a> {
                     let count = self.emit_size_t_count(&count, &format!("{name} byte count"))?;
                     let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call ptr @{name}(ptr {destination}, ptr {source}, {size_t_type} {count})"));
+                    self.emit(format!("{result} = call ptr @ramlang_{name}(ptr {destination}, ptr {source}, {size_t_type} {count})"));
                     return Ok((result, Type::Ptr));
                 }
 
@@ -2651,7 +2651,7 @@ impl<'a> FunctionGenerator<'a> {
                     let count = self.emit_size_t_count(&count, "memset byte count")?;
                     let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call ptr @memset(ptr {destination}, i32 {fill}, {size_t_type} {count})"));
+                    self.emit(format!("{result} = call ptr @ramlang_memset(ptr {destination}, i32 {fill}, {size_t_type} {count})"));
                     return Ok((result, Type::Ptr));
                 }
 
@@ -2666,7 +2666,7 @@ impl<'a> FunctionGenerator<'a> {
                     let count = self.emit_size_t_count(&count, "memcmp byte count")?;
                     let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call i32 @memcmp(ptr {left}, ptr {right}, {size_t_type} {count})"));
+                    self.emit(format!("{result} = call i32 @ramlang_memcmp(ptr {left}, ptr {right}, {size_t_type} {count})"));
                     return Ok((result, Type::I32));
                 }
 
@@ -2997,7 +2997,7 @@ impl<'a> FunctionGenerator<'a> {
                     let size = self.emit_size_t_count(&size, "alloc byte count")?;
                     let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call ptr @malloc({size_t_type} {size})"));
+                    self.emit(format!("{result} = call ptr @ramlang_malloc({size_t_type} {size})"));
                     return Ok((result, Type::Ptr));
                 }
 
@@ -3013,7 +3013,7 @@ impl<'a> FunctionGenerator<'a> {
                     let size = self.emit_size_t_count(&size, "calloc element size")?;
                     let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call ptr @calloc({size_t_type} {count}, {size_t_type} {size})"));
+                    self.emit(format!("{result} = call ptr @ramlang_calloc({size_t_type} {count}, {size_t_type} {size})"));
                     return Ok((result, Type::Ptr));
                 }
 
@@ -3027,7 +3027,7 @@ impl<'a> FunctionGenerator<'a> {
                     let size = self.emit_size_t_count(&size, "realloc byte count")?;
                     let size_t_type = self.size_t_llvm_type();
                     let result = self.fresh_value();
-                    self.emit(format!("{result} = call ptr @realloc(ptr {pointer}, {size_t_type} {size})"));
+                    self.emit(format!("{result} = call ptr @ramlang_realloc(ptr {pointer}, {size_t_type} {size})"));
                     return Ok((result, Type::Ptr));
                 }
 
@@ -3037,7 +3037,7 @@ impl<'a> FunctionGenerator<'a> {
                     }
                     let (pointer, pointer_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
                     self.require_same(Type::Ptr, pointer_type, "free argument")?;
-                    self.emit(format!("call void @free(ptr {pointer})"));
+                    self.emit(format!("call void @ramlang_free(ptr {pointer})"));
                     return Ok((String::new(), Type::Void));
                 }
 
@@ -4618,20 +4618,26 @@ fn compile_to_llvm_for_target(
     module.push_str("declare void @ramlang_print_u64(i64)\n");
     module.push_str("declare void @ramlang_print_f64(double)\n");
     module.push_str("declare void @ramlang_print_str(ptr)\n");
+    module.push_str("declare void @ramlang_print_i32(i32)\n");
+    module.push_str("declare void @ramlang_print_i64(i64)\n");
+    module.push_str("declare void @ramlang_print_u32(i32)\n");
+    module.push_str("declare void @ramlang_print_u64(i64)\n");
+    module.push_str("declare void @ramlang_print_f64(double)\n");
+    module.push_str("declare void @ramlang_print_str(ptr)\n");
     module.push_str("declare i32 @printf(ptr, ...)\n\n");
     let size_t = if target_pointer_width == 32 { "i32" } else { "i64" };
-    module.push_str(&format!("declare ptr @malloc({size_t})\n"));
-    module.push_str(&format!("declare ptr @calloc({size_t}, {size_t})\n"));
-    module.push_str(&format!("declare ptr @realloc(ptr, {size_t})\n"));
-    module.push_str("declare void @free(ptr)\n");
-    module.push_str(&format!("declare ptr @memcpy(ptr, ptr, {size_t})\n"));
-    module.push_str(&format!("declare ptr @memmove(ptr, ptr, {size_t})\n"));
-    module.push_str(&format!("declare ptr @memset(ptr, i32, {size_t})\n"));
-    module.push_str(&format!("declare i32 @memcmp(ptr, ptr, {size_t})\n"));
-    module.push_str(&format!("declare {size_t} @strlen(ptr)\n"));
-    module.push_str("declare i32 @strcmp(ptr, ptr)\n");
-    module.push_str(&format!("declare i32 @strncmp(ptr, ptr, {size_t})\n"));
-    module.push_str(&format!("declare ptr @memchr(ptr, i32, {size_t})\n"));
+    module.push_str(&format!("declare ptr @ramlang_malloc({size_t})\n"));
+    module.push_str(&format!("declare ptr @ramlang_calloc({size_t}, {size_t})\n"));
+    module.push_str(&format!("declare ptr @ramlang_realloc(ptr, {size_t})\n"));
+    module.push_str("declare void @ramlang_free(ptr)\n");
+    module.push_str(&format!("declare ptr @ramlang_memcpy(ptr, ptr, {size_t})\n"));
+    module.push_str(&format!("declare ptr @ramlang_memmove(ptr, ptr, {size_t})\n"));
+    module.push_str(&format!("declare ptr @ramlang_memset(ptr, i32, {size_t})\n"));
+    module.push_str(&format!("declare i32 @ramlang_memcmp(ptr, ptr, {size_t})\n"));
+    module.push_str(&format!("declare {size_t} @ramlang_strlen(ptr)\n"));
+    module.push_str("declare i32 @ramlang_strcmp(ptr, ptr)\n");
+    module.push_str(&format!("declare i32 @ramlang_strncmp(ptr, ptr, {size_t})\n"));
+    module.push_str(&format!("declare ptr @ramlang_memchr(ptr, i32, {size_t})\n"));
     module.push_str("declare ptr @ramlang_alloc(i64)\n");
     module.push_str("declare void @ramlang_free(ptr)\n");
     module.push_str("declare ptr @ramlang_future_spawn_i64(ptr, ptr)\n");
