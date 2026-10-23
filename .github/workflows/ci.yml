@@ -322,6 +322,12 @@ jobs:
           cargo run --release -- examples/match_expr.ram -o target/match-expr
           expected="$(printf '%s\n%s' '42' '7')"
           test "$(target/match-expr)" = "$expected"
+      - name: Compile and link variadic C ABI example
+        run: |
+          cargo run --release -- examples/variadic_ffi.ram --emit-obj -o target/variadic-ffi.o
+          clang -c examples/variadic_ffi.c -o target/variadic-ffi-c.o
+          clang target/variadic-ffi.o target/variadic-ffi-c.o -o target/variadic-ffi
+          test "$(target/variadic-ffi)" = "258"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
