@@ -7,14 +7,78 @@
 use std::{
     ffi::{CStr, CString, c_char},
     io, ptr, slice,
-    sync::Mutex,
-    time::Duration,
+    sync::{Arc, Condvar, Mutex, OnceLock},
+    time::{Duration, Instant},
 };
 use tokio::runtime::{Builder, Runtime};
 
 use crate::{TcpConnection, UdpEndpoint};
 
 const MAX_FFI_TCP_FRAME_SIZE: usize = 16 * 1024 * 1024;
+
+static ASYNC_REQUEST_RUNTIME: OnceLock<Result<Runtime, String>> = OnceLock::new();
+
+/// State shared by the caller's request handle and its background Tokio task.
+struct AsyncTcpRequestState {
+    result: Mutex<Option<Result<Vec<u8>, String>>>,
+    ready: Condvar,
+    abort_handle: Mutex<Option<tokio::task::AbortHandle>>,
+}
+
+impl AsyncTcpRequestState {
+    fn new() -> Self {
+        Self {
+            result: Mutex::new(None),
+            ready: Condvar::new(),
+            abort_handle: Mutex::new(None),
+        }
+    }
+
+    fn complete(&self, result: Result<Vec<u8>, String>) {
+        let mut slot = self.result.lock().unwrap_or_else(|error| error.into_inner());
+        if slot.is_none() {
+            *slot = Some(result);
+            self.ready.notify_all();
+        }
+    }
+
+    fn set_abort_handle(&self, handle: tokio::task::AbortHandle) {
+        *self
+            .abort_handle
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(handle);
+    }
+
+    fn cancel(&self) {
+        self.complete(Err("TCP request cancelled".to_owned()));
+        if let Ok(handle) = self.abort_handle.lock() {
+            if let Some(handle) = handle.as_ref() {
+                handle.abort();
+            }
+        }
+    }
+}
+
+/// Opaque handle for a background TCP request.
+///
+/// Requests run on a shared multithread Tokio runtime. Dropping the handle through
+/// ramlang_tcp_request_close cancels an unfinished request.
+pub struct RamlangTcpRequest {
+    state: Arc<AsyncTcpRequestState>,
+}
+
+fn async_request_runtime() -> Result<&'static Runtime, String> {
+    match ASYNC_REQUEST_RUNTIME.get_or_init(|| {
+        Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .map_err(|error| format!("could not create async request runtime: {error}"))
+    }) {
+        Ok(runtime) => Ok(runtime),
+        Err(error) => Err(error.clone()),
+    }
+}
 
 thread_local! {
     static LAST_ERROR: std::cell::RefCell<CString> =
