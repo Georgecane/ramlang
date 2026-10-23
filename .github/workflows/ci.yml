@@ -32,6 +32,10 @@ jobs:
           cargo run --release -- examples/fibonacci.ram -o target/fibonacci
           expected="$(printf '0\n1\n1\n2\n3\n5\n8\n13\n21\n34')"
           test "$(target/fibonacci)" = "$expected"
+      - name: Compile and run explicit memory example
+        run: |
+          cargo run --release -- examples/memory.ram -o target/memory
+          test "$(target/memory)" = "42"
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
