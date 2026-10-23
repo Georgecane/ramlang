@@ -341,11 +341,20 @@ struct GlobalConst {
     value: Expr,
 }
 
+#[derive(Debug, Clone)]
+struct GlobalVar {
+    name: String,
+    ty: Type,
+    mutable: bool,
+    value: Expr,
+}
+
 #[derive(Debug, Clone, Default)]
 struct Program {
     functions: Vec<Function>,
     structs: Vec<StructDef>,
     constants: Vec<GlobalConst>,
+    static_vars: Vec<GlobalVar>,
     type_references: HashMap<u64, String>,
 }
 
@@ -465,17 +474,37 @@ impl Parser {
                 program.constants.push(self.parse_global_const()?);
                 continue;
             }
+            if self.match_keyword("static") {
+                program.static_vars.push(self.parse_global_var()?);
+                continue;
+            }
             let external = self.match_keyword("extern");
             if !self.match_keyword("fn") {
-                return Err(self.error("expected a struct declaration, function declaration, or 'extern fn'".to_owned()));
+                return Err(self.error("expected a struct, const, static, function declaration, or 'extern fn'".to_owned()));
             }
             program.functions.push(self.parse_function(external)?);
         }
-        if program.functions.is_empty() && program.structs.is_empty() && program.constants.is_empty() {
+        if program.functions.is_empty() && program.structs.is_empty()
+            && program.constants.is_empty() && program.static_vars.is_empty()
+        {
             return Err("source file does not contain any declarations".to_owned());
         }
         program.type_references = std::mem::take(&mut self.type_references);
         Ok(program)
+    }
+
+    fn parse_global_var(&mut self) -> Result<GlobalVar, String> {
+        let mutable = self.match_keyword("mut");
+        let name = self.expect_ident("static variable name")?;
+        self.expect_symbol(":")?;
+        let ty = self.parse_type()?;
+        if ty == Type::Void {
+            return Err(self.error("a static variable cannot have type void".to_owned()));
+        }
+        self.expect_symbol("=")?;
+        let value = self.parse_expression()?;
+        self.expect_symbol(";")?;
+        Ok(GlobalVar { name, ty, mutable, value })
     }
 
     fn parse_global_const(&mut self) -> Result<GlobalConst, String> {
