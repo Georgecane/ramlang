@@ -1450,6 +1450,7 @@ struct Options {
     link_args: Vec<String>,
     target: Option<String>,
     opt_level: String,
+    opt_level_explicit: bool,
 }
 
 fn parse_args() -> Result<Options, String> {
@@ -1479,6 +1480,7 @@ where
         link_args: Vec::new(),
         target: None,
         opt_level: "2".to_owned(),
+        opt_level_explicit: false,
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -1506,6 +1508,7 @@ where
                     return Err(format!("invalid optimization level '{level}'; expected 0, 1, 2, 3, s, or z"));
                 }
                 options.opt_level = level;
+                options.opt_level_explicit = true;
             }
             "--link-lib" | "-l" => {
                 let Some(name) = args.next() else { return Err(format!("expected a library name after {arg}")); };
@@ -1533,7 +1536,7 @@ where
             || !options.link_search_paths.is_empty()
             || !options.link_args.is_empty()
             || options.target.is_some()
-            || options.opt_level != "2")
+            || options.opt_level_explicit)
     {
         return Err("target, optimization, and linker options require native compilation and cannot be combined with --check or --emit-llvm".to_owned());
     }
@@ -1631,12 +1634,19 @@ mod tests {
             "/usr/lib".to_owned(),
             "--link-arg".to_owned(),
             "-Wl,--as-needed".to_owned(),
+            "--target".to_owned(),
+            "x86_64-unknown-linux-gnu".to_owned(),
+            "--opt-level".to_owned(),
+            "0".to_owned(),
             "-o".to_owned(),
             "example".to_owned(),
         ]).unwrap();
         assert_eq!(options.link_libs, vec!["m"]);
         assert_eq!(options.link_search_paths, vec![PathBuf::from("/usr/lib")]);
         assert_eq!(options.link_args, vec!["-Wl,--as-needed"]);
+        assert_eq!(options.target.as_deref(), Some("x86_64-unknown-linux-gnu"));
+        assert_eq!(options.opt_level, "0");
+        assert!(options.opt_level_explicit);
         assert_eq!(options.output, Some(PathBuf::from("example")));
     }
 
@@ -1648,7 +1658,18 @@ mod tests {
             "--link-lib".to_owned(),
             "m".to_owned(),
         ]).unwrap_err();
-        assert!(error.contains("linker options require native compilation"));
+        assert!(error.contains("require native compilation"));
+    }
+
+    #[test]
+    fn rejects_target_and_explicit_optimization_for_ir_only_modes() {
+        let error = parse_args_from([
+            "example.ram".to_owned(),
+            "--check".to_owned(),
+            "--opt-level".to_owned(),
+            "2".to_owned(),
+        ]).unwrap_err();
+        assert!(error.contains("require native compilation"));
     }
 
     #[test]
