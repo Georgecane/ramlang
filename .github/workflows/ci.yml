@@ -352,6 +352,22 @@ jobs:
           cargo run --release -- examples/f32_memory.ram -o target/f32-memory
           expected="$(printf '%s\n%s\n%s' '1.5' '3.5' '4.25')"
           test "$(target/f32-memory)" = "$expected"
+      - name: Verify integer divide-by-zero traps at runtime
+        run: |
+          cargo run --release -- examples/division_by_zero.ram -o target/division-by-zero
+          ulimit -c 0
+          if target/division-by-zero >/dev/null 2>&1; then
+            echo "expected integer divide-by-zero to trap"
+            exit 1
+          fi
+      - name: Verify signed division overflow traps at runtime
+        run: |
+          cargo run --release -- examples/signed_division_overflow.ram -o target/signed-division-overflow
+          ulimit -c 0
+          if target/signed-division-overflow >/dev/null 2>&1; then
+            echo "expected signed MIN / -1 to trap"
+            exit 1
+          fi
       - name: Verify LLVM IR output path
         run: |
           cargo run --release -- examples/hello.ram --emit-llvm target/hello.ll
