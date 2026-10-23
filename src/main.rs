@@ -1455,6 +1455,51 @@ impl<'a> FunctionGenerator<'a> {
         widened
     }
 
+    fn emit_integer_division_guard(&mut self, lhs: &str, rhs: &str, ty: Type) -> Result<(), String> {
+        let Some(width) = ty.integer_width() else {
+            return Err("division guard requires an integer type".to_owned());
+        };
+        let llvm_type = ty.llvm();
+        let nonzero = self.fresh_value();
+        self.emit(format!("{nonzero} = icmp ne {llvm_type} {rhs}, 0"));
+
+        let valid = if ty.is_unsigned() {
+            nonzero
+        } else {
+            let minimum = match width {
+                8 => "-128",
+                16 => "-32768",
+                32 => "-2147483648",
+                64 => "-9223372036854775808",
+                _ => return Err(format!("unsupported signed division width {width}")),
+            };
+            let is_minimum = self.fresh_value();
+            self.emit(format!("{is_minimum} = icmp eq {llvm_type} {lhs}, {minimum}"));
+            let is_negative_one = self.fresh_value();
+            self.emit(format!("{is_negative_one} = icmp eq {llvm_type} {rhs}, -1"));
+            let overflow = self.fresh_value();
+            self.emit(format!("{overflow} = and i1 {is_minimum}, {is_negative_one}"));
+            let no_overflow = self.fresh_value();
+            self.emit(format!("{no_overflow} = xor i1 {overflow}, true"));
+            let valid = self.fresh_value();
+            self.emit(format!("{valid} = and i1 {nonzero}, {no_overflow}"));
+            valid
+        };
+
+        let ok_label = self.fresh_label("integer.division.ok");
+        let trap_label = self.fresh_label("integer.division.trap");
+        self.emit(format!("br i1 {valid}, label %{ok_label}, label %{trap_label}"));
+        self.terminated = true;
+
+        self.label(&trap_label);
+        self.emit("call void @llvm.trap()");
+        self.emit("unreachable");
+        self.terminated = true;
+
+        self.label(&ok_label);
+        Ok(())
+    }
+
     fn emit_raw_pointer_expr(&mut self, expression: &Expr, context: &str) -> Result<String, String> {
         let (value, ty) = self.emit_expr(expression)?;
         if matches!(ty, Type::Ptr | Type::Str | Type::Array(_, _) | Type::Struct(_)) {
@@ -2215,6 +2260,12 @@ impl<'a> FunctionGenerator<'a> {
                     "&" | "|" | "^" | "<<" | ">>" => return Err(format!("operator '{op}' requires integer operands")),
                     _ => return Err(format!("unsupported binary operator '{op}'")),
                 };
+
+                if matches!(op.as_str(), "/" | "%")
+                    && matches!(lhs_ty, Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::U8 | Type::U16 | Type::U32 | Type::U64)
+                {
+                    self.emit_integer_division_guard(&lhs, &rhs, lhs_ty)?;
+                }
 
                 let result = self.fresh_value();
                 let instruction = match (lhs_ty, op.as_str()) {
