@@ -7,12 +7,21 @@
 
 use std::{
     alloc::{Layout, alloc as alloc_bytes, dealloc as dealloc_bytes},
+    cell::Cell,
     ffi::{CStr, CString, c_char, c_void},
     io, ptr, slice,
-    sync::{Arc, Condvar, Mutex, OnceLock},
+    sync::{
+        Arc, Condvar, Mutex, OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
-use tokio::runtime::{Builder, Runtime};
+use corosensei::{Coroutine, CoroutineResult, Yielder};
+use tokio::{
+    runtime::{Builder, Runtime},
+    sync::{Notify, mpsc::UnboundedSender},
+    task::LocalSet,
+};
 
 use crate::{TcpConnection, TcpServer, UdpEndpoint};
 
