@@ -118,11 +118,23 @@ jobs:
           cargo run --release -- examples/async/tcp_server.ram -o target/tcp-server-native
           output="$(target/tcp-server-native)"
           test "$output" = "native server echo"
+      - name: Compile and run native binary-safe TCP server
+        run: |
+          cargo run --release -- examples/async/tcp_bytes_server.ram -o target/tcp-bytes-server-native
+          output="$(target/tcp-bytes-server-native)"
+          expected="$(printf '5\n0\n255\n128\n65\n10')"
+          test "$output" = "$expected"
       - name: Compile and run native async UDP server
         run: |
           cargo run --release -- examples/async/udp_server.ram -o target/udp-server-native
           output="$(target/udp-server-native)"
           test "$output" = "native UDP echo"
+      - name: Compile and run native binary-safe UDP server
+        run: |
+          cargo run --release -- examples/async/udp_bytes_server.ram -o target/udp-bytes-server-native
+          output="$(target/udp-bytes-server-native)"
+          expected="$(printf '5\n0\n255\n128\n65\n10')"
+          test "$output" = "$expected"
       - name: Compile and run native network error handling
         run: |
           cargo run --release -- examples/async/network_error.ram -o target/network-error
