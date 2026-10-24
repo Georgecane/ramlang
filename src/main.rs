@@ -5749,6 +5749,16 @@ mod tests {
     }
 
     #[test]
+    fn builtin_print_uses_rust_runtime_without_libc_printf_symbols() {
+        let ir = compile("fn main() -> i32 { print(42); return 0; }").unwrap();
+        assert!(ir.contains("call void @ramlang_print_i32"));
+        assert!(!ir.contains("declare i32 @printf"));
+        assert!(!ir.contains("@.fmt."));
+        assert!(!ir.contains("call ptr @malloc"));
+        assert!(!ir.contains("call void @free"));
+    }
+
+    #[test]
     fn lowers_assertions_and_optimizer_assumptions() {
         let source = "fn main() -> i32 { let value: i32 = 42; assert(value == 42); assume(value > 0); print(value); return 0; }";
         let ir = compile(source).unwrap();
