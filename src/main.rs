@@ -7616,11 +7616,11 @@ mod tests {
     fn lowers_native_async_udp_server_builtins() {
         let source = r#"
             fn main() -> i32 {
-                let bind_future: Future<ptr> = udp_bind("127.0.0.1:0", 5000);
-                let endpoint: ptr = await bind_future;
+                let bind_future: Future<UdpSocket> = udp_bind("127.0.0.1:0", 5000);
+                let endpoint: UdpSocket = await bind_future;
                 let address: str = udp_local_addr(endpoint);
-                let receive_future: Future<ptr> = udp_recv(endpoint);
-                let packet: ptr = await receive_future;
+                let receive_future: Future<UdpPacket> = udp_recv(endpoint);
+                let packet: UdpPacket = await receive_future;
                 let payload: str = udp_packet_data(packet);
                 let peer: str = udp_packet_peer(packet);
                 let send_future: Future<i64> = udp_send(endpoint, peer, payload);
@@ -7648,11 +7648,11 @@ mod tests {
     fn lowers_native_async_tcp_server_builtins() {
         let source = r#"
             fn main() -> i32 {
-                let listen_future: Future<ptr> = tcp_listen("127.0.0.1:0", 5000);
-                let listener: ptr = await listen_future;
+                let listen_future: Future<TcpListener> = tcp_listen("127.0.0.1:0", 5000);
+                let listener: TcpListener = await listen_future;
                 let address: str = tcp_listener_addr(listener);
-                let accept_future: Future<ptr> = tcp_accept(listener);
-                let connection: ptr = await accept_future;
+                let accept_future: Future<TcpStream> = tcp_accept(listener);
+                let connection: TcpStream = await accept_future;
                 let read_future: Future<str> = tcp_read(connection);
                 let message: str = await read_future;
                 let write_future: Future<void> = tcp_write(connection, message);
@@ -7672,6 +7672,42 @@ mod tests {
         assert!(ir.contains("call ptr @ramlang_tcp_write_future"));
         assert!(ir.contains("call void @ramlang_tcp_listener_close"));
         assert!(ir.contains("call void @ramlang_tcp_native_close"));
+    }
+
+    #[test]
+    fn rejects_mixing_tcp_udp_and_buffer_handle_types() {
+        let wrong_listener = compile(
+            r#"
+                fn main() -> i32 {
+                    let future: Future<TcpListener> = tcp_listen("127.0.0.1:0", 1000);
+                    let listener: TcpListener = await future;
+                    let packet_future: Future<UdpPacket> = udp_recv(listener);
+                    let packet: UdpPacket = await packet_future;
+                    return 0;
+                }
+            "#,
+        )
+        .unwrap_err();
+        assert!(
+            wrong_listener.contains("expected") || wrong_listener.contains("type mismatch"),
+            "unexpected diagnostic: {wrong_listener}"
+        );
+
+        let wrong_close = compile(
+            r#"
+                fn main() -> i32 {
+                    let future: Future<ByteBuffer> = tcp_request_bytes("127.0.0.1:1", null, 0, 1);
+                    let buffer: ByteBuffer = await future;
+                    tcp_close(buffer);
+                    return 0;
+                }
+            "#,
+        )
+        .unwrap_err();
+        assert!(
+            wrong_close.contains("expected") || wrong_close.contains("type mismatch"),
+            "unexpected diagnostic: {wrong_close}"
+        );
     }
 
     #[test]
