@@ -681,6 +681,30 @@ mod tests {
         assert_eq!(output, vec!["10"]);
     }
 
+
+    #[test]
+    fn compiles_and_prints_utf8_string_literals_and_string_return_values() {
+        let source = r#"
+            fn greeting() -> str {
+                return "Ramlang says: \\"hello\\", café";
+            }
+            fn main() -> i32 {
+                print(greeting());
+                print("line\\nseparator");
+                return 0;
+            }
+        "#;
+        let (result, output) = compile_source(source).unwrap().run_capture(&[], 1000).unwrap();
+        assert_eq!(result, Value::I64(0));
+        assert_eq!(output, vec!["Ramlang says: \\"hello\\", café", "line\nseparator"]);
+    }
+
+    #[test]
+    fn rejects_unterminated_and_unknown_string_escapes() {
+        assert!(compile_source("fn main() { print(\\"open); }").unwrap_err().to_string().contains("unterminated string"));
+        assert!(compile_source(r#"fn main() { print("bad\\q"); }"#).unwrap_err().to_string().contains("unsupported string escape"));
+    }
+
     #[test]
     fn rejects_unsafe_subset_gaps_with_diagnostics() {
         let error = compile_source("fn main() -> i32 { missing(); return 0; }").unwrap_err();
