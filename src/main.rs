@@ -7731,7 +7731,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            wrong_listener.contains("expected") || wrong_listener.contains("type mismatch"),
+            wrong_listener.contains("expected UdpSocket, found TcpListener"),
             "unexpected diagnostic: {wrong_listener}"
         );
 
@@ -7747,7 +7747,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            wrong_close.contains("expected") || wrong_close.contains("type mismatch"),
+            wrong_close.contains("expected TcpStream, found ByteBuffer"),
             "unexpected diagnostic: {wrong_close}"
         );
     }
