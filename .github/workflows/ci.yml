@@ -47,6 +47,11 @@ jobs:
           cargo run --release -- examples/async/basic.ram -o target/async-basic
           output="$(target/async-basic)"
           test "$output" = "42"
+      - name: Compile and run native async string Future
+        run: |
+          cargo run --release -- examples/async/string_future.ram -o target/async-string
+          output="$(target/async-string)"
+          test "$output" = "async string result"
       - name: Compile and run native timer Future
         run: |
           cargo run --release -- examples/async/timer.ram -o target/async-timer
