@@ -15,13 +15,13 @@ pub struct Register(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FunctionId(pub usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Type { I64, Bool, Unit }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Value { I64(i64), Bool(bool), Unit }
+pub enum Type { I64, Bool, Str, Unit }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Value { I64(i64), Bool(bool), Str(String), Unit }
 
 impl Value {
-    pub const fn ty(self) -> Type {
-        match self { Self::I64(_) => Type::I64, Self::Bool(_) => Type::Bool, Self::Unit => Type::Unit }
+    pub const fn ty(&self) -> Type {
+        match self { Self::I64(_) => Type::I64, Self::Bool(_) => Type::Bool, Self::Str(_) => Type::Str, Self::Unit => Type::Unit }
     }
 }
 
@@ -29,6 +29,7 @@ impl Value {
 pub enum Instruction {
     ConstI64 { dst: Register, value: i64 },
     ConstBool { dst: Register, value: bool },
+    ConstStr { dst: Register, value: String },
     Copy { dst: Register, src: Register },
     AddI64 { dst: Register, lhs: Register, rhs: Register },
     SubI64 { dst: Register, lhs: Register, rhs: Register },
@@ -39,6 +40,7 @@ pub enum Instruction {
     NotBool { dst: Register, src: Register },
     PrintI64 { src: Register },
     PrintBool { src: Register },
+    PrintStr { src: Register },
     Jump { target: usize },
     JumpIfFalse { condition: Register, target: usize },
     Call { dst: Option<Register>, function: FunctionId, args: Vec<Register> },
@@ -93,7 +95,8 @@ impl Program {
                 let fail = |message: String| VmError(format!("{} at {}:{pc}: {message}", function.name, function_index));
                 match instruction {
                     Instruction::ConstI64 { dst, .. } => check_register(function, *dst, Type::I64).map_err(fail)?,
-                    Instruction::ConstBool { dst, .. } => check_register(function, *dst, Type::Bool).map_err(fail)?,
+                    Instruction::ConstBool { dst, .. } => check_register(function, *dst, Type::Bool).map_err(&fail)?,
+                    Instruction::ConstStr { dst, .. } => check_register(function, *dst, Type::Str).map_err(&fail)?,
                     Instruction::Copy { dst, src } => {
                         let source_type = register_type(function, *src).map_err(&fail)?;
                         check_register(function, *dst, source_type).map_err(fail)?;
@@ -135,6 +138,7 @@ impl Program {
                             (None, Type::Unit) => {}
                             (Some(register), Type::I64) => check_register(function, register, Type::I64).map_err(&fail)?,
                             (Some(register), Type::Bool) => check_register(function, register, Type::Bool).map_err(&fail)?,
+                            (Some(register), Type::Str) => check_register(function, register, Type::Str).map_err(&fail)?,
                             (None, result) => return Err(fail(format!("non-unit call to '{}' discards its {result:?} result", target.name))),
                             (Some(_), Type::Unit) => return Err(fail(format!("unit call to '{}' has a destination register", target.name))),
                         }
@@ -143,6 +147,7 @@ impl Program {
                         (None, Type::Unit) => {}
                         (Some(register), Type::I64) => check_register(function, register, Type::I64).map_err(&fail)?,
                         (Some(register), Type::Bool) => check_register(function, register, Type::Bool).map_err(&fail)?,
+                        (Some(register), Type::Str) => check_register(function, register, Type::Str).map_err(&fail)?,
                         (None, _) => return Err(fail("return value is missing".to_owned())),
                         (Some(_), Type::Unit) => return Err(fail("unit function cannot return a value".to_owned())),
                     },
@@ -182,7 +187,7 @@ impl Program {
         let function = self.functions.get(function_id.0)
             .ok_or_else(|| VmError(format!("function id {} does not exist", function_id.0)))?;
         let mut registers = vec![None; function.registers.len()];
-        for (index, argument) in args.iter().copied().enumerate() { registers[index] = Some(argument); }
+        for (index, argument) in args.iter().cloned().enumerate() { registers[index] = Some(argument); }
         let mut pc = 0usize;
         loop {
             if *fuel == 0 { return Err(VmError("instruction budget exhausted".to_owned())); }
@@ -193,7 +198,8 @@ impl Program {
             match instruction {
                 Instruction::ConstI64 { dst, value } => registers[dst.0] = Some(Value::I64(*value)),
                 Instruction::ConstBool { dst, value } => registers[dst.0] = Some(Value::Bool(*value)),
-                Instruction::Copy { dst, src } => registers[dst.0] = registers[src.0],
+                Instruction::ConstStr { dst, value } => registers[dst.0] = Some(Value::Str(value.clone())),
+                Instruction::Copy { dst, src } => registers[dst.0] = registers[src.0].clone(),
                 Instruction::AddI64 { dst, lhs, rhs } => {
                     let (a, b) = (read_i64(&registers, *lhs)?, read_i64(&registers, *rhs)?);
                     registers[dst.0] = Some(Value::I64(a.checked_add(b).ok_or_else(|| arithmetic("addition overflow"))?));
@@ -220,6 +226,7 @@ impl Program {
                 Instruction::NotBool { dst, src } => registers[dst.0] = Some(Value::Bool(!read_bool(&registers, *src)?)),
                 Instruction::PrintI64 { src } => output.push(read_i64(&registers, *src)?.to_string()),
                 Instruction::PrintBool { src } => output.push(read_bool(&registers, *src)?.to_string()),
+                Instruction::PrintStr { src } => output.push(read_str(&registers, *src)?.to_owned()),
                 Instruction::Jump { target } => pc = *target,
                 Instruction::JumpIfFalse { condition, target } => if !read_bool(&registers, *condition)? { pc = *target; },
                 Instruction::Call { dst, function: target, args } => {
@@ -248,13 +255,20 @@ fn check_register(function: &Function, register: Register, expected: Type) -> Re
     if actual != expected { Err(format!("register r{} has type {actual:?}, expected {expected:?}", register.0)) } else { Ok(()) }
 }
 fn read_value(registers: &[Option<Value>], register: Register) -> Result<Value, VmError> {
-    registers.get(register.0).copied().flatten().ok_or_else(|| VmError(format!("register r{} was read before initialization", register.0)))
+    registers.get(register.0).cloned().flatten().ok_or_else(|| VmError(format!("register r{} was read before initialization", register.0)))
 }
 fn read_i64(registers: &[Option<Value>], register: Register) -> Result<i64, VmError> {
     match read_value(registers, register)? { Value::I64(value) => Ok(value), other => Err(VmError(format!("expected i64 register, got {:?}", other.ty()))) }
 }
 fn read_bool(registers: &[Option<Value>], register: Register) -> Result<bool, VmError> {
     match read_value(registers, register)? { Value::Bool(value) => Ok(value), other => Err(VmError(format!("expected bool register, got {:?}", other.ty()))) }
+}
+fn read_str(registers: &[Option<Value>], register: Register) -> Result<&str, VmError> {
+    match registers.get(register.0).and_then(Option::as_ref) {
+        Some(Value::Str(value)) => Ok(value.as_str()),
+        Some(other) => Err(VmError(format!("expected str register, got {:?}", other.ty()))),
+        None => Err(VmError(format!("register r{} was read before initialization", register.0))),
+    }
 }
 
 #[cfg(test)]
