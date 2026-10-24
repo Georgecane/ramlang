@@ -25,6 +25,24 @@ tcp_request(address, payload, timeout_ms) and udp_request(address, payload, time
 The caller owns each successful response and must free it exactly once. A network, timeout, allocation, or UTF-8 error makes await yield a null pointer for Future<str> and records a diagnostic in the runtime's last-error slot. Read the most recent diagnostic with the native `last_error()` built-in. The returned diagnostic string is borrowed from thread-local runtime storage and must not be freed; consume or copy it before making another runtime call that can change the last error. The TCP protocol uses a four-byte big-endian length prefix. The UDP protocol sends and receives one datagram and has the standard 65,507-byte payload limit. The examples in examples/async/tcp_request.ram and examples/async/udp_request.ram are compiled and run against local echo servers in CI.
 
 
+## Async program entry point
+
+The entry point can be synchronous:
+
+    fn main() -> i32 {
+        return 0;
+    }
+
+or asynchronous:
+
+    async fn main() -> i32 {
+        await sleep_ms(5);
+        print(42);
+        return 0;
+    }
+
+For an asynchronous entry point the compiler emits an ordinary system `i32 main()` wrapper, starts the RamLang async function on the runtime, waits for its result, and returns that value as the process exit code. The wrapper keeps the native executable ABI conventional; it does not remove the current blocking behavior of `await`.
+
 ## Future readiness
 
 `future_is_ready(future)` returns a `bool` without blocking. It is true only after the runtime task has completed, whether successfully or with a recorded error; it does not consume the result. You may then inspect the result with `await future`. A future that has not completed still requires await or a later readiness check; this builtin alone does not resume suspended code.
