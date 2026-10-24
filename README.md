@@ -967,3 +967,8 @@ The compiler emits opaque-pointer LLVM IR and binds to LLVM 18 through 23 using 
 ## License
 
 GPL-3.0. See [LICENSE](LICENSE).
+
+
+## Rust-native redesign
+
+A staged redesign proposal now lives in [docs/RUST_NATIVE_REDESIGN.md](docs/RUST_NATIVE_REDESIGN.md). It records the verified current architecture and toolchain constraints, defines the intended ownership/error/async model, compares a Rust-native Cranelift backend with the existing LLVM path, and sets migration milestones and acceptance tests. This document is a plan, not a claim that LLVM has already been removed; the current compiler still requires the documented LLVM toolchain.
