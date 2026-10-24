@@ -2496,7 +2496,7 @@ impl<'a> FunctionGenerator<'a> {
                             self.emit(format!("{decoded} = bitcast i32 {bits} to float"));
                         }
                         Type::F64 => self.emit(format!("{decoded} = bitcast i64 {encoded} to double")),
-                        Type::Str | Type::Ptr => {
+                        Type::Str | Type::Ptr | Type::Handle(_) => {
                             let raw_pointer = self.fresh_value();
                             let failed = self.fresh_value();
                             self.emit(format!("{raw_pointer} = inttoptr i64 {encoded} to ptr"));
@@ -2512,8 +2512,9 @@ impl<'a> FunctionGenerator<'a> {
                     if args.len() != 1 {
                         return Err("buffer_len expects one byte-buffer handle".to_owned());
                     }
-                    let (buffer, buffer_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, buffer_type, "buffer_len handle")?;
+                    let buffer_handle = Type::Handle(NativeHandleKind::ByteBuffer);
+                    let (buffer, buffer_type) = self.emit_expr_expected(&args[0], Some(buffer_handle))?;
+                    self.require_same(buffer_handle, buffer_type, "buffer_len handle")?;
                     let length = self.fresh_value();
                     self.emit(format!("{length} = call i64 @ramlang_byte_buffer_len(ptr {buffer})"));
                     return Ok((length, Type::I64));
@@ -2523,8 +2524,9 @@ impl<'a> FunctionGenerator<'a> {
                     if args.len() != 1 {
                         return Err("buffer_data expects one byte-buffer handle".to_owned());
                     }
-                    let (buffer, buffer_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, buffer_type, "buffer_data handle")?;
+                    let buffer_handle = Type::Handle(NativeHandleKind::ByteBuffer);
+                    let (buffer, buffer_type) = self.emit_expr_expected(&args[0], Some(buffer_handle))?;
+                    self.require_same(buffer_handle, buffer_type, "buffer_data handle")?;
                     let data = self.fresh_value();
                     self.emit(format!("{data} = call ptr @ramlang_byte_buffer_data(ptr {buffer})"));
                     return Ok((data, Type::Ptr));
@@ -2534,8 +2536,9 @@ impl<'a> FunctionGenerator<'a> {
                     if args.len() != 1 {
                         return Err("buffer_close expects one byte-buffer handle".to_owned());
                     }
-                    let (buffer, buffer_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, buffer_type, "buffer_close handle")?;
+                    let buffer_handle = Type::Handle(NativeHandleKind::ByteBuffer);
+                    let (buffer, buffer_type) = self.emit_expr_expected(&args[0], Some(buffer_handle))?;
+                    self.require_same(buffer_handle, buffer_type, "buffer_close handle")?;
                     self.emit(format!("call void @ramlang_byte_buffer_close(ptr {buffer})"));
                     return Ok((String::new(), Type::Void));
                 }
@@ -2583,7 +2586,7 @@ impl<'a> FunctionGenerator<'a> {
                     self.emit(format!(
                         "{future} = call ptr @{symbol}(ptr {address}, ptr {data}, i64 {length}, i64 {timeout})"
                     ));
-                    return Ok((future, Type::Future(FutureOutput::Ptr)));
+                    return Ok((future, Type::Future(FutureOutput::Handle(NativeHandleKind::ByteBuffer))));
                 }
 
                 if name == "tcp_request" {
@@ -2652,15 +2655,16 @@ impl<'a> FunctionGenerator<'a> {
                     self.emit(format!(
                         "{future} = call ptr @ramlang_tcp_listen_future(ptr {address}, i64 {timeout})"
                     ));
-                    return Ok((future, Type::Future(FutureOutput::Ptr)));
+                    return Ok((future, Type::Future(FutureOutput::Handle(NativeHandleKind::TcpListener))));
                 }
 
                 if name == "tcp_listener_addr" {
                     if args.len() != 1 {
                         return Err("tcp_listener_addr expects one listener handle".to_owned());
                     }
-                    let (listener, listener_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, listener_type, "tcp_listener_addr handle")?;
+                    let listener_handle = Type::Handle(NativeHandleKind::TcpListener);
+                    let (listener, listener_type) = self.emit_expr_expected(&args[0], Some(listener_handle))?;
+                    self.require_same(listener_handle, listener_type, "tcp_listener_addr handle")?;
                     let address = self.fresh_value();
                     self.emit(format!(
                         "{address} = call ptr @ramlang_tcp_listener_addr(ptr {listener})"
@@ -2672,21 +2676,23 @@ impl<'a> FunctionGenerator<'a> {
                     if args.len() != 1 {
                         return Err("tcp_accept expects one listener handle".to_owned());
                     }
-                    let (listener, listener_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, listener_type, "tcp_accept handle")?;
+                    let listener_handle = Type::Handle(NativeHandleKind::TcpListener);
+                    let (listener, listener_type) = self.emit_expr_expected(&args[0], Some(listener_handle))?;
+                    self.require_same(listener_handle, listener_type, "tcp_accept handle")?;
                     let future = self.fresh_value();
                     self.emit(format!(
                         "{future} = call ptr @ramlang_tcp_accept_future(ptr {listener})"
                     ));
-                    return Ok((future, Type::Future(FutureOutput::Ptr)));
+                    return Ok((future, Type::Future(FutureOutput::Handle(NativeHandleKind::TcpStream))));
                 }
 
                 if name == "tcp_read" {
                     if args.len() != 1 {
                         return Err("tcp_read expects one connection handle".to_owned());
                     }
-                    let (connection, connection_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, connection_type, "tcp_read handle")?;
+                    let connection_handle = Type::Handle(NativeHandleKind::TcpStream);
+                    let (connection, connection_type) = self.emit_expr_expected(&args[0], Some(connection_handle))?;
+                    self.require_same(connection_handle, connection_type, "tcp_read handle")?;
                     let future = self.fresh_value();
                     self.emit(format!(
                         "{future} = call ptr @ramlang_tcp_read_future(ptr {connection})"
@@ -2698,21 +2704,23 @@ impl<'a> FunctionGenerator<'a> {
                     if args.len() != 1 {
                         return Err("tcp_read_bytes expects one connection handle".to_owned());
                     }
-                    let (connection, connection_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, connection_type, "tcp_read_bytes handle")?;
+                    let connection_handle = Type::Handle(NativeHandleKind::TcpStream);
+                    let (connection, connection_type) = self.emit_expr_expected(&args[0], Some(connection_handle))?;
+                    self.require_same(connection_handle, connection_type, "tcp_read_bytes handle")?;
                     let future = self.fresh_value();
                     self.emit(format!(
                         "{future} = call ptr @ramlang_tcp_read_bytes_future(ptr {connection})"
                     ));
-                    return Ok((future, Type::Future(FutureOutput::Ptr)));
+                    return Ok((future, Type::Future(FutureOutput::Handle(NativeHandleKind::ByteBuffer))));
                 }
 
                 if name == "tcp_write" {
                     if args.len() != 2 {
                         return Err("tcp_write expects a connection handle and UTF-8 payload".to_owned());
                     }
-                    let (connection, connection_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, connection_type, "tcp_write handle")?;
+                    let connection_handle = Type::Handle(NativeHandleKind::TcpStream);
+                    let (connection, connection_type) = self.emit_expr_expected(&args[0], Some(connection_handle))?;
+                    self.require_same(connection_handle, connection_type, "tcp_write handle")?;
                     let (payload, payload_type) = self.emit_expr_expected(&args[1], Some(Type::Str))?;
                     self.require_same(Type::Str, payload_type, "tcp_write payload")?;
                     let future = self.fresh_value();
@@ -2726,8 +2734,9 @@ impl<'a> FunctionGenerator<'a> {
                     if args.len() != 3 {
                         return Err("tcp_write_bytes expects a connection handle, byte pointer, and byte length".to_owned());
                     }
-                    let (connection, connection_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, connection_type, "tcp_write_bytes handle")?;
+                    let connection_handle = Type::Handle(NativeHandleKind::TcpStream);
+                    let (connection, connection_type) = self.emit_expr_expected(&args[0], Some(connection_handle))?;
+                    self.require_same(connection_handle, connection_type, "tcp_write_bytes handle")?;
                     let (data, data_type) = self.emit_expr_expected(&args[1], Some(Type::Ptr))?;
                     self.require_same(Type::Ptr, data_type, "tcp_write_bytes data")?;
                     let (length, length_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
@@ -2743,13 +2752,13 @@ impl<'a> FunctionGenerator<'a> {
                     if args.len() != 1 {
                         return Err(format!("{name} expects one native TCP handle"));
                     }
-                    let (handle, handle_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, handle_type, &format!("{name} handle"))?;
-                    let symbol = if name == "tcp_listener_close" {
-                        "ramlang_tcp_listener_close"
+                    let (handle_type, symbol) = if name == "tcp_listener_close" {
+                        (Type::Handle(NativeHandleKind::TcpListener), "ramlang_tcp_listener_close")
                     } else {
-                        "ramlang_tcp_native_close"
+                        (Type::Handle(NativeHandleKind::TcpStream), "ramlang_tcp_native_close")
                     };
+                    let (handle, actual_type) = self.emit_expr_expected(&args[0], Some(handle_type))?;
+                    self.require_same(handle_type, actual_type, &format!("{name} handle"))?;
                     self.emit(format!("call void @{symbol}(ptr {handle})"));
                     return Ok((String::new(), Type::Void));
                 }
@@ -2766,15 +2775,16 @@ impl<'a> FunctionGenerator<'a> {
                     self.emit(format!(
                         "{future} = call ptr @ramlang_udp_bind_future(ptr {address}, i64 {timeout})"
                     ));
-                    return Ok((future, Type::Future(FutureOutput::Ptr)));
+                    return Ok((future, Type::Future(FutureOutput::Handle(NativeHandleKind::UdpSocket))));
                 }
 
                 if name == "udp_local_addr" {
                     if args.len() != 1 {
                         return Err("udp_local_addr expects one endpoint handle".to_owned());
                     }
-                    let (endpoint, endpoint_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, endpoint_type, "udp_local_addr handle")?;
+                    let endpoint_handle = Type::Handle(NativeHandleKind::UdpSocket);
+                    let (endpoint, endpoint_type) = self.emit_expr_expected(&args[0], Some(endpoint_handle))?;
+                    self.require_same(endpoint_handle, endpoint_type, "udp_local_addr handle")?;
                     let address = self.fresh_value();
                     self.emit(format!(
                         "{address} = call ptr @ramlang_udp_native_addr(ptr {endpoint})"
@@ -2786,39 +2796,42 @@ impl<'a> FunctionGenerator<'a> {
                     if args.len() != 1 {
                         return Err("udp_recv expects one endpoint handle".to_owned());
                     }
-                    let (endpoint, endpoint_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, endpoint_type, "udp_recv handle")?;
+                    let endpoint_handle = Type::Handle(NativeHandleKind::UdpSocket);
+                    let (endpoint, endpoint_type) = self.emit_expr_expected(&args[0], Some(endpoint_handle))?;
+                    self.require_same(endpoint_handle, endpoint_type, "udp_recv handle")?;
                     let future = self.fresh_value();
                     self.emit(format!(
                         "{future} = call ptr @ramlang_udp_recv_future(ptr {endpoint})"
                     ));
-                    return Ok((future, Type::Future(FutureOutput::Ptr)));
+                    return Ok((future, Type::Future(FutureOutput::Handle(NativeHandleKind::UdpPacket))));
                 }
 
                 if name == "udp_recv_bytes" {
                     if args.len() != 1 {
                         return Err("udp_recv_bytes expects one endpoint handle".to_owned());
                     }
-                    let (endpoint, endpoint_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, endpoint_type, "udp_recv_bytes handle")?;
+                    let endpoint_handle = Type::Handle(NativeHandleKind::UdpSocket);
+                    let (endpoint, endpoint_type) = self.emit_expr_expected(&args[0], Some(endpoint_handle))?;
+                    self.require_same(endpoint_handle, endpoint_type, "udp_recv_bytes handle")?;
                     let future = self.fresh_value();
                     self.emit(format!(
                         "{future} = call ptr @ramlang_udp_recv_bytes_future(ptr {endpoint})"
                     ));
-                    return Ok((future, Type::Future(FutureOutput::Ptr)));
+                    return Ok((future, Type::Future(FutureOutput::Handle(NativeHandleKind::UdpPacket))));
                 }
 
                 if name == "udp_packet_data" || name == "udp_packet_peer" || name == "udp_packet_bytes" {
                     if args.len() != 1 {
                         return Err(format!("{name} expects one packet handle"));
                     }
-                    let (packet, packet_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, packet_type, &format!("{name} handle"))?;
+                    let packet_handle = Type::Handle(NativeHandleKind::UdpPacket);
+                    let (packet, packet_type) = self.emit_expr_expected(&args[0], Some(packet_handle))?;
+                    self.require_same(packet_handle, packet_type, &format!("{name} handle"))?;
                     let address = self.fresh_value();
                     let (symbol, result_type) = match name.as_str() {
                         "udp_packet_data" => ("ramlang_udp_packet_data", Type::Str),
                         "udp_packet_peer" => ("ramlang_udp_packet_peer", Type::Str),
-                        _ => ("ramlang_udp_packet_bytes", Type::Ptr),
+                        _ => ("ramlang_udp_packet_bytes", Type::Handle(NativeHandleKind::ByteBuffer)),
                     };
                     self.emit(format!("{address} = call ptr @{symbol}(ptr {packet})"));
                     return Ok((address, result_type));
@@ -2828,8 +2841,9 @@ impl<'a> FunctionGenerator<'a> {
                     if args.len() != 3 {
                         return Err("udp_send expects an endpoint handle, destination address, and UTF-8 payload".to_owned());
                     }
-                    let (endpoint, endpoint_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, endpoint_type, "udp_send endpoint")?;
+                    let endpoint_handle = Type::Handle(NativeHandleKind::UdpSocket);
+                    let (endpoint, endpoint_type) = self.emit_expr_expected(&args[0], Some(endpoint_handle))?;
+                    self.require_same(endpoint_handle, endpoint_type, "udp_send endpoint")?;
                     let (peer, peer_type) = self.emit_expr_expected(&args[1], Some(Type::Str))?;
                     self.require_same(Type::Str, peer_type, "udp_send destination")?;
                     let (payload, payload_type) = self.emit_expr_expected(&args[2], Some(Type::Str))?;
@@ -2845,8 +2859,9 @@ impl<'a> FunctionGenerator<'a> {
                     if args.len() != 4 {
                         return Err("udp_send_bytes expects an endpoint, destination address, byte pointer, and byte length".to_owned());
                     }
-                    let (endpoint, endpoint_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, endpoint_type, "udp_send_bytes endpoint")?;
+                    let endpoint_handle = Type::Handle(NativeHandleKind::UdpSocket);
+                    let (endpoint, endpoint_type) = self.emit_expr_expected(&args[0], Some(endpoint_handle))?;
+                    self.require_same(endpoint_handle, endpoint_type, "udp_send_bytes endpoint")?;
                     let (peer, peer_type) = self.emit_expr_expected(&args[1], Some(Type::Str))?;
                     self.require_same(Type::Str, peer_type, "udp_send_bytes destination")?;
                     let (data, data_type) = self.emit_expr_expected(&args[2], Some(Type::Ptr))?;
@@ -2864,13 +2879,13 @@ impl<'a> FunctionGenerator<'a> {
                     if args.len() != 1 {
                         return Err(format!("{name} expects one native UDP handle"));
                     }
-                    let (handle, handle_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
-                    self.require_same(Type::Ptr, handle_type, &format!("{name} handle"))?;
-                    let symbol = if name == "udp_packet_close" {
-                        "ramlang_udp_packet_close"
+                    let (handle_type, symbol) = if name == "udp_packet_close" {
+                        (Type::Handle(NativeHandleKind::UdpPacket), "ramlang_udp_packet_close")
                     } else {
-                        "ramlang_udp_native_close"
+                        (Type::Handle(NativeHandleKind::UdpSocket), "ramlang_udp_native_close")
                     };
+                    let (handle, actual_type) = self.emit_expr_expected(&args[0], Some(handle_type))?;
+                    self.require_same(handle_type, actual_type, &format!("{name} handle"))?;
                     self.emit(format!("call void @{symbol}(ptr {handle})"));
                     return Ok((String::new(), Type::Void));
                 }
