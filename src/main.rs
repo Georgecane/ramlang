@@ -2,7 +2,7 @@ mod llvm_backend;
 
 use std::{
     collections::{HashMap, HashSet},
-    env, fs,
+    env, ffi::OsString, fs,
     path::{Path, PathBuf},
     process::{self, Command},
 };
@@ -5458,6 +5458,217 @@ fn generate_c_header(program: &Program) -> Result<String, String> {
 
     output.push_str("\n#ifdef __cplusplus\n}\n#endif\n\n#endif /* RAMLANG_GENERATED_API_H */\n");
     Ok(output)
+}
+
+
+fn lld_supports_target(target: Option<&str>, sysroot: Option<&Path>) -> bool {
+    if !cfg!(target_os = "linux") || env::consts::ARCH != "x86_64" || sysroot.is_some() {
+        return false;
+    }
+    target.is_none_or(|triple| {
+        triple.starts_with("x86_64-")
+            && triple.contains("linux")
+            && !triple.contains("musl")
+            && !triple.contains("android")
+    })
+}
+
+fn find_host_link_file(name: &str) -> Option<PathBuf> {
+    [
+        "/usr/lib/x86_64-linux-gnu",
+        "/lib/x86_64-linux-gnu",
+        "/usr/lib64",
+        "/lib64",
+        "/usr/lib",
+        "/lib",
+    ]
+    .into_iter()
+    .map(|directory| Path::new(directory).join(name))
+    .find(|path| path.is_file())
+}
+
+fn select_lld() -> Result<OsString, String> {
+    if let Some(path) = env::var_os("RAMLANG_LLD") {
+        return Ok(path);
+    }
+    for candidate in [
+        "ld.lld",
+        "ld.lld-23",
+        "ld.lld-22",
+        "ld.lld-21",
+        "ld.lld-20",
+        "ld.lld-19",
+        "ld.lld-18",
+        "ld.lld-17",
+        "ld.lld-16",
+        "ld.lld-15",
+    ] {
+        if Command::new(candidate)
+            .arg("--version")
+            .output()
+            .is_ok_and(|result| result.status.success())
+        {
+            return Ok(OsString::from(candidate));
+        }
+    }
+    Err(
+        "could not find LLVM lld. Install lld and ensure ld.lld is on PATH, or set RAMLANG_LLD"
+            .to_owned(),
+    )
+}
+
+fn expand_lld_link_argument(argument: &str) -> Vec<String> {
+    if let Some(forwarded) = argument.strip_prefix("-Wl,") {
+        forwarded.split(',').map(str::to_owned).collect()
+    } else if argument == "-pthread" {
+        vec!["-lpthread".to_owned()]
+    } else {
+        vec![argument.to_owned()]
+    }
+}
+
+fn link_with_lld(
+    object_path: &Path,
+    output: &Path,
+    options: &Options,
+    runtime_library_dir: Option<&Path>,
+    runtime_library_is_explicit: bool,
+) -> Result<(), String> {
+    if !lld_supports_target(options.target.as_deref(), options.sysroot.as_deref()) {
+        return Err(
+            "the built-in lld linker currently supports native x86_64 GNU/Linux targets without a custom sysroot; set RAMLANG_LINKER to a compatible platform linker driver for this target"
+                .to_owned(),
+        );
+    }
+    let lld = select_lld()?;
+    let crt1 = find_host_link_file("crt1.o")
+        .ok_or_else(|| "could not locate the system crt1.o startup object".to_owned())?;
+    let crti = find_host_link_file("crti.o")
+        .ok_or_else(|| "could not locate the system crti.o startup object".to_owned())?;
+    let crtn = find_host_link_file("crtn.o")
+        .ok_or_else(|| "could not locate the system crtn.o startup object".to_owned())?;
+    let dynamic_loader = [
+        "/lib64/ld-linux-x86-64.so.2",
+        "/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+        "/usr/lib64/ld-linux-x86-64.so.2",
+        "/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+    ]
+    .into_iter()
+    .find(|path| Path::new(path).exists())
+    .ok_or_else(|| "could not locate the x86_64 GNU/Linux dynamic loader".to_owned())?;
+
+    let mut command = Command::new(&lld);
+    command
+        .arg("-m")
+        .arg("elf_x86_64")
+        .arg("--dynamic-linker")
+        .arg(dynamic_loader)
+        .arg("-o")
+        .arg(output)
+        .arg(crt1)
+        .arg(crti)
+        .arg(object_path);
+
+    for directory in &options.link_search_paths {
+        command.arg("-L").arg(directory);
+    }
+    for directory in [
+        "/usr/lib/x86_64-linux-gnu",
+        "/lib/x86_64-linux-gnu",
+        "/usr/lib64",
+        "/lib64",
+        "/usr/lib",
+        "/lib",
+    ] {
+        command.arg("-L").arg(directory);
+    }
+    if let Some(directory) = runtime_library_dir {
+        command.arg("-L").arg(directory);
+        // Use an absolute RUNPATH so locally built RamLang programs can locate the
+        // Rust runtime beside the compiler without relying on LD_LIBRARY_PATH.
+        command.arg("-rpath").arg(directory);
+    }
+
+    for argument in &options.link_args {
+        for expanded in expand_lld_link_argument(argument) {
+            command.arg(expanded);
+        }
+    }
+    for library in &options.link_libs {
+        command.arg(format!("-l{library}"));
+    }
+    if !runtime_library_is_explicit {
+        command.arg("-lramlang_runtime");
+    }
+    command
+        .arg("-lc")
+        .arg("-lm")
+        .arg("-ldl")
+        .arg("-lpthread")
+        .arg("-lrt")
+        .arg("-lutil")
+        .arg(crtn);
+
+    let result = command.output().map_err(|error| {
+        format!(
+            "could not launch LLVM lld linker ({lld:?}): {error}; install lld or set RAMLANG_LINKER"
+        )
+    })?;
+    if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        return Err(format!("LLVM lld failed to link executable:\n{stderr}"));
+    }
+    Ok(())
+}
+
+fn link_with_platform_driver(
+    linker: &OsString,
+    object_path: &Path,
+    output: &Path,
+    options: &Options,
+    runtime_library_dir: Option<&Path>,
+    runtime_library_is_explicit: bool,
+) -> Result<(), String> {
+    let mut command = Command::new(linker);
+    if let Some(target) = &options.target {
+        command.arg("-target").arg(target);
+    }
+    if let Some(sysroot) = &options.sysroot {
+        command.arg("--sysroot").arg(sysroot);
+    }
+    for directory in &options.link_search_paths {
+        command.arg("-L").arg(directory);
+    }
+    for library in &options.link_libs {
+        command.arg(format!("-l{library}"));
+    }
+    for argument in &options.link_args {
+        command.arg(argument);
+    }
+    if let Some(directory) = runtime_library_dir {
+        command.arg("-L").arg(directory);
+        let target_triple = options.target.as_deref().unwrap_or("");
+        if target_triple.contains("linux")
+            || target_triple.contains("freebsd")
+            || (target_triple.is_empty() && cfg!(unix))
+        {
+            command.arg(format!("-Wl,-rpath,{}", directory.display()));
+        }
+    }
+    command.arg(object_path);
+    if !runtime_library_is_explicit {
+        command.arg("-lramlang_runtime");
+    }
+    let result = command.arg("-o").arg(output).output().map_err(|error| {
+        format!(
+            "could not launch platform linker ({linker:?}): {error}; verify the linker path or set RAMLANG_LINKER"
+        )
+    })?;
+    if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        return Err(format!("platform linker failed to link executable:\n{stderr}"));
+    }
+    Ok(())
 }
 
 fn compile(options: Options) -> Result<(), String> {
