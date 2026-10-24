@@ -14,6 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: rustfmt, clippy
       - name: Verify dependency graph is independent of LLVM
         run: |
           tree="$(cargo tree -p ramlang-jit)"
@@ -22,6 +24,12 @@ jobs:
             echo "Rust-native JIT dependency graph unexpectedly contains LLVM"
             exit 1
           fi
+      - name: Format-check Rust-native crates
+        run: |
+          cargo fmt --manifest-path crates/ramlang-core/Cargo.toml -- --check
+          cargo fmt --manifest-path crates/ramlang-jit/Cargo.toml -- --check
+      - name: Lint Rust-native crates
+        run: cargo clippy -p ramlang-core -p ramlang-jit --all-targets -- -D warnings
       - name: Test core and native JIT
         run: cargo test -p ramlang-core -p ramlang-jit
       - name: Run native JIT hello-world
