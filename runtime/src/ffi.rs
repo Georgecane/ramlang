@@ -201,7 +201,6 @@ pub unsafe extern "C" fn ramlang_tcp_native_close(connection: *mut RamlangNative
     clear_last_error();
 }
 
-
 fn allocate_runtime_string(value: &str) -> Result<*mut c_char, String> {
     let allocation_size = value
         .len()
@@ -2145,11 +2144,11 @@ impl FutureState {
                 self.ready.notify_all();
             }
         }
-        if let Some((cleanup, pointer)) = value_to_release {
-            if !pointer.is_null() {
-                // SAFETY: the future's configured cleanup matches the pointer payload type.
-                unsafe { cleanup(pointer) };
-            }
+        if let Some((cleanup, pointer)) = value_to_release
+            && !pointer.is_null()
+        {
+            // SAFETY: the future's configured cleanup matches the pointer payload type.
+            unsafe { cleanup(pointer) };
         }
     }
 
@@ -2173,11 +2172,11 @@ impl FutureState {
         if let Some(handle) = abort_handle {
             handle.abort();
         }
-        if let Some((cleanup, pointer)) = value_to_release {
-            if !pointer.is_null() {
-                // SAFETY: the future's configured cleanup matches its pointer payload type.
-                unsafe { cleanup(pointer) };
-            }
+        if let Some((cleanup, pointer)) = value_to_release
+            && !pointer.is_null()
+        {
+            // SAFETY: the future's configured cleanup matches its pointer payload type.
+            unsafe { cleanup(pointer) };
         }
     }
 }
