@@ -79,6 +79,11 @@ jobs:
           cargo run --release -- examples/async/tcp_server.ram -o target/tcp-server-native
           output="$(target/tcp-server-native)"
           test "$output" = "native server echo"
+      - name: Compile and run native async UDP server
+        run: |
+          cargo run --release -- examples/async/udp_server.ram -o target/udp-server-native
+          output="$(target/udp-server-native)"
+          test "$output" = "native UDP echo"
       - name: Compile and run native network error handling
         run: |
           cargo run --release -- examples/async/network_error.ram -o target/network-error
