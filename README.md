@@ -972,3 +972,5 @@ GPL-3.0. See [LICENSE](LICENSE).
 ## Rust-native redesign
 
 A staged redesign proposal now lives in [docs/RUST_NATIVE_REDESIGN.md](docs/RUST_NATIVE_REDESIGN.md). It records the verified current architecture and toolchain constraints, defines the intended ownership/error/async model, compares a Rust-native Cranelift backend with the existing LLVM path, and sets migration milestones and acceptance tests. This document is a plan, not a claim that LLVM has already been removed; the current compiler still requires the documented LLVM toolchain.
+
+The first implementation milestone is now in `crates/ramlang-core`: a dependency-free typed register IR, verifier, and bounded reference interpreter with unit tests. It is an independent core prototype and is not yet wired to the existing `.ram` compiler; LLVM remains required by the current `ramcomp` binary.
