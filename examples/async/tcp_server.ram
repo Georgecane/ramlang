@@ -1,0 +1,53 @@
+fn main() -> i32 {
+    let listener_future: Future<ptr> = tcp_listen("127.0.0.1:0", 5000);
+    let listener: ptr = await listener_future;
+    if (listener == null) {
+        print(last_error());
+        return 1;
+    }
+
+    let address: str = tcp_listener_addr(listener);
+    if (address == null) {
+        print(last_error());
+        tcp_listener_close(listener);
+        return 2;
+    }
+
+    let client_future: Future<str> = tcp_request(address, "native server echo", 5000);
+    let accept_future: Future<ptr> = tcp_accept(listener);
+    let connection: ptr = await accept_future;
+    if (connection == null) {
+        print(last_error());
+        tcp_listener_close(listener);
+        free(address as ptr);
+        return 3;
+    }
+
+    let incoming: str = await tcp_read(connection);
+    if (incoming == null) {
+        print(last_error());
+        tcp_close(connection);
+        tcp_listener_close(listener);
+        free(address as ptr);
+        return 4;
+    }
+
+    await tcp_write(connection, incoming);
+    let response: str = await client_future;
+    if (response == null) {
+        print(last_error());
+        free(incoming as ptr);
+        tcp_close(connection);
+        tcp_listener_close(listener);
+        free(address as ptr);
+        return 5;
+    }
+
+    print(response);
+    free(response as ptr);
+    free(incoming as ptr);
+    free(address as ptr);
+    tcp_close(connection);
+    tcp_listener_close(listener);
+    return 0;
+}
