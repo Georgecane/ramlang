@@ -967,3 +967,10 @@ The compiler emits opaque-pointer LLVM IR and binds to LLVM 18 through 23 using 
 ## License
 
 GPL-3.0. See [LICENSE](LICENSE).
+
+
+## Rust-native redesign
+
+A staged redesign proposal now lives in [docs/RUST_NATIVE_REDESIGN.md](docs/RUST_NATIVE_REDESIGN.md). It records the verified current architecture and toolchain constraints, defines the intended ownership/error/async model, compares a Rust-native Cranelift backend with the existing LLVM path, and sets migration milestones and acceptance tests. This document is a plan, not a claim that LLVM has already been removed; the current compiler still requires the documented LLVM toolchain.
+
+The first implementation milestone is now in `crates/ramlang-core`: a dependency-free typed register IR, verifier, bounded reference interpreter, small `.ram` source-subset compiler, and the `ramrun` command. Try `cargo run -p ramlang-core --bin ramrun -- examples/hello.ram`. This subset supports integer/boolean/string functions, arithmetic, conditions, loops, calls and `print`; integer widths are currently normalized to checked `i64`. See [the core README](crates/ramlang-core/README.md) for exact limitations. It is not yet wired into `ramcomp`; LLVM remains required by the existing compiler.

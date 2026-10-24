@@ -1,0 +1,35 @@
+name: Rust-native backend CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  jit-without-llvm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Verify dependency graph is independent of LLVM
+        run: |
+          tree="$(cargo tree -p ramlang-jit)"
+          printf '%s\n' "$tree"
+          if printf '%s\n' "$tree" | grep -Eiq 'inkwell|llvm-sys|llvm-config'; then
+            echo "Rust-native JIT dependency graph unexpectedly contains LLVM"
+            exit 1
+          fi
+      - name: Test core and native JIT
+        run: cargo test -p ramlang-core -p ramlang-jit
+      - name: Run native JIT hello-world
+        run: |
+          output="$(cargo run -p ramlang-jit --bin ramjit -- examples/hello.ram)"
+          test "$output" = "49"
+      - name: Run dependency-free interpreter string example
+        run: |
+          output="$(cargo run -p ramlang-core --bin ramrun -- examples/strings.ram)"
+          expected="$(printf 'Hello, LLVM!\nUTF-8 strings work.')"
+          test "$output" = "$expected"
