@@ -47,6 +47,28 @@ Expected output:
 
 The read result and address are owned strings and must be freed exactly once. Listener and connection handles should be closed after all operations using them have completed. The current `await` bridge blocks its caller's OS thread; network operations themselves are Tokio tasks. Non-blocking state-machine lowering remains a separate compiler milestone.
 
+## Native UDP server built-ins
+
+The native UDP API supports a text-oriented datagram server without foreign declarations:
+
+- `udp_bind(address, timeout_ms) -> Future<ptr>` binds a UDP endpoint. Use `127.0.0.1:0` to request an ephemeral port.
+- `udp_local_addr(endpoint) -> str` returns the local socket address. The caller owns the string.
+- `udp_recv(endpoint) -> Future<ptr>` receives one datagram and returns an owned packet handle. Datagrams must be valid UTF-8 and cannot exceed 65,507 bytes.
+- `udp_packet_data(packet) -> str` and `udp_packet_peer(packet) -> str` return caller-owned copies of the payload and source address.
+- `udp_send(endpoint, peer, payload) -> Future<i64>` sends a UTF-8 datagram and returns the sent byte count.
+- `udp_packet_close(packet)` and `udp_endpoint_close(endpoint)` release the packet and socket handles.
+
+The full echo example binds to an ephemeral loopback address, sends a request to itself with the native `udp_request` client, receives the datagram, sends the payload to the retained peer address, and checks the reply:
+
+    cargo run --release -- examples/async/udp_server.ram -o target/udp-server-native
+    target/udp-server-native
+
+Expected output:
+
+    native UDP echo
+
+All strings returned by these built-ins are runtime-owned and must be freed exactly once. UDP packets are messages, not connections; the packet handle retains the source address so the server can answer the sender. The current `await` bridge blocks its caller's OS thread even though socket operations themselves are scheduled on Tokio.
+
 ## Available C ABI
 
 - ramlang_tcp_connect(address, timeout_ms): connect to a TCP endpoint and return an opaque handle, or null on failure.
