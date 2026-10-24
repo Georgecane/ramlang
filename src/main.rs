@@ -5710,8 +5710,8 @@ fn compile(options: Options) -> Result<(), String> {
         return Ok(());
     }
 
-    let output = if let Some(output) = options.output {
-        output
+    let output = if let Some(output) = options.output.as_ref() {
+        output.clone()
     } else if options.emit_object {
         options.sources[0].with_extension("o")
     } else if options.emit_assembly {
@@ -5755,58 +5755,54 @@ fn compile(options: Options) -> Result<(), String> {
         &options.opt_level,
     )?;
 
-    let linker = env::var_os("RAMLANG_LINKER")
+    // Prefer LLVM lld directly on native x86_64 GNU/Linux. This removes the Clang
+    // compiler driver from the normal RamLang build path. A platform driver remains an
+    // explicit compatibility option for other targets, custom sysroots, and foreign ABIs.
+    let runtime_library_dir = env::var_os("RAMLANG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            env::current_exe()
+                .ok()
+                .and_then(|path| path.parent().map(Path::to_path_buf))
+        });
+    let runtime_library_is_explicit = options
+        .link_libs
+        .iter()
+        .any(|library| library == "ramlang_runtime");
+    let object_path = env::temp_dir().join(format!("ramlang-{}-linked.o", process::id()));
+    llvm_backend::emit_file(
+        &llvm_ir,
+        &object_path,
+        llvm_backend::OutputKind::Object,
+        options.target.as_deref(),
+        options.target_cpu.as_deref(),
+        &options.target_features,
+        &options.opt_level,
+    )?;
+
+    let link_result = if let Some(linker) = env::var_os("RAMLANG_LINKER")
         .or_else(|| env::var_os("RAMLANG_CLANG"))
-        .unwrap_or_else(|| "clang".into());
-    let mut command = Command::new(&linker);
-    // Every native RamLang executable links the Rust runtime for print, allocation,
-    // panic, async, and standard-library services. Library users can override this by
-    // explicitly supplying ramlang_runtime in --link-lib.
-    let runtime_library_dir = env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(Path::to_path_buf));
-    if let Some(target) = &options.target {
-        command.arg("-target").arg(target);
-    }
-    if let Some(sysroot) = &options.sysroot {
-        command.arg("--sysroot").arg(sysroot);
-    }
-    for path in &options.link_search_paths {
-        command.arg("-L").arg(path);
-    }
-    for library in &options.link_libs {
-        command.arg(format!("-l{library}"));
-    }
-    for argument in &options.link_args {
-        command.arg(argument);
-    }
-    if let Some(directory) = &runtime_library_dir {
-        command.arg("-L").arg(directory);
-        let target_triple = options.target.as_deref().unwrap_or("");
-        if target_triple.contains("linux")
-            || target_triple.contains("freebsd")
-            || (target_triple.is_empty() && cfg!(unix))
-        {
-            command.arg(format!("-Wl,-rpath,{}", directory.display()));
-        }
-    }
-    let runtime_library_is_explicit = options.link_libs.iter().any(|library| library == "ramlang_runtime");
-    command.arg(&object_path);
-    if !runtime_library_is_explicit {
-        command.arg("-lramlang_runtime");
-    }
-    let result = command.arg("-o").arg(&output).output();
-    let _ = fs::remove_file(&object_path);
-    let result = result.map_err(|error| {
-        format!(
-            "could not launch native linker ({:?}): {error}; install a compatible linker driver or set RAMLANG_LINKER",
-            linker
+    {
+        link_with_platform_driver(
+            &linker,
+            &object_path,
+            &output,
+            &options,
+            runtime_library_dir.as_deref(),
+            runtime_library_is_explicit,
         )
-    })?;
-    if !result.status.success() {
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        return Err(format!("native linker failed to link LLVM object:\n{stderr}"));
-    }
+    } else {
+        link_with_lld(
+            &object_path,
+            &output,
+            &options,
+            runtime_library_dir.as_deref(),
+            runtime_library_is_explicit,
+        )
+    };
+    let _ = fs::remove_file(&object_path);
+    link_result?;
+
     println!("built {}", output.display());
     Ok(())
 }
