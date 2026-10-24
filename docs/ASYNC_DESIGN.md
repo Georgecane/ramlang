@@ -10,7 +10,7 @@ RamLang has an initial source-level async path and a Rust-owned runtime:
 - `async fn main() -> i32` is supported through a generated native entry-point wrapper.
 - `sleep_ms`, `tcp_request`, and `udp_request` return typed futures.
 - Native server APIs provide TCP listen/accept/read/write and UDP bind/receive/send operations. Text APIs require UTF-8; TCP uses four-byte big-endian length-prefixed frames, while UDP preserves datagram boundaries.
-- Futures can return scalar values, `str`, or `ptr`; strings returned by the runtime are owned and must be freed exactly once.
+- Futures can return scalar values, `str`, or `ptr`; strings returned by the runtime are owned and must be freed exactly once. Binary-safe `tcp_request_bytes` and `udp_request_bytes` return an opaque `ByteBuffer` pointer with explicit length/data access and deterministic close semantics.
 
 The runtime is implemented in Rust on Tokio. The LLVM backend is also driven in-process from Rust through Inkwell: generated IR is parsed and verified, then LLVM emits target objects, assembly, or bitcode. The system linker driver is still used for final executable linking; native code generation no longer requires Clang to parse or compile RamLang IR.
 
