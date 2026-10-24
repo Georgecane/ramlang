@@ -16,6 +16,8 @@ typedef struct RamlangUdpRequest RamlangUdpRequest;
 typedef struct RamlangTaskScope RamlangTaskScope;
 typedef struct RamlangNativeTcpListener RamlangNativeTcpListener;
 typedef struct RamlangNativeTcpConnection RamlangNativeTcpConnection;
+typedef struct RamlangNativeUdpEndpoint RamlangNativeUdpEndpoint;
+typedef struct RamlangNativeUdpPacket RamlangNativeUdpPacket;
 
 /*
  * Blocking C ABI for the current RamLang compiler.
@@ -102,6 +104,24 @@ RamlangFuture *ramlang_tcp_read_future(RamlangNativeTcpConnection *connection);
 RamlangFuture *ramlang_tcp_write_future(RamlangNativeTcpConnection *connection, const char *payload);
 void ramlang_tcp_listener_close(RamlangNativeTcpListener *listener);
 void ramlang_tcp_native_close(RamlangNativeTcpConnection *connection);
+
+/*
+ * Native asynchronous UTF-8 UDP API. Bind and receive return futures. The packet retains
+ * its sender address so it can be echoed with udp_send. Strings returned by local_addr,
+ * packet_data and packet_peer are owned and must be freed with ramlang_free.
+ */
+RamlangFuture *ramlang_udp_bind_future(const char *address, int64_t timeout_ms);
+char *ramlang_udp_native_addr(RamlangNativeUdpEndpoint *endpoint);
+RamlangFuture *ramlang_udp_recv_future(RamlangNativeUdpEndpoint *endpoint);
+char *ramlang_udp_packet_data(RamlangNativeUdpPacket *packet);
+char *ramlang_udp_packet_peer(RamlangNativeUdpPacket *packet);
+RamlangFuture *ramlang_udp_send_future(
+    RamlangNativeUdpEndpoint *endpoint,
+    const char *peer,
+    const char *payload
+);
+void ramlang_udp_packet_close(RamlangNativeUdpPacket *packet);
+void ramlang_udp_native_close(RamlangNativeUdpEndpoint *endpoint);
 
 /*
  * Explicit cancellation scope for background network requests.
