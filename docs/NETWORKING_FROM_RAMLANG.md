@@ -25,6 +25,28 @@ tcp_request(address, payload, timeout_ms) and udp_request(address, payload, time
 The caller owns each successful response and must free it exactly once. A network, timeout, allocation, or UTF-8 error makes await yield a null pointer for Future<str> and records a diagnostic in the runtime's last-error slot. Read the most recent diagnostic with the native `last_error()` built-in. The returned diagnostic string is borrowed from thread-local runtime storage and must not be freed; consume or copy it before making another runtime call that can change the last error. The TCP protocol uses a four-byte big-endian length prefix. The UDP protocol sends and receives one datagram and has the standard 65,507-byte payload limit. The examples in examples/async/tcp_request.ram and examples/async/udp_request.ram are compiled and run against local echo servers in CI.
 
 
+## Native TCP server built-ins
+
+RamLang programs can now create a TCP listener without declaring C functions:
+
+- `tcp_listen(address, timeout_ms) -> Future<ptr>` binds a listener. Use `127.0.0.1:0` to request an ephemeral local port.
+- `tcp_listener_addr(listener) -> str` returns the local address; free the returned string with `free(address as ptr)`.
+- `tcp_accept(listener) -> Future<ptr>` accepts one framed TCP client and returns a connection handle.
+- `tcp_read(connection) -> Future<str>` reads one four-byte length-prefixed UTF-8 frame.
+- `tcp_write(connection, payload) -> Future<void>` sends one framed UTF-8 message.
+- `tcp_close(connection)` and `tcp_listener_close(listener)` release native handles.
+
+A full self-contained example starts a listener on an ephemeral port, connects to itself with the native `tcp_request` client, accepts the connection, reads the message, echoes it, and prints the reply. It is compiled and run as a CI integration test:
+
+    cargo run --release -- examples/async/tcp_server.ram -o target/tcp-server-native
+    target/tcp-server-native
+
+Expected output:
+
+    native server echo
+
+The read result and address are owned strings and must be freed exactly once. Listener and connection handles should be closed after all operations using them have completed. The current `await` bridge blocks its caller's OS thread; network operations themselves are Tokio tasks. Non-blocking state-machine lowering remains a separate compiler milestone.
+
 ## Available C ABI
 
 - ramlang_tcp_connect(address, timeout_ms): connect to a TCP endpoint and return an opaque handle, or null on failure.
@@ -89,7 +111,7 @@ The two-request example sends first and second on two independent TCP connection
       -o target/tcp-concurrent
     LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH" target/tcp-concurrent
 
-The local test server listens on 127.0.0.1:39873 and accepts two connections. The expected program output is 5, 102, 6, 115 on separate lines. The C ABI is non-blocking for request submission, but RamLang still lacks native async/await syntax; programs currently manage request handles explicitly.
+The local test server listens on 127.0.0.1:39873 and accepts two connections. The expected program output is 5, 102, 6, 115 on separate lines. This lower-level API remains available for embedding and foreign-function callers; normal .ram source can use native Future values and await.
 
 
 ## UDP example
@@ -116,7 +138,7 @@ The UDP request API starts a send and waits for one response on the shared Tokio
       -o target/udp-request
     LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH" target/udp-request
 
-The example uses the local echo service at 127.0.0.1:39872 and prints the response length and first byte. As with the TCP request API, this is handle-based background concurrency, not language-native async/await syntax.
+The example uses the local echo service at 127.0.0.1:39872 and prints the response length and first byte. This low-level handle API remains for ABI consumers; native RamLang programs can use udp_request(address, payload, timeout_ms) to obtain Future<str> and await the response.
 
 
 ## Native timer Future
@@ -140,5 +162,5 @@ In this initial implementation, `await` blocks the calling OS thread while the t
 - Lower await to suspend/resume state machines instead of blocking the caller's OS thread.
 - Propagate cancellation from parent tasks into in-flight network operations and define drop semantics for unused futures.
 - Generalize Future<T> beyond the currently supported scalar and text-pointer results, including binary buffers with explicit lengths.
-- Add async DNS, server/listener APIs, and typed errors as standard-library surface area rather than requiring raw handle management.
+- Add DNS convenience APIs, UDP listener/server operations, and typed errors as standard-library surface area rather than requiring raw handle management.
 - Add compile-fail tests for invalid await contexts, lifetime tests for returned buffers, and stress tests for cancellation, concurrency, malformed responses, and timeouts.
