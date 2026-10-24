@@ -2896,10 +2896,7 @@ mod tests {
         assert!(!grown.is_null());
         // SAFETY: realloc returned a live 64-byte allocation, preserving the old prefix.
         unsafe {
-            assert_eq!(
-                slice::from_raw_parts(grown.cast::<u8>(), 7),
-                b"ramlang"
-            );
+            assert_eq!(slice::from_raw_parts(grown.cast::<u8>(), 7), b"ramlang");
             ramlang_free(grown);
         }
     }
@@ -2910,8 +2907,14 @@ mod tests {
         let longer = CString::new("hello world").unwrap();
         // SAFETY: CString storage is NUL-terminated and remains live for the calls.
         assert_eq!(unsafe { ramlang_strlen(source.as_ptr()) }, 5);
-        assert_eq!(unsafe { ramlang_strcmp(source.as_ptr(), longer.as_ptr()) }.signum(), -1);
-        assert_eq!(unsafe { ramlang_strncmp(source.as_ptr(), longer.as_ptr(), 5) }, 0);
+        assert_eq!(
+            unsafe { ramlang_strcmp(source.as_ptr(), longer.as_ptr()) }.signum(),
+            -1
+        );
+        assert_eq!(
+            unsafe { ramlang_strncmp(source.as_ptr(), longer.as_ptr(), 5) },
+            0
+        );
 
         let source_bytes = b"network";
         let mut copied = [0_u8; 7];
@@ -2936,9 +2939,8 @@ mod tests {
             0
         );
         // SAFETY: copied points to seven valid readable bytes.
-        let found = unsafe {
-            ramlang_memchr(copied.as_ptr().cast::<c_void>(), b'w' as i32, copied.len())
-        };
+        let found =
+            unsafe { ramlang_memchr(copied.as_ptr().cast::<c_void>(), b'w' as i32, copied.len()) };
         assert_eq!(found.cast::<u8>(), copied.as_mut_ptr().wrapping_add(3));
     }
 
