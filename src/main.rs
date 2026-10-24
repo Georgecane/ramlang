@@ -6889,6 +6889,36 @@ mod tests {
     }
 
     #[test]
+    fn lowers_native_async_tcp_server_builtins() {
+        let source = r#"
+            fn main() -> i32 {
+                let listen_future: Future<ptr> = tcp_listen("127.0.0.1:0", 5000);
+                let listener: ptr = await listen_future;
+                let address: str = tcp_listener_addr(listener);
+                let accept_future: Future<ptr> = tcp_accept(listener);
+                let connection: ptr = await accept_future;
+                let read_future: Future<str> = tcp_read(connection);
+                let message: str = await read_future;
+                let write_future: Future<void> = tcp_write(connection, message);
+                await write_future;
+                free(message as ptr);
+                tcp_close(connection);
+                free(address as ptr);
+                tcp_listener_close(listener);
+                return 0;
+            }
+        "#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("call ptr @ramlang_tcp_listen_future"));
+        assert!(ir.contains("call ptr @ramlang_tcp_listener_addr"));
+        assert!(ir.contains("call ptr @ramlang_tcp_accept_future"));
+        assert!(ir.contains("call ptr @ramlang_tcp_read_future"));
+        assert!(ir.contains("call ptr @ramlang_tcp_write_future"));
+        assert!(ir.contains("call void @ramlang_tcp_listener_close"));
+        assert!(ir.contains("call void @ramlang_tcp_native_close"));
+    }
+
+    #[test]
     fn lowers_native_async_functions_and_typed_future_await() {
         let source = r#"
             async fn add_one(value: i32) -> i32 {
