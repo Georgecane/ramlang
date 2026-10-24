@@ -1,6 +1,6 @@
 # Networking from RamLang
 
-RamLang has an initial language-level async fn / Future<T> / await path plus native text and binary-safe TCP/UDP request and server built-ins. The compiler emits calls into a Rust-owned Tokio runtime, so ordinary .ram code can accept framed TCP clients and receive/reply to UDP datagrams without declaring extern fn or writing C source.
+RamLang has an initial language-level async fn / Future<T> / await path plus native text and binary-safe TCP/UDP request and server built-ins. The compiler emits calls into a Rust-owned Tokio runtime, so ordinary .ram code can accept framed TCP clients and receive/reply to UDP datagrams without declaring extern fn or writing C source. Network resources use nominal types (`TcpListener`, `TcpStream`, `UdpSocket`, `UdpPacket`, and `ByteBuffer`) instead of interchangeable `ptr` values; the compiler checks handle kinds even though LLVM represents them as pointers.
 
 This is the first native integration milestone, not the final async execution model. async fn invocations run on the runtime's blocking pool, the built-in network operations run as Tokio tasks, and the current await waits on the calling OS thread. The next compiler milestone is explicit suspension/state-machine lowering so awaiting one future yields rather than tying up an OS thread. Text built-ins require valid UTF-8 and return a runtime-owned NUL-terminated response string; release it with free(response as ptr). Binary-safe TCP/UDP request built-ins are also available and return an opaque ByteBuffer handle.
 
@@ -30,7 +30,7 @@ The caller owns each successful response and must free it exactly once. A networ
 
 Use `tcp_request_bytes(address, data, length, timeout_ms)` or `udp_request_bytes(address, data, length, timeout_ms)` when the message is not UTF-8 text. The data argument is a raw pointer and the length is an explicit byte count, so payloads may contain embedded NUL bytes, arbitrary binary values, or invalid UTF-8. Inputs are copied before the function returns. TCP remains a single four-byte big-endian length-prefixed frame, capped at 16 MiB; UDP preserves the single-datagram boundary and caps payloads at 65,507 bytes.
 
-These calls return `Future<ptr>`. On success, `await` returns an opaque byte-buffer handle. Use `buffer_len(buffer)` for its byte count and `buffer_data(buffer)` for a pointer to its contents. The data pointer is borrowed and remains valid only until `buffer_close(buffer)`; do not pass the buffer handle to `free`. On network failure, the awaited handle is null and `last_error()` provides the diagnostic.
+These calls return `Future<ByteBuffer>`. On success, `await` returns a `ByteBuffer` handle. Use `buffer_len(buffer)` for its byte count and `buffer_data(buffer)` for a pointer to its contents. The data pointer is borrowed and remains valid only until `buffer_close(buffer)`; do not pass the buffer handle to `free`. On network failure, the awaited handle is null and `last_error()` provides the diagnostic.
 
     let outgoing: ptr = alloc(5);
     store_u8(outgoing, 0);
@@ -39,7 +39,7 @@ These calls return `Future<ptr>`. On success, `await` returns an opaque byte-buf
     store_u8(ptr_offset(outgoing, 3), 65);
     store_u8(ptr_offset(outgoing, 4), 10);
 
-    let incoming: ptr = await tcp_request_bytes("127.0.0.1:39876", outgoing, 5, 3000);
+    let incoming: ByteBuffer = await tcp_request_bytes("127.0.0.1:39876", outgoing, 5, 3000);
     free(outgoing);
     if (incoming != null) {
         let length: i64 = buffer_len(incoming);
@@ -87,15 +87,29 @@ For an asynchronous entry point the compiler emits an ordinary system `i32 main(
 
 The current async-function body still runs on Tokio's blocking pool and `await` blocks the calling OS thread. True cooperative suspension/resumption is the next compiler architecture milestone.
 
+## Nominal handle types
+
+The built-ins return and accept specific resource types:
+
+| Type | Created by | Released by |
+|---|---|---|
+| `TcpListener` | `await tcp_listen(...)` | `tcp_listener_close` |
+| `TcpStream` | `await tcp_accept(listener)` | `tcp_close` |
+| `UdpSocket` | `await udp_bind(...)` | `udp_endpoint_close` |
+| `UdpPacket` | `await udp_recv...` | `udp_packet_close` |
+| `ByteBuffer` | binary request/read/packet APIs | `buffer_close` |
+
+These are nominal compiler types, not synonyms for `ptr`. For example, `udp_recv(tcp_stream)` fails type checking because it requires a `UdpSocket`, and `tcp_close(byte_buffer)` fails because it requires a `TcpStream`. Byte payload arguments remain raw pointers plus explicit lengths; use raw memory operations for payload access, not for resource handles.
+
 ## Native TCP server built-ins
 
 RamLang programs can now create a TCP listener without declaring C functions:
 
-- `tcp_listen(address, timeout_ms) -> Future<ptr>` binds a listener. Use `127.0.0.1:0` to request an ephemeral local port.
+- `tcp_listen(address, timeout_ms) -> Future<TcpListener>` binds a listener. Use `127.0.0.1:0` to request an ephemeral local port.
 - `tcp_listener_addr(listener) -> str` returns the local address; free the returned string with `free(address as ptr)`.
-- `tcp_accept(listener) -> Future<ptr>` accepts one framed TCP client and returns a connection handle.
-- `tcp_read(connection) -> Future<str>` reads one four-byte length-prefixed UTF-8 frame.
-- `tcp_write(connection, payload) -> Future<void>` sends one framed UTF-8 message.
+- `tcp_accept(listener: TcpListener) -> Future<TcpStream>` accepts one framed TCP client and returns a connection handle.
+- `tcp_read(connection: TcpStream) -> Future<str>` reads one four-byte length-prefixed UTF-8 frame.
+- `tcp_write(connection: TcpStream, payload) -> Future<void>` sends one framed UTF-8 message.
 - `tcp_close(connection)` and `tcp_listener_close(listener)` release native handles.
 
 A full self-contained example starts a listener on an ephemeral port, connects to itself with the native `tcp_request` client, accepts the connection, reads the message, echoes it, and prints the reply. It is compiled and run as a CI integration test:
@@ -113,8 +127,8 @@ The read result and address are owned strings and must be freed exactly once. Li
 
 TCP listener and connection handles also support binary frames:
 
-- `tcp_read_bytes(connection) -> Future<ptr>` reads one length-prefixed frame into an owned `ByteBuffer`. It preserves NUL bytes and arbitrary invalid UTF-8.
-- `tcp_write_bytes(connection, data, length) -> Future<void>` copies the indicated bytes before returning, then sends one length-prefixed frame.
+- `tcp_read_bytes(connection: TcpStream) -> Future<ByteBuffer>` reads one length-prefixed frame into an owned `ByteBuffer`. It preserves NUL bytes and arbitrary invalid UTF-8.
+- `tcp_write_bytes(connection: TcpStream, data, length) -> Future<void>` copies the indicated bytes before returning, then sends one length-prefixed frame.
 - Use `buffer_len(buffer)`, `buffer_data(buffer)`, and `buffer_close(buffer)` to inspect and release received data.
 
 The self-contained echo example sends the bytes `[0, 255, 128, 65, 10]` through a native listener and verifies every returned byte:
@@ -137,11 +151,11 @@ Expected output is the length and each byte on separate lines:
 
 The native UDP API supports a text-oriented datagram server without foreign declarations:
 
-- `udp_bind(address, timeout_ms) -> Future<ptr>` binds a UDP endpoint. Use `127.0.0.1:0` to request an ephemeral port.
-- `udp_local_addr(endpoint) -> str` returns the local socket address. The caller owns the string.
-- `udp_recv(endpoint) -> Future<ptr>` receives one datagram and returns an owned packet handle. Datagrams must be valid UTF-8 and cannot exceed 65,507 bytes.
-- `udp_packet_data(packet) -> str` and `udp_packet_peer(packet) -> str` return caller-owned copies of the payload and source address.
-- `udp_send(endpoint, peer, payload) -> Future<i64>` sends a UTF-8 datagram and returns the sent byte count.
+- `udp_bind(address, timeout_ms) -> Future<UdpSocket>` binds a UDP endpoint. Use `127.0.0.1:0` to request an ephemeral port.
+- `udp_local_addr(endpoint: UdpSocket) -> str` returns the local socket address. The caller owns the string.
+- `udp_recv(endpoint: UdpSocket) -> Future<UdpPacket>` receives one datagram and returns an owned packet handle. Datagrams must be valid UTF-8 and cannot exceed 65,507 bytes.
+- `udp_packet_data(packet: UdpPacket) -> str` and `udp_packet_peer(packet) -> str` return caller-owned copies of the payload and source address.
+- `udp_send(endpoint: UdpSocket, peer, payload) -> Future<i64>` sends a UTF-8 datagram and returns the sent byte count.
 - `udp_packet_close(packet)` and `udp_endpoint_close(endpoint)` release the packet and socket handles.
 
 The full echo example binds to an ephemeral loopback address, sends a request to itself with the native `udp_request` client, receives the datagram, sends the payload to the retained peer address, and checks the reply:
@@ -159,10 +173,10 @@ All strings returned by these built-ins are runtime-owned and must be freed exac
 
 For datagrams that are not guaranteed to be UTF-8, use the binary variants rather than `udp_recv` and `udp_packet_data`:
 
-- `udp_recv_bytes(endpoint) -> Future<ptr>` receives a datagram without UTF-8 decoding. The returned packet retains the sender address and owns its payload bytes.
-- `udp_packet_bytes(packet) -> ptr` returns an owned `ByteBuffer` copy of the payload.
-- `udp_packet_peer(packet) -> str` obtains the sender address.
-- `udp_send_bytes(endpoint, peer, data, length) -> Future<i64>` sends arbitrary bytes and returns the datagram length.
+- `udp_recv_bytes(endpoint: UdpSocket) -> Future<UdpPacket>` receives a datagram without UTF-8 decoding. The returned packet retains the sender address and owns its payload bytes.
+- `udp_packet_bytes(packet: UdpPacket) -> ByteBuffer` returns an owned `ByteBuffer` copy of the payload.
+- `udp_packet_peer(packet: UdpPacket) -> str` obtains the sender address.
+- `udp_send_bytes(endpoint: UdpSocket, peer, data, length) -> Future<i64>` sends arbitrary bytes and returns the datagram length.
 
 Example:
 
