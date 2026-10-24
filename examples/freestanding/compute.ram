@@ -1,0 +1,12 @@
+fn square(value: i32) -> i32 {
+    return value * value;
+}
+
+fn main() -> i32 {
+    let result: i32 = square(12);
+    if (result == 144) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
