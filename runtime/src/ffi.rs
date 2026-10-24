@@ -3491,6 +3491,22 @@ mod tests {
         context as usize as i64
     }
 
+    unsafe extern "C" fn await_child_future(context: *mut c_void) -> i64 {
+        // SAFETY: the context is a Box containing one live Future handle.
+        let child = unsafe { *context.cast::<*mut RamlangFuture>() };
+        // SAFETY: child remains live until the parent context cleanup runs after its callback.
+        unsafe { ramlang_future_await_i64(child) }
+    }
+
+    unsafe extern "C" fn cleanup_child_future_context(context: *mut c_void) {
+        // SAFETY: the executor owns this Box and invokes cleanup exactly once.
+        let child_slot = unsafe { Box::from_raw(context.cast::<*mut RamlangFuture>()) };
+        if !child_slot.is_null() {
+            // SAFETY: cleanup is responsible for releasing the owned Future handle.
+            unsafe { ramlang_future_close(*child_slot) };
+        }
+    }
+
     #[test]
     fn closing_pending_native_tcp_future_cancels_network_io() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -3663,6 +3679,61 @@ mod tests {
         assert_eq!(unsafe { ramlang_future_await_i64(future) }, 0);
         assert_eq!(unsafe { ramlang_future_is_ready(future) }, 1);
         unsafe { ramlang_future_close(future) };
+    }
+
+    #[test]
+    fn awaiting_pending_child_yields_executor_to_other_async_functions() {
+        let child = ramlang_sleep_future(600);
+        assert!(!child.is_null());
+        let context = Box::into_raw(Box::new(child)).cast::<c_void>();
+        // SAFETY: the callback and cleanup agree on the boxed child-handle context.
+        let parent = unsafe {
+            ramlang_future_spawn_owned_i64(
+                Some(await_child_future),
+                context,
+                Some(cleanup_child_future_context),
+            )
+        };
+        assert!(!parent.is_null(), "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+
+        // This sibling completes immediately. A blocking await inside parent would occupy
+        // the executor thread and prevent this callback from running until the timer finishes.
+        // SAFETY: the callback only encodes the value as an integer and never dereferences it.
+        let sibling = unsafe {
+            ramlang_future_spawn_owned_i64(Some(return_context_address), 7_usize as *mut c_void, None)
+        };
+        assert!(!sibling.is_null(), "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+
+        let deadline = Instant::now() + Duration::from_millis(300);
+        while unsafe { ramlang_future_is_ready(sibling) } == 0 && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        let sibling_ready = unsafe { ramlang_future_is_ready(sibling) } == 1;
+        let parent_still_pending = unsafe { ramlang_future_is_ready(parent) } == 0;
+        if !sibling_ready || !parent_still_pending {
+            // SAFETY: neither Future is being awaited concurrently by another thread.
+            unsafe {
+                ramlang_future_close(sibling);
+                ramlang_future_close(parent);
+            }
+            assert!(
+                sibling_ready && parent_still_pending,
+                "cooperative executor failed to run the sibling while the parent awaited a timer"
+            );
+        }
+
+        // SAFETY: these handles are live and no other caller is consuming either result.
+        assert_eq!(unsafe { ramlang_future_await_i64(sibling) }, 7);
+        assert_eq!(unsafe { ramlang_future_await_i64(parent) }, 0);
+        // SAFETY: both completed handles are now released by their owner.
+        unsafe {
+            ramlang_future_close(sibling);
+            ramlang_future_close(parent);
+        }
     }
 
     #[test]
