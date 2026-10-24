@@ -5,6 +5,7 @@
 //! current await bridge blocks the calling OS thread; resumable state-machine lowering remains
 //! future work.
 
+use corosensei::{Coroutine, CoroutineResult, Yielder};
 use std::{
     alloc::{Layout, alloc as alloc_bytes, dealloc as dealloc_bytes},
     cell::Cell,
@@ -16,7 +17,6 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use corosensei::{Coroutine, CoroutineResult, Yielder};
 use tokio::{
     runtime::{Builder, Runtime},
     sync::{Notify, mpsc::UnboundedSender},
@@ -2581,7 +2581,10 @@ impl FutureState {
     }
 
     fn is_closed(&self) -> bool {
-        self.data.lock().unwrap_or_else(|error| error.into_inner()).closed
+        self.data
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .closed
     }
 }
 
@@ -2636,8 +2639,7 @@ static ASYNC_COROUTINE_EXECUTOR: OnceLock<Result<UnboundedSender<AsyncCoroutineJ
 
 fn async_coroutine_sender() -> Result<&'static UnboundedSender<AsyncCoroutineJob>, String> {
     match ASYNC_COROUTINE_EXECUTOR.get_or_init(|| {
-        let (sender, mut receiver) =
-            tokio::sync::mpsc::unbounded_channel::<AsyncCoroutineJob>();
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<AsyncCoroutineJob>();
         let (started_sender, started_receiver) =
             std::sync::mpsc::sync_channel::<Result<(), String>>(1);
         std::thread::Builder::new()
@@ -3305,10 +3307,7 @@ pub unsafe extern "C" fn ramlang_future_await_i64(future: *mut RamlangFuture) ->
 
             let yielder = CURRENT_YIELDER.with(Cell::get);
             if yielder.is_null() {
-                data = state
-                    .ready
-                    .wait(data)
-                    .unwrap_or_else(|e| e.into_inner());
+                data = state.ready.wait(data).unwrap_or_else(|e| e.into_inner());
             } else {
                 drop(data);
                 // SAFETY: CURRENT_YIELDER is set only while the coroutine executor is resuming
