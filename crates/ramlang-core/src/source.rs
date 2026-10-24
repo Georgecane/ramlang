@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use crate::{Function, FunctionId, Instruction, Program, Register, Type, VmError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum TokenKind { Ident, Number, Symbol(String), Eof }
+enum TokenKind { Ident, Number, String, Symbol(String), Eof }
 
 #[derive(Debug, Clone)]
 struct Token { kind: TokenKind, text: String, line: usize, column: usize }
@@ -63,6 +63,37 @@ impl<'a> Lexer<'a> {
                 tokens.push(Token { kind: TokenKind::Number, text, line, column });
                 continue;
             }
+            if byte == b'"' {
+                self.advance();
+                let mut bytes = Vec::new();
+                let mut closed = false;
+                while let Some(next) = self.peek(0) {
+                    match next {
+                        b'"' => { self.advance(); closed = true; break; }
+                        b'\n' => return Err(VmError::new(format!("{line}:{column}: unescaped newline in string literal"))),
+                        b'\\' => {
+                            self.advance();
+                            let escaped = self.peek(0).ok_or_else(|| VmError::new(format!("{line}:{column}: unterminated string escape")))?;
+                            self.advance();
+                            match escaped {
+                                b'n' => bytes.push(b'\n'),
+                                b'r' => bytes.push(b'\r'),
+                                b't' => bytes.push(b'\t'),
+                                b'0' => bytes.push(0),
+                                b'\\' => bytes.push(b'\\'),
+                                b'"' => bytes.push(b'"'),
+                                _ => return Err(VmError::new(format!("{line}:{column}: unsupported string escape"))),
+                            }
+                        }
+                        _ => bytes.push(self.advance().expect("peeked byte exists")),
+                    }
+                }
+                if !closed { return Err(VmError::new(format!("{line}:{column}: unterminated string literal"))); }
+                let text = String::from_utf8(bytes)
+                    .map_err(|_| VmError::new(format!("{line}:{column}: string literal is not valid UTF-8")))?;
+                tokens.push(Token { kind: TokenKind::String, text, line, column });
+                continue;
+            }
             let two = match (byte, self.peek(1)) {
                 (b'-', Some(b'>')) => Some("->"),
                 (b'=', Some(b'=')) => Some("=="),
@@ -107,6 +138,7 @@ enum Stmt {
 enum Expr {
     Int(i64),
     Bool(bool),
+    String(String),
     Variable(String),
     Unary { op: String, value: Box<Expr> },
     Binary { left: Box<Expr>, op: String, right: Box<Expr> },
@@ -140,6 +172,7 @@ impl Parser {
         match name.as_str() {
             "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" => Ok(Type::I64),
             "bool" => Ok(Type::Bool),
+            "str" => Ok(Type::Str),
             "void" | "unit" => Ok(Type::Unit),
             _ => Err(self.error(format!("the reference runner does not yet support type '{name}'"))),
         }
@@ -282,6 +315,11 @@ impl Parser {
         self.parse_primary()
     }
     fn parse_primary(&mut self) -> Result<Expr, VmError> {
+        if matches!(self.current().kind, TokenKind::String) {
+            let token = self.current().clone();
+            self.index += 1;
+            return Ok(Expr::String(token.text));
+        }
         if matches!(self.current().kind, TokenKind::Number) {
             let token = self.current().clone(); self.index += 1;
             let value = token.text.parse::<i64>().map_err(|_| VmError::new(format!("{}:{}: integer literal is outside the i64 range", token.line, token.column)))?;
@@ -306,7 +344,7 @@ impl Parser {
             }
             return Ok(Expr::Variable(name));
         }
-        Err(self.error("expected an integer, boolean, variable, function call, or parenthesized expression"))
+        Err(self.error("expected a literal, variable, function call, or parenthesized expression"))
     }
 }
 
@@ -453,6 +491,11 @@ impl<'a> FunctionCompiler<'a> {
     }
     fn expression(&mut self, expression: &Expr) -> Result<(Register, Type), VmError> {
         match expression {
+            Expr::String(value) => {
+                let dst = self.alloc(Type::Str);
+                self.emit(Instruction::ConstStr { dst, value: value.clone() });
+                Ok((dst, Type::Str))
+            }
             Expr::Int(value) => {
                 let dst = self.alloc(Type::I64); self.emit(Instruction::ConstI64 { dst, value: *value }); Ok((dst, Type::I64))
             }
@@ -517,6 +560,7 @@ impl<'a> FunctionCompiler<'a> {
                     match ty {
                         Type::I64 => { self.emit(Instruction::PrintI64 { src: source }); }
                         Type::Bool => { self.emit(Instruction::PrintBool { src: source }); }
+                        Type::Str => { self.emit(Instruction::PrintStr { src: source }); }
                         Type::Unit => return Err(VmError::new("print cannot print void")),
                     }
                     let dummy = self.alloc(Type::Unit);
