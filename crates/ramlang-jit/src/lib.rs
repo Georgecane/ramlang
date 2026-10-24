@@ -7,7 +7,7 @@
 use std::{cell::RefCell, mem};
 
 use cranelift_codegen::ir::{
-    self, types, AbiParam, Block, InstBuilder, IntCC, TrapCode, UserFuncName,
+    self, condcodes::IntCC, types, AbiParam, Block, InstBuilder, UserFuncName,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::{JITBuilder, JITModule};
@@ -243,12 +243,10 @@ fn translate_function(
     let bodies: Vec<Block> = function.code.iter().map(|_| builder.create_block()).collect();
     let fallback = builder.create_block();
 
-    let mut variables = Vec::with_capacity(function.registers.len());
-    for (index, ty) in function.registers.iter().enumerate() {
-        let variable = Variable::from_u32(index as u32);
+    let mut variables: Vec<Variable> = Vec::with_capacity(function.registers.len());
+    for ty in &function.registers {
         // Unit-typed registers are unused expression placeholders in this subset.
-        builder.declare_var(variable, clif_type(*ty)?);
-        variables.push(variable);
+        variables.push(builder.declare_var(clif_type(*ty)?));
     }
 
     builder.switch_to_block(entry_block);
@@ -267,7 +265,7 @@ fn translate_function(
         let guard_ref = module.declare_func_in_func(guard_id, &mut builder.func);
         let guard_call = builder.ins().call(guard_ref, &[]);
         let guard_result = builder.inst_results(guard_call)[0];
-        let guard_condition = builder.ins().icmp_imm(IntCC::NotEqual, guard_result, 0);
+        let guard_condition = builder.ins().icmp_imm_s(IntCC::NotEqual, guard_result, 0);
         builder.ins().brif(guard_condition, bodies[pc], &[], fallback, &[]);
 
         builder.switch_to_block(bodies[pc]);
