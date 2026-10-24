@@ -180,7 +180,7 @@ pub unsafe extern "C" fn ramlang_tcp_listener_close(listener: *mut RamlangNative
     if !listener.is_null() {
         // SAFETY: pointer validity is required by this function's caller contract.
         let listener = unsafe { Box::from_raw(listener) };
-        let _ = listener.inner.closed.send(true);
+        listener.inner.closed.send_replace(true);
         drop(listener);
     }
     clear_last_error();
