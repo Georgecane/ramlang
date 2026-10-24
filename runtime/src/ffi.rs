@@ -3336,7 +3336,6 @@ pub unsafe extern "C" fn ramlang_future_await_i64(future: *mut RamlangFuture) ->
                 return -1;
             }
         }
-    }
 }
 
 /// Await a Future and take ownership of its handle. If this coroutine is cancelled while
