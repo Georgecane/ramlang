@@ -1,6 +1,6 @@
 # Networking from RamLang
 
-RamLang now has an initial language-level async fn / Future<T> / await path and native text networking built-ins. The compiler emits calls into a Rust-owned Tokio runtime, so ordinary .ram code can start TCP or UDP work and await its UTF-8 response without declaring an extern fn or writing C source.
+RamLang has an initial language-level async fn / Future<T> / await path plus native text and binary-safe TCP/UDP request and server built-ins. The compiler emits calls into a Rust-owned Tokio runtime, so ordinary .ram code can accept framed TCP clients and receive/reply to UDP datagrams without declaring extern fn or writing C source.
 
 This is the first native integration milestone, not the final async execution model. async fn invocations run on the runtime's blocking pool, the built-in network operations run as Tokio tasks, and the current await waits on the calling OS thread. The next compiler milestone is explicit suspension/state-machine lowering so awaiting one future yields rather than tying up an OS thread. Text built-ins require valid UTF-8 and return a runtime-owned NUL-terminated response string; release it with free(response as ptr). Binary-safe TCP/UDP request built-ins are also available and return an opaque ByteBuffer handle.
 
@@ -109,6 +109,30 @@ Expected output:
 
 The read result and address are owned strings and must be freed exactly once. Listener and connection handles should be closed after all operations using them have completed. The current `await` bridge blocks its caller's OS thread; network operations themselves are Tokio tasks. Non-blocking state-machine lowering remains a separate compiler milestone.
 
+## Binary-safe native TCP server built-ins
+
+TCP listener and connection handles also support binary frames:
+
+- `tcp_read_bytes(connection) -> Future<ptr>` reads one length-prefixed frame into an owned `ByteBuffer`. It preserves NUL bytes and arbitrary invalid UTF-8.
+- `tcp_write_bytes(connection, data, length) -> Future<void>` copies the indicated bytes before returning, then sends one length-prefixed frame.
+- Use `buffer_len(buffer)`, `buffer_data(buffer)`, and `buffer_close(buffer)` to inspect and release received data.
+
+The self-contained echo example sends the bytes `[0, 255, 128, 65, 10]` through a native listener and verifies every returned byte:
+
+    cargo run --release -- examples/async/tcp_bytes_server.ram -o target/tcp-bytes-server-native
+    target/tcp-bytes-server-native
+
+Expected output is the length and each byte on separate lines:
+
+    5
+    0
+    255
+    128
+    65
+    10
+
+`tcp_write_bytes` copies its input immediately, so the caller may release or reuse its source buffer after the call starts. The returned read buffer remains owned by the caller until `buffer_close`.
+
 ## Native UDP server built-ins
 
 The native UDP API supports a text-oriented datagram server without foreign declarations:
@@ -130,6 +154,31 @@ Expected output:
     native UDP echo
 
 All strings returned by these built-ins are runtime-owned and must be freed exactly once. UDP packets are messages, not connections; the packet handle retains the source address so the server can answer the sender. The current `await` bridge blocks its caller's OS thread even though socket operations themselves are scheduled on Tokio.
+
+## Binary-safe native UDP server built-ins
+
+For datagrams that are not guaranteed to be UTF-8, use the binary variants rather than `udp_recv` and `udp_packet_data`:
+
+- `udp_recv_bytes(endpoint) -> Future<ptr>` receives a datagram without UTF-8 decoding. The returned packet retains the sender address and owns its payload bytes.
+- `udp_packet_bytes(packet) -> ptr` returns an owned `ByteBuffer` copy of the payload.
+- `udp_packet_peer(packet) -> str` obtains the sender address.
+- `udp_send_bytes(endpoint, peer, data, length) -> Future<i64>` sends arbitrary bytes and returns the datagram length.
+
+Example:
+
+    cargo run --release -- examples/async/udp_bytes_server.ram -o target/udp-bytes-server-native
+    target/udp-bytes-server-native
+
+It echoes `[0, 255, 128, 65, 10]` to itself and prints:
+
+    5
+    0
+    255
+    128
+    65
+    10
+
+The packet handle and byte buffer are separate resources: release the buffer with `buffer_close`, then release the packet with `udp_packet_close`. Text-only `udp_packet_data` returns an error for a packet that is not valid UTF-8.
 
 ## Available C ABI
 
