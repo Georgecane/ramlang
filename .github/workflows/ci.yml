@@ -90,6 +90,28 @@ jobs:
           output="$(target/tcp-request-native)"
           test "$output" = "hello over RamLang"
           wait "$server_pid"
+      - name: Compile and run native binary-safe TCP request
+        shell: bash
+        run: |
+          cargo run --release -- examples/async/tcp_bytes.ram -o target/tcp-bytes-native
+          cargo run --release -p ramlang-runtime --example tcp_echo_server -- 127.0.0.1:39876 > target/tcp-bytes-native-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 100); do
+            if grep -q READY target/tcp-bytes-native-server.log; then
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat target/tcp-bytes-native-server.log
+              exit 1
+            fi
+            sleep 0.1
+          done
+          grep -q READY target/tcp-bytes-native-server.log
+          output="$(target/tcp-bytes-native)"
+          expected="$(printf '5\n0\n255\n128\n65\n10')"
+          test "$output" = "$expected"
+          wait "$server_pid"
       - name: Compile and run native async TCP server
         run: |
           cargo run --release -- examples/async/tcp_server.ram -o target/tcp-server-native
@@ -125,6 +147,28 @@ jobs:
           grep -q READY target/udp-request-native-server.log
           output="$(target/udp-request-native)"
           test "$output" = "hello over UDP"
+          wait "$server_pid"
+      - name: Compile and run native binary-safe UDP request
+        shell: bash
+        run: |
+          cargo run --release -- examples/async/udp_bytes.ram -o target/udp-bytes-native
+          cargo run --release -p ramlang-runtime --example udp_echo_server -- 127.0.0.1:39877 > target/udp-bytes-native-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 100); do
+            if grep -q READY target/udp-bytes-native-server.log; then
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat target/udp-bytes-native-server.log
+              exit 1
+            fi
+            sleep 0.1
+          done
+          grep -q READY target/udp-bytes-native-server.log
+          output="$(target/udp-bytes-native)"
+          expected="$(printf '5\n0\n255\n128\n65\n10')"
+          test "$output" = "$expected"
           wait "$server_pid"
       - name: Compile and run C ABI header smoke test
         run: |
