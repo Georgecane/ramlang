@@ -134,6 +134,13 @@ char *ramlang_tcp_listener_addr(RamlangNativeTcpListener *listener);
 RamlangFuture *ramlang_tcp_accept_future(RamlangNativeTcpListener *listener);
 RamlangFuture *ramlang_tcp_read_future(RamlangNativeTcpConnection *connection);
 RamlangFuture *ramlang_tcp_write_future(RamlangNativeTcpConnection *connection, const char *payload);
+/* Binary-safe variants preserve embedded NUL and invalid UTF-8 bytes. */
+RamlangFuture *ramlang_tcp_read_bytes_future(RamlangNativeTcpConnection *connection);
+RamlangFuture *ramlang_tcp_write_bytes_future(
+    RamlangNativeTcpConnection *connection,
+    const uint8_t *data,
+    int64_t length
+);
 void ramlang_tcp_listener_close(RamlangNativeTcpListener *listener);
 void ramlang_tcp_native_close(RamlangNativeTcpConnection *connection);
 
@@ -145,12 +152,21 @@ void ramlang_tcp_native_close(RamlangNativeTcpConnection *connection);
 RamlangFuture *ramlang_udp_bind_future(const char *address, int64_t timeout_ms);
 char *ramlang_udp_native_addr(RamlangNativeUdpEndpoint *endpoint);
 RamlangFuture *ramlang_udp_recv_future(RamlangNativeUdpEndpoint *endpoint);
+/* Binary-safe receive. udp_packet_bytes returns an owned RamlangByteBuffer copy. */
+RamlangFuture *ramlang_udp_recv_bytes_future(RamlangNativeUdpEndpoint *endpoint);
+RamlangByteBuffer *ramlang_udp_packet_bytes(RamlangNativeUdpPacket *packet);
 char *ramlang_udp_packet_data(RamlangNativeUdpPacket *packet);
 char *ramlang_udp_packet_peer(RamlangNativeUdpPacket *packet);
 RamlangFuture *ramlang_udp_send_future(
     RamlangNativeUdpEndpoint *endpoint,
     const char *peer,
     const char *payload
+);
+RamlangFuture *ramlang_udp_send_bytes_future(
+    RamlangNativeUdpEndpoint *endpoint,
+    const char *peer,
+    const uint8_t *data,
+    int64_t length
 );
 void ramlang_udp_packet_close(RamlangNativeUdpPacket *packet);
 void ramlang_udp_native_close(RamlangNativeUdpEndpoint *endpoint);
