@@ -2,7 +2,7 @@
 
 RamLang now has an initial language-level async fn / Future<T> / await path and native text networking built-ins. The compiler emits calls into a Rust-owned Tokio runtime, so ordinary .ram code can start TCP or UDP work and await its UTF-8 response without declaring an extern fn or writing C source.
 
-This is the first native integration milestone, not the final async execution model. async fn invocations run on the runtime's blocking pool, the built-in network operations run as Tokio tasks, and the current await waits on the calling OS thread. The next compiler milestone is explicit suspension/state-machine lowering so awaiting one future yields rather than tying up an OS thread. Text built-ins require valid UTF-8 and return a runtime-owned NUL-terminated response string; release it with free(response as ptr). Binary TCP/UDP APIs remain available through the runtime ABI for protocols that are not text-based.
+This is the first native integration milestone, not the final async execution model. async fn invocations run on the runtime's blocking pool, the built-in network operations run as Tokio tasks, and the current await waits on the calling OS thread. The next compiler milestone is explicit suspension/state-machine lowering so awaiting one future yields rather than tying up an OS thread. Text built-ins require valid UTF-8 and return a runtime-owned NUL-terminated response string; release it with free(response as ptr). Binary-safe TCP/UDP request built-ins are also available and return an opaque ByteBuffer handle.
 
 ## Build the shared library
 
@@ -23,6 +23,33 @@ tcp_request(address, payload, timeout_ms) and udp_request(address, payload, time
     free(udp_response as ptr);
 
 The caller owns each successful response and must free it exactly once. A network, timeout, allocation, or UTF-8 error makes await yield a null pointer for Future<str> and records a diagnostic in the runtime's last-error slot. Read the most recent diagnostic with the native `last_error()` built-in. The returned diagnostic string is borrowed from thread-local runtime storage and must not be freed; consume or copy it before making another runtime call that can change the last error. The TCP protocol uses a four-byte big-endian length prefix. The UDP protocol sends and receives one datagram and has the standard 65,507-byte payload limit. The examples in examples/async/tcp_request.ram and examples/async/udp_request.ram are compiled and run against local echo servers in CI.
+
+
+
+## Binary-safe TCP and UDP requests
+
+Use `tcp_request_bytes(address, data, length, timeout_ms)` or `udp_request_bytes(address, data, length, timeout_ms)` when the message is not UTF-8 text. The data argument is a raw pointer and the length is an explicit byte count, so payloads may contain embedded NUL bytes, arbitrary binary values, or invalid UTF-8. Inputs are copied before the function returns. TCP remains a single four-byte big-endian length-prefixed frame, capped at 16 MiB; UDP preserves the single-datagram boundary and caps payloads at 65,507 bytes.
+
+These calls return `Future<ptr>`. On success, `await` returns an opaque byte-buffer handle. Use `buffer_len(buffer)` for its byte count and `buffer_data(buffer)` for a pointer to its contents. The data pointer is borrowed and remains valid only until `buffer_close(buffer)`; do not pass the buffer handle to `free`. On network failure, the awaited handle is null and `last_error()` provides the diagnostic.
+
+    let outgoing: ptr = alloc(5);
+    store_u8(outgoing, 0);
+    store_u8(ptr_offset(outgoing, 1), 255);
+    store_u8(ptr_offset(outgoing, 2), 128);
+    store_u8(ptr_offset(outgoing, 3), 65);
+    store_u8(ptr_offset(outgoing, 4), 10);
+
+    let incoming: ptr = await tcp_request_bytes("127.0.0.1:39876", outgoing, 5, 3000);
+    free(outgoing);
+    if (incoming != null) {
+        let length: i64 = buffer_len(incoming);
+        let data: ptr = buffer_data(incoming);
+        print(length);
+        print(load_u8(data));
+        buffer_close(incoming);
+    }
+
+Runnable examples `examples/async/tcp_bytes.ram` and `examples/async/udp_bytes.ram` send bytes that include NUL and invalid UTF-8. CI echoes the exact payload through local TCP and UDP servers and verifies every returned byte.
 
 
 ## Async program entry point
