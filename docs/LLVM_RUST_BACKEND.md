@@ -10,13 +10,13 @@ The backend lives in `src/llvm_backend.rs`:
 2. Run the LLVM verifier before emitting an artifact.
 3. Configure an LLVM target machine with the requested target triple, CPU, target features, relocation mode, and optimization level.
 4. Emit native object files and assembly directly through LLVM. Emit bitcode directly from the verified module.
-5. For an executable, send the resulting object file to a platform linker driver. The driver no longer parses RamLang's generated IR or performs LLVM code generation.
+5. On native x86_64 GNU/Linux, link the object directly with LLVM lld and the host startup/runtime files. Other targets and custom sysroots can explicitly select a compatible platform linker driver. Neither linker path parses RamLang's generated IR or performs LLVM code generation.
 
 The build uses Inkwell 0.11.x and supports LLVM 18.1.x through 23.1.x behind explicit Cargo features. CI pins LLVM 23.1.x; developers with another supported release can build with `--no-default-features --features llvm22` (substitute their installed major). This keeps the Rust binding matched to the installed LLVM library instead of accepting an arbitrary Clang version for every compilation.
 
 ## What has and has not been removed
 
-The compiler backend no longer invokes Clang to parse IR and emit machine code. The final executable still uses a platform linker driver so system startup objects, libc, user-selected native libraries, and target sysroots can be linked correctly.
+The compiler backend no longer invokes Clang to parse IR and emit machine code. Native x86_64 GNU/Linux executable builds invoke `ld.lld` directly, with system startup objects and system libraries supplied explicitly. This avoids the Clang compiler driver for normal builds on that target while still using the operating system's startup/runtime and libc. Other targets or custom sysroots can opt into a platform linker driver through `RAMLANG_LINKER`; the compiler does not claim that its entire dependency tree or the OS ABI is free of C.
 
 Default generated modules now route printing, allocation, byte-memory operations, string helpers, and the first async networking built-ins through project-owned Rust runtime symbols. The compiler no longer emits default references to libc's printf, malloc, memcpy, or related helpers. The platform linker and operating-system startup/runtime are still used to create an executable, and explicit extern fn declarations remain as optional foreign-function interoperability. This removes the requirement to write or compile C source for ordinary RamLang programs; it does not claim to remove every C ABI from the toolchain.
 
