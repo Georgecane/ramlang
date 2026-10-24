@@ -74,6 +74,11 @@ jobs:
           output="$(target/tcp-request-native)"
           test "$output" = "hello over RamLang"
           wait "$server_pid"
+      - name: Compile and run native async TCP server
+        run: |
+          cargo run --release -- examples/async/tcp_server.ram -o target/tcp-server-native
+          output="$(target/tcp-server-native)"
+          test "$output" = "native server echo"
       - name: Compile and run native network error handling
         run: |
           cargo run --release -- examples/async/network_error.ram -o target/network-error
