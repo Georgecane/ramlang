@@ -59,10 +59,10 @@ extern "C" fn runtime_fail(code: u8) {
         _ => "native JIT runtime failure",
     };
     EXECUTION.with(|cell| {
-        if let Some(state) = cell.borrow_mut().as_mut() {
-            if state.error.is_none() {
-                state.error = Some(message.to_owned());
-            }
+        if let Some(state) = cell.borrow_mut().as_mut()
+            && state.error.is_none()
+        {
+            state.error = Some(message.to_owned());
         }
     });
 }
@@ -262,7 +262,7 @@ fn translate_function(
 
     for (pc, instruction) in function.code.iter().enumerate() {
         builder.switch_to_block(guards[pc]);
-        let guard_ref = module.declare_func_in_func(guard_id, &mut builder.func);
+        let guard_ref = module.declare_func_in_func(guard_id, builder.func);
         let guard_call = builder.ins().call(guard_ref, &[]);
         let guard_result = builder.inst_results(guard_call)[0];
         let guard_condition = builder.ins().icmp_imm_s(IntCC::NotEqual, guard_result, 0);
@@ -358,13 +358,13 @@ fn translate_function(
             }
             Instruction::PrintI64 { src } => {
                 let value = builder.use_var(variables[src.0]);
-                let callee = module.declare_func_in_func(print_i64_id, &mut builder.func);
+                let callee = module.declare_func_in_func(print_i64_id, builder.func);
                 builder.ins().call(callee, &[value]);
                 jump_next(&mut builder, pc, &guards, fallback)?;
             }
             Instruction::PrintBool { src } => {
                 let value = builder.use_var(variables[src.0]);
-                let callee = module.declare_func_in_func(print_bool_id, &mut builder.func);
+                let callee = module.declare_func_in_func(print_bool_id, builder.func);
                 builder.ins().call(callee, &[value]);
                 jump_next(&mut builder, pc, &guards, fallback)?;
             }
@@ -385,7 +385,7 @@ fn translate_function(
             Instruction::Call { dst, function: target, args } => {
                 let callee_id = *function_ids.get(target.0)
                     .ok_or_else(|| JitError(format!("call target {} does not exist", target.0)))?;
-                let callee = module.declare_func_in_func(callee_id, &mut builder.func);
+                let callee = module.declare_func_in_func(callee_id, builder.func);
                 let arguments = args.iter().map(|register| builder.use_var(variables[register.0])).collect::<Vec<_>>();
                 let call = builder.ins().call(callee, &arguments);
                 if let Some(register) = dst {
@@ -451,12 +451,13 @@ fn emit_fail(
     fallback: Block,
     code: i64,
 ) {
-    let callee = module.declare_func_in_func(fail_id, &mut builder.func);
+    let callee = module.declare_func_in_func(fail_id, builder.func);
     let code_value = builder.ins().iconst(types::I8, code);
     builder.ins().call(callee, &[code_value]);
     builder.ins().jump(fallback, &[]);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_checked_result(
     module: &mut JITModule,
     builder: &mut FunctionBuilder<'_>,
