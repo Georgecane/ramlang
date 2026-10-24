@@ -62,6 +62,22 @@ int main(void) {
         return 15;
     }
 
+    if (ramlang_tcp_read_bytes_future(NULL) != NULL) {
+        return 18;
+    }
+    if (ramlang_tcp_write_bytes_future(NULL, NULL, 0) != NULL) {
+        return 19;
+    }
+    if (ramlang_udp_recv_bytes_future(NULL) != NULL) {
+        return 20;
+    }
+    if (ramlang_udp_packet_bytes(NULL) != NULL) {
+        return 21;
+    }
+    if (ramlang_udp_send_bytes_future(NULL, NULL, NULL, 0) != NULL) {
+        return 22;
+    }
+
     /* Closing null opaque handles is explicitly supported as a no-op. */
     ramlang_byte_buffer_close(NULL);
     ramlang_task_scope_close(scope);
