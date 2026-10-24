@@ -4599,6 +4599,7 @@ fn async_abi_parameter_type(ty: Type) -> bool {
         Type::I8 | Type::I16 | Type::I32 | Type::I64
             | Type::U8 | Type::U16 | Type::U32 | Type::U64
             | Type::F32 | Type::F64 | Type::Bool | Type::Enum(_)
+            | Type::Str | Type::Ptr
     )
 }
 
@@ -4671,14 +4672,14 @@ fn compile_to_llvm_for_target(
             }
             if !async_abi_result_type(function.return_type) {
                 return Err(format!(
-                    "async function '{}' must return void, an integer, bool, an enum, or a float in this backend",
+                    "async function '{}' must return void, a scalar, an enum, str, or ptr in this backend",
                     function.name
                 ));
             }
             for (parameter, ty) in &function.params {
                 if !async_abi_parameter_type(*ty) {
                     return Err(format!(
-                        "async function '{}' parameter '{}' must be an integer, bool, enum, or float in this backend",
+                        "async function '{}' parameter '{}' must be a scalar, enum, str, or ptr in this backend",
                         function.name, parameter
                     ));
                 }
@@ -7045,6 +7046,26 @@ mod tests {
         assert!(ir.contains("call ptr @ramlang_tcp_write_future"));
         assert!(ir.contains("call void @ramlang_tcp_listener_close"));
         assert!(ir.contains("call void @ramlang_tcp_native_close"));
+    }
+
+    #[test]
+    fn supports_native_async_functions_with_string_parameters_and_results() {
+        let source = r#"
+            async fn echo(message: str) -> str {
+                return message;
+            }
+
+            fn main() -> i32 {
+                let future: Future<str> = echo("async string result");
+                let result: str = await future;
+                print(result);
+                return 0;
+            }
+        "#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("%__ramlang_async_args_"));
+        assert!(ir.contains("ptrtoint ptr %result to i64"));
+        assert!(ir.contains("inttoptr i64"));
     }
 
     #[test]
