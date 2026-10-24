@@ -47,6 +47,11 @@ jobs:
           cargo run --release -- examples/async/basic.ram -o target/async-basic
           output="$(target/async-basic)"
           test "$output" = "42"
+      - name: Compile and run async main entry point
+        run: |
+          cargo run --release -- examples/async/main.ram -o target/async-main
+          output="$(target/async-main)"
+          test "$output" = "42"
       - name: Compile and run native async string Future
         run: |
           cargo run --release -- examples/async/string_future.ram -o target/async-string
