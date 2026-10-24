@@ -1,6 +1,6 @@
 fn main() -> i32 {
-    let endpoint_future: Future<ptr> = udp_bind("127.0.0.1:0", 5000);
-    let endpoint: ptr = await endpoint_future;
+    let endpoint_future: Future<UdpSocket> = udp_bind("127.0.0.1:0", 5000);
+    let endpoint: UdpSocket = await endpoint_future;
     if (endpoint == null) {
         print(last_error());
         return 1;
@@ -20,9 +20,9 @@ fn main() -> i32 {
     store_u8(ptr_offset(payload, 3), 65);
     store_u8(ptr_offset(payload, 4), 10);
 
-    let client_future: Future<ptr> = udp_request_bytes(address, payload, 5, 5000);
-    let packet_future: Future<ptr> = udp_recv_bytes(endpoint);
-    let packet: ptr = await packet_future;
+    let client_future: Future<ByteBuffer> = udp_request_bytes(address, payload, 5, 5000);
+    let packet_future: Future<UdpPacket> = udp_recv_bytes(endpoint);
+    let packet: UdpPacket = await packet_future;
     if (packet == null) {
         print(last_error());
         free(payload);
@@ -32,7 +32,7 @@ fn main() -> i32 {
     }
 
     let peer: str = udp_packet_peer(packet);
-    let packet_buffer: ptr = udp_packet_bytes(packet);
+    let packet_buffer: ByteBuffer = udp_packet_bytes(packet);
     if (peer == null || packet_buffer == null) {
         print(last_error());
         free(peer as ptr);
@@ -59,7 +59,7 @@ fn main() -> i32 {
         return 5;
     }
 
-    let response: ptr = await client_future;
+    let response: ByteBuffer = await client_future;
     if (response == null) {
         print(last_error());
         buffer_close(packet_buffer);
