@@ -1,6 +1,6 @@
 fn main() -> i32 {
-    let listener_future: Future<ptr> = tcp_listen("127.0.0.1:0", 5000);
-    let listener: ptr = await listener_future;
+    let listener_future: Future<TcpListener> = tcp_listen("127.0.0.1:0", 5000);
+    let listener: TcpListener = await listener_future;
     if (listener == null) {
         print(last_error());
         return 1;
@@ -14,8 +14,8 @@ fn main() -> i32 {
     }
 
     let client_future: Future<str> = tcp_request(address, "native server echo", 5000);
-    let accept_future: Future<ptr> = tcp_accept(listener);
-    let connection: ptr = await accept_future;
+    let accept_future: Future<TcpStream> = tcp_accept(listener);
+    let connection: TcpStream = await accept_future;
     if (connection == null) {
         print(last_error());
         tcp_listener_close(listener);
