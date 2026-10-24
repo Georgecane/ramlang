@@ -3299,43 +3299,43 @@ pub unsafe extern "C" fn ramlang_future_await_i64(future: *mut RamlangFuture) ->
     let mut data = state.data.lock().unwrap_or_else(|e| e.into_inner());
 
     while data.result.is_none() {
-            if data.closed {
-                set_last_error("Future was closed before completion");
-                return -1;
-            }
-
-            let yielder = CURRENT_YIELDER.with(Cell::get);
-            if yielder.is_null() {
-                data = state.ready.wait(data).unwrap_or_else(|e| e.into_inner());
-            } else {
-                drop(data);
-                // SAFETY: CURRENT_YIELDER is set only while the coroutine executor is resuming
-                // this exact native stack, and the executor keeps the coroutine pinned to its
-                // dedicated thread until the yielder returns.
-                unsafe { (&*yielder).suspend(Arc::clone(&state)) };
-                data = state.data.lock().unwrap_or_else(|e| e.into_inner());
-            }
-        }
-
-        if data.consumed {
-            set_last_error("Future result has already been consumed");
+        if data.closed {
+            set_last_error("Future was closed before completion");
             return -1;
         }
-        data.consumed = true;
-        match data.result.as_ref().expect("Future result checked above") {
-            Ok(value) => {
-                let value = *value;
-                if state.pointer_result_cleanup.is_some() {
-                    data.pointer_result_transferred = true;
-                }
-                clear_last_error();
-                return value;
-            }
-            Err(error) => {
-                set_last_error(error);
-                return -1;
-            }
+
+        let yielder = CURRENT_YIELDER.with(Cell::get);
+        if yielder.is_null() {
+            data = state.ready.wait(data).unwrap_or_else(|e| e.into_inner());
+        } else {
+            drop(data);
+            // SAFETY: CURRENT_YIELDER is set only while the coroutine executor is resuming
+            // this exact native stack, and the executor keeps the coroutine pinned to its
+            // dedicated thread until the yielder returns.
+            unsafe { (&*yielder).suspend(Arc::clone(&state)) };
+            data = state.data.lock().unwrap_or_else(|e| e.into_inner());
         }
+    }
+
+    if data.consumed {
+        set_last_error("Future result has already been consumed");
+        return -1;
+    }
+    data.consumed = true;
+    match data.result.as_ref().expect("Future result checked above") {
+        Ok(value) => {
+            let value = *value;
+            if state.pointer_result_cleanup.is_some() {
+                data.pointer_result_transferred = true;
+            }
+            clear_last_error();
+            value
+        }
+        Err(error) => {
+            set_last_error(error);
+            -1
+        }
+    }
 }
 
 /// Await a Future and take ownership of its handle. If this coroutine is cancelled while
@@ -3700,7 +3700,11 @@ mod tests {
         // the executor thread and prevent this callback from running until the timer finishes.
         // SAFETY: the callback only encodes the value as an integer and never dereferences it.
         let sibling = unsafe {
-            ramlang_future_spawn_owned_i64(Some(return_context_address), 7_usize as *mut c_void, None)
+            ramlang_future_spawn_owned_i64(
+                Some(return_context_address),
+                7_usize as *mut c_void,
+                None,
+            )
         };
         assert!(!sibling.is_null(), "{}", unsafe {
             CStr::from_ptr(ramlang_last_error()).to_string_lossy()
