@@ -169,6 +169,309 @@ unsafe extern "C" fn cleanup_native_tcp_connection(pointer: *mut c_void) {
     unsafe { ramlang_tcp_native_close(pointer.cast::<RamlangNativeTcpConnection>()) };
 }
 
+/// Opaque handle for a native asynchronous UDP endpoint.
+pub struct RamlangNativeUdpEndpoint {
+    inner: Arc<UdpEndpoint>,
+}
+
+/// One text datagram returned by udp_recv. The peer address is retained for udp_send.
+pub struct RamlangNativeUdpPacket {
+    payload: String,
+    peer: String,
+}
+
+unsafe extern "C" fn cleanup_native_udp_endpoint(pointer: *mut c_void) {
+    // SAFETY: the future owns the UDP endpoint handle until pointer ownership is transferred.
+    unsafe { ramlang_udp_native_close(pointer.cast::<RamlangNativeUdpEndpoint>()) };
+}
+
+unsafe extern "C" fn cleanup_native_udp_packet(pointer: *mut c_void) {
+    // SAFETY: the future owns the packet handle until pointer ownership is transferred.
+    unsafe { ramlang_udp_packet_close(pointer.cast::<RamlangNativeUdpPacket>()) };
+}
+
+/// Close a native UDP endpoint handle.
+///
+/// # Safety
+///
+/// A non-null handle must have been returned by udp_bind and must not be closed concurrently
+/// with an operation that uses the same handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_native_close(endpoint: *mut RamlangNativeUdpEndpoint) {
+    if !endpoint.is_null() {
+        // SAFETY: pointer validity is required by this function's caller contract.
+        drop(unsafe { Box::from_raw(endpoint) });
+    }
+    clear_last_error();
+}
+
+/// Close a received native UDP packet handle.
+///
+/// # Safety
+///
+/// A non-null handle must have been returned by a successful udp_recv await and must not be
+/// closed concurrently with udp_packet_data or udp_packet_peer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_packet_close(packet: *mut RamlangNativeUdpPacket) {
+    if !packet.is_null() {
+        // SAFETY: pointer validity is required by this function's caller contract.
+        drop(unsafe { Box::from_raw(packet) });
+    }
+    clear_last_error();
+}
+
+/// Bind a native UDP endpoint. Await the returned Future<ptr> to get its handle.
+///
+/// # Safety
+///
+/// address must be a valid readable NUL-terminated UTF-8 string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_bind_future(
+    address: *const c_char,
+    timeout_ms: i64,
+) -> *mut RamlangFuture {
+    let address = match read_c_string(address, "UDP bind address") {
+        Ok(address) => address,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    if timeout_ms <= 0 {
+        set_last_error("UDP bind timeout must be greater than zero");
+        return ptr::null_mut();
+    }
+    let runtime = match async_request_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    let state = Arc::new(FutureState::new(Some(cleanup_native_udp_endpoint)));
+    let task_state = Arc::clone(&state);
+    let operation_timeout = Duration::from_millis(timeout_ms as u64);
+    let task = runtime.spawn(async move {
+        let result = async {
+            let endpoint = UdpEndpoint::bind(&address, operation_timeout)
+                .await
+                .map_err(|error| error.to_string())?;
+            let endpoint = Box::new(RamlangNativeUdpEndpoint {
+                inner: Arc::new(endpoint),
+            });
+            Ok::<i64, String>(Box::into_raw(endpoint) as usize as i64)
+        }
+        .await;
+        task_state.complete_result(result);
+    });
+    state.set_abort_handle(task.abort_handle());
+    drop(task);
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangFuture { state }))
+}
+
+/// Return a newly allocated local socket address string for a native UDP endpoint.
+///
+/// The returned string is owned by the caller and must be released with ramlang_free.
+///
+/// # Safety
+///
+/// endpoint must be a live handle returned by udp_bind, and it must not be closed concurrently.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_native_addr(
+    endpoint: *mut RamlangNativeUdpEndpoint,
+) -> *mut c_char {
+    if endpoint.is_null() {
+        set_last_error("native UDP endpoint handle must not be null");
+        return ptr::null_mut();
+    }
+    // SAFETY: pointer validity is required by this function's caller contract.
+    let endpoint = unsafe { &*endpoint };
+    match endpoint.inner.local_addr() {
+        Ok(address) => match allocate_runtime_string(&address.to_string()) {
+            Ok(output) => {
+                clear_last_error();
+                output
+            }
+            Err(error) => {
+                set_last_error(&error);
+                ptr::null_mut()
+            }
+        },
+        Err(error) => {
+            set_last_error(&error.to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
+/// Receive one bounded UTF-8 UDP datagram. Await the result to obtain Future<ptr> packet handle.
+///
+/// Datagrams larger than 65,507 bytes or invalid UTF-8 datagrams complete with an error.
+///
+/// # Safety
+///
+/// endpoint must be a live handle returned by udp_bind and must not be closed concurrently
+/// with this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_recv_future(
+    endpoint: *mut RamlangNativeUdpEndpoint,
+) -> *mut RamlangFuture {
+    if endpoint.is_null() {
+        set_last_error("native UDP endpoint handle must not be null");
+        return ptr::null_mut();
+    }
+    // SAFETY: pointer validity is required by this function's caller contract.
+    let inner = Arc::clone(&unsafe { &*endpoint }.inner);
+    let runtime = match async_request_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    let state = Arc::new(FutureState::new(Some(cleanup_native_udp_packet)));
+    let task_state = Arc::clone(&state);
+    let task = runtime.spawn(async move {
+        let result: Result<i64, String> = async {
+            let (payload, peer) = inner
+                .recv_from(65_507)
+                .await
+                .map_err(|error| error.to_string())?;
+            let payload = String::from_utf8(payload)
+                .map_err(|error| format!("UDP datagram is not valid UTF-8: {error}"))?;
+            let packet = Box::new(RamlangNativeUdpPacket {
+                payload,
+                peer: peer.to_string(),
+            });
+            Ok(Box::into_raw(packet) as usize as i64)
+        }
+        .await;
+        task_state.complete_result(result);
+    });
+    state.set_abort_handle(task.abort_handle());
+    drop(task);
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangFuture { state }))
+}
+
+/// Return an owned copy of a native UDP packet's UTF-8 payload.
+///
+/// Release the returned string with free(value as ptr).
+///
+/// # Safety
+///
+/// packet must be a live handle returned by a successful udp_recv await, and it must not be
+/// closed concurrently with this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_packet_data(
+    packet: *mut RamlangNativeUdpPacket,
+) -> *mut c_char {
+    if packet.is_null() {
+        set_last_error("native UDP packet handle must not be null");
+        return ptr::null_mut();
+    }
+    // SAFETY: pointer validity is required by this function's caller contract.
+    match allocate_runtime_string(&unsafe { &*packet }.payload) {
+        Ok(output) => {
+            clear_last_error();
+            output
+        }
+        Err(error) => {
+            set_last_error(&error);
+            ptr::null_mut()
+        }
+    }
+}
+
+/// Return an owned copy of a native UDP packet's sender address.
+///
+/// Release the returned string with free(value as ptr).
+///
+/// # Safety
+///
+/// packet must be a live handle returned by a successful udp_recv await, and it must not be
+/// closed concurrently with this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_packet_peer(
+    packet: *mut RamlangNativeUdpPacket,
+) -> *mut c_char {
+    if packet.is_null() {
+        set_last_error("native UDP packet handle must not be null");
+        return ptr::null_mut();
+    }
+    // SAFETY: pointer validity is required by this function's caller contract.
+    match allocate_runtime_string(&unsafe { &*packet }.peer) {
+        Ok(output) => {
+            clear_last_error();
+            output
+        }
+        Err(error) => {
+            set_last_error(&error);
+            ptr::null_mut()
+        }
+    }
+}
+
+/// Send one UTF-8 datagram and return Future<i64> containing the number of bytes sent.
+///
+/// # Safety
+///
+/// endpoint must be a live native UDP handle; peer and payload must be readable NUL-terminated
+/// UTF-8 strings. The endpoint must not be closed concurrently with this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_udp_send_future(
+    endpoint: *mut RamlangNativeUdpEndpoint,
+    peer: *const c_char,
+    payload: *const c_char,
+) -> *mut RamlangFuture {
+    if endpoint.is_null() {
+        set_last_error("native UDP endpoint handle must not be null");
+        return ptr::null_mut();
+    }
+    let peer = match read_c_string(peer, "UDP destination address") {
+        Ok(peer) => peer,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    let payload = match read_c_string(payload, "UDP payload") {
+        Ok(payload) => payload,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    if payload.len() > 65_507 {
+        set_last_error("UDP payload exceeds 65,507 bytes");
+        return ptr::null_mut();
+    }
+    // SAFETY: pointer validity is required by this function's caller contract.
+    let inner = Arc::clone(&unsafe { &*endpoint }.inner);
+    let runtime = match async_request_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    let state = Arc::new(FutureState::new(None));
+    let task_state = Arc::clone(&state);
+    let task = runtime.spawn(async move {
+        let result = inner
+            .send_to(payload.as_bytes(), &peer)
+            .await
+            .map(|length| length as i64)
+            .map_err(|error| error.to_string());
+        task_state.complete_result(result);
+    });
+    state.set_abort_handle(task.abort_handle());
+    drop(task);
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangFuture { state }))
+}
+
 /// Close a native TCP listener and signal any future accept operation to stop.
 ///
 /// # Safety
