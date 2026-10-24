@@ -275,6 +275,11 @@ pub unsafe extern "C" fn ramlang_tcp_listen_future(
 /// Return a newly allocated NUL-terminated string containing a listener's local address.
 ///
 /// The caller owns the returned string and must release it using ramlang_free.
+///
+/// # Safety
+///
+/// listener must be a live handle returned by ramlang_tcp_listen_future, and it must not
+/// be closed concurrently with this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ramlang_tcp_listener_addr(
     listener: *mut RamlangNativeTcpListener,
