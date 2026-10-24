@@ -1,12 +1,12 @@
-mod source;
-
-pub use source::compile_source;
-
 //! Dependency-free reference IR and interpreter for Ramlang.
 //!
 //! This crate is intentionally backend-neutral. It is the first extraction point for
 //! the semantic core: the legacy LLVM front end remains unchanged until callers have
 //! migrated to this verifier and execution model.
+
+mod source;
+
+pub use source::compile_source;
 
 use std::fmt;
 
