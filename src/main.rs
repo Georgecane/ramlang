@@ -322,6 +322,18 @@ enum NativeHandleKind {
     UdpPacket,
 }
 
+impl NativeHandleKind {
+    fn name(self) -> &'static str {
+        match self {
+            Self::ByteBuffer => "ByteBuffer",
+            Self::TcpListener => "TcpListener",
+            Self::TcpStream => "TcpStream",
+            Self::UdpSocket => "UdpSocket",
+            Self::UdpPacket => "UdpPacket",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FutureOutput {
     I8,
@@ -411,6 +423,32 @@ enum Type {
 }
 
 impl Type {
+    fn display_name(self) -> String {
+        match self {
+            Self::I8 => "i8".to_owned(),
+            Self::I16 => "i16".to_owned(),
+            Self::I32 => "i32".to_owned(),
+            Self::I64 => "i64".to_owned(),
+            Self::U8 => "u8".to_owned(),
+            Self::U16 => "u16".to_owned(),
+            Self::U32 => "u32".to_owned(),
+            Self::U64 => "u64".to_owned(),
+            Self::F32 => "f32".to_owned(),
+            Self::F64 => "f64".to_owned(),
+            Self::Bool => "bool".to_owned(),
+            Self::Str => "str".to_owned(),
+            Self::Ptr => "ptr".to_owned(),
+            Self::Handle(kind) => kind.name().to_owned(),
+            Self::Future(output) => format!("Future<{}>", output.ty().display_name()),
+            Self::Array(element, length) => {
+                format!("[{}; {length}]", element.ty().display_name())
+            }
+            Self::Struct(id) => format!("struct#{id:016x}"),
+            Self::Enum(id) => format!("enum#{id:016x}"),
+            Self::Void => "void".to_owned(),
+        }
+    }
+
     fn llvm(self) -> &'static str {
         match self {
             Self::I8 => "i8",
@@ -1447,7 +1485,11 @@ impl<'a> FunctionGenerator<'a> {
         if expected == actual {
             Ok(())
         } else {
-            Err(format!("{context}: expected {}, found {}", expected.llvm(), actual.llvm()))
+            Err(format!(
+                "{context}: expected {}, found {}",
+                expected.display_name(),
+                actual.display_name()
+            ))
         }
     }
 
