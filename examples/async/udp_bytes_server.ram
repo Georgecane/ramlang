@@ -1,0 +1,91 @@
+fn main() -> i32 {
+    let endpoint_future: Future<ptr> = udp_bind("127.0.0.1:0", 5000);
+    let endpoint: ptr = await endpoint_future;
+    if (endpoint == null) {
+        print(last_error());
+        return 1;
+    }
+
+    let address: str = udp_local_addr(endpoint);
+    if (address == null) {
+        print(last_error());
+        udp_endpoint_close(endpoint);
+        return 2;
+    }
+
+    let payload: ptr = alloc(5);
+    store_u8(payload, 0);
+    store_u8(ptr_offset(payload, 1), 255);
+    store_u8(ptr_offset(payload, 2), 128);
+    store_u8(ptr_offset(payload, 3), 65);
+    store_u8(ptr_offset(payload, 4), 10);
+
+    let client_future: Future<ptr> = udp_request_bytes(address, payload, 5, 5000);
+    let packet_future: Future<ptr> = udp_recv_bytes(endpoint);
+    let packet: ptr = await packet_future;
+    if (packet == null) {
+        print(last_error());
+        free(payload);
+        free(address as ptr);
+        udp_endpoint_close(endpoint);
+        return 3;
+    }
+
+    let peer: str = udp_packet_peer(packet);
+    let packet_buffer: ptr = udp_packet_bytes(packet);
+    if (peer == null || packet_buffer == null) {
+        print(last_error());
+        free(peer as ptr);
+        buffer_close(packet_buffer);
+        udp_packet_close(packet);
+        free(payload);
+        free(address as ptr);
+        udp_endpoint_close(endpoint);
+        return 4;
+    }
+
+    let packet_length: i64 = buffer_len(packet_buffer);
+    let packet_data: ptr = buffer_data(packet_buffer);
+    let send_future: Future<i64> = udp_send_bytes(endpoint, peer, packet_data, packet_length);
+    let sent: i64 = await send_future;
+    if (sent < 0) {
+        print(last_error());
+        buffer_close(packet_buffer);
+        udp_packet_close(packet);
+        free(peer as ptr);
+        free(payload);
+        free(address as ptr);
+        udp_endpoint_close(endpoint);
+        return 5;
+    }
+
+    let response: ptr = await client_future;
+    if (response == null) {
+        print(last_error());
+        buffer_close(packet_buffer);
+        udp_packet_close(packet);
+        free(peer as ptr);
+        free(payload);
+        free(address as ptr);
+        udp_endpoint_close(endpoint);
+        return 6;
+    }
+
+    let response_length: i64 = buffer_len(response);
+    let response_data: ptr = buffer_data(response);
+    print(response_length);
+    print(load_u8(response_data));
+    print(load_u8(ptr_offset(response_data, 1)));
+    print(load_u8(ptr_offset(response_data, 2)));
+    print(load_u8(ptr_offset(response_data, 3)));
+    print(load_u8(ptr_offset(response_data, 4)));
+
+    buffer_close(response);
+    buffer_close(packet_buffer);
+    udp_packet_close(packet);
+    free(peer as ptr);
+    free(payload);
+    free(address as ptr);
+    udp_endpoint_close(endpoint);
+    return 0;
+}
