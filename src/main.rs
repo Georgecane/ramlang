@@ -2541,6 +2541,90 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((future, Type::Future(FutureOutput::Str)));
                 }
 
+                if name == "tcp_listen" {
+                    if args.len() != 2 {
+                        return Err("tcp_listen expects an address and timeout in milliseconds".to_owned());
+                    }
+                    let (address, address_type) = self.emit_expr_expected(&args[0], Some(Type::Str))?;
+                    self.require_same(Type::Str, address_type, "tcp_listen address")?;
+                    let (timeout, timeout_type) = self.emit_expr_expected(&args[1], Some(Type::I64))?;
+                    self.require_same(Type::I64, timeout_type, "tcp_listen timeout")?;
+                    let future = self.fresh_value();
+                    self.emit(format!(
+                        "{future} = call ptr @ramlang_tcp_listen_future(ptr {address}, i64 {timeout})"
+                    ));
+                    return Ok((future, Type::Future(FutureOutput::Ptr)));
+                }
+
+                if name == "tcp_listener_addr" {
+                    if args.len() != 1 {
+                        return Err("tcp_listener_addr expects one listener handle".to_owned());
+                    }
+                    let (listener, listener_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, listener_type, "tcp_listener_addr handle")?;
+                    let address = self.fresh_value();
+                    self.emit(format!(
+                        "{address} = call ptr @ramlang_tcp_listener_addr(ptr {listener})"
+                    ));
+                    return Ok((address, Type::Str));
+                }
+
+                if name == "tcp_accept" {
+                    if args.len() != 1 {
+                        return Err("tcp_accept expects one listener handle".to_owned());
+                    }
+                    let (listener, listener_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, listener_type, "tcp_accept handle")?;
+                    let future = self.fresh_value();
+                    self.emit(format!(
+                        "{future} = call ptr @ramlang_tcp_accept_future(ptr {listener})"
+                    ));
+                    return Ok((future, Type::Future(FutureOutput::Ptr)));
+                }
+
+                if name == "tcp_read" {
+                    if args.len() != 1 {
+                        return Err("tcp_read expects one connection handle".to_owned());
+                    }
+                    let (connection, connection_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, connection_type, "tcp_read handle")?;
+                    let future = self.fresh_value();
+                    self.emit(format!(
+                        "{future} = call ptr @ramlang_tcp_read_future(ptr {connection})"
+                    ));
+                    return Ok((future, Type::Future(FutureOutput::Str)));
+                }
+
+                if name == "tcp_write" {
+                    if args.len() != 2 {
+                        return Err("tcp_write expects a connection handle and UTF-8 payload".to_owned());
+                    }
+                    let (connection, connection_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, connection_type, "tcp_write handle")?;
+                    let (payload, payload_type) = self.emit_expr_expected(&args[1], Some(Type::Str))?;
+                    self.require_same(Type::Str, payload_type, "tcp_write payload")?;
+                    let future = self.fresh_value();
+                    self.emit(format!(
+                        "{future} = call ptr @ramlang_tcp_write_future(ptr {connection}, ptr {payload})"
+                    ));
+                    return Ok((future, Type::Future(FutureOutput::Void)));
+                }
+
+                if name == "tcp_listener_close" || name == "tcp_close" {
+                    if args.len() != 1 {
+                        return Err(format!("{name} expects one native TCP handle"));
+                    }
+                    let (handle, handle_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, handle_type, &format!("{name} handle"))?;
+                    let symbol = if name == "tcp_listener_close" {
+                        "ramlang_tcp_listener_close"
+                    } else {
+                        "ramlang_tcp_native_close"
+                    };
+                    self.emit(format!("call void @{symbol}(ptr {handle})"));
+                    return Ok((String::new(), Type::Void));
+                }
+
                 if name == "print" {
                     if args.len() != 1 {
                         return Err("print expects exactly one argument".to_owned());
@@ -4707,6 +4791,13 @@ fn compile_to_llvm_for_target(
     module.push_str("declare void @ramlang_future_close(ptr)\n");
     module.push_str("declare ptr @ramlang_tcp_request_future(ptr, ptr, i64)\n");
     module.push_str("declare ptr @ramlang_udp_request_future(ptr, ptr, i64)\n");
+    module.push_str("declare ptr @ramlang_tcp_listen_future(ptr, i64)\\n");
+    module.push_str("declare ptr @ramlang_tcp_listener_addr(ptr)\\n");
+    module.push_str("declare ptr @ramlang_tcp_accept_future(ptr)\\n");
+    module.push_str("declare ptr @ramlang_tcp_read_future(ptr)\\n");
+    module.push_str("declare ptr @ramlang_tcp_write_future(ptr, ptr)\\n");
+    module.push_str("declare void @ramlang_tcp_listener_close(ptr)\\n");
+    module.push_str("declare void @ramlang_tcp_native_close(ptr)\\n");
     module.push_str("declare void @llvm.trap() cold noreturn nounwind\n");
     module.push_str("declare void @llvm.assume(i1) nounwind\n");
 
