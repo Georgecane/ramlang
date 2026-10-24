@@ -84,8 +84,16 @@ typedef struct RamlangFuture RamlangFuture;
 typedef int64_t (*RamlangFutureCallback)(void *context);
 RamlangFuture *ramlang_future_spawn_i64(RamlangFutureCallback callback, void *context);
 int64_t ramlang_future_await_i64(RamlangFuture *future);
+/* Consuming variant used by native await: the handle is closed on return or cancellation. */
+int64_t ramlang_future_await_owned_i64(RamlangFuture *future);
 int32_t ramlang_future_is_ready(RamlangFuture *future);
 void ramlang_future_close(RamlangFuture *future);
+/* Spawn a native async body on the cooperative executor. Its context cleanup runs once. */
+RamlangFuture *ramlang_future_spawn_owned_i64(
+    RamlangFutureCallback callback,
+    void *context,
+    void (*cleanup)(void *context)
+);
 /*
  * Binary-safe asynchronous network requests.
  *
