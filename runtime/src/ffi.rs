@@ -3291,11 +3291,17 @@ mod tests {
         let buffer = encoded as u64 as usize as *mut RamlangByteBuffer;
         assert!(!buffer.is_null());
         // SAFETY: buffer is a live byte-buffer handle returned by the future.
-        assert_eq!(unsafe { ramlang_byte_buffer_len(buffer) }, payload.len() as i64);
+        assert_eq!(
+            unsafe { ramlang_byte_buffer_len(buffer) },
+            payload.len() as i64
+        );
         // SAFETY: the returned data pointer stays valid until byte_buffer_close.
         let data = unsafe { ramlang_byte_buffer_data(buffer) }.cast::<u8>();
         // SAFETY: the buffer length and data pointer describe the same live allocation.
-        assert_eq!(unsafe { slice::from_raw_parts(data, payload.len()) }, payload);
+        assert_eq!(
+            unsafe { slice::from_raw_parts(data, payload.len()) },
+            payload
+        );
 
         // SAFETY: both handles are live and no concurrent use is in progress.
         unsafe {
@@ -3308,7 +3314,9 @@ mod tests {
     #[test]
     fn native_udp_bytes_future_round_trips_embedded_nul_and_invalid_utf8() {
         let server = UdpSocket::bind("127.0.0.1:0").unwrap();
-        server.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
         let address = server.local_addr().unwrap();
         let server = thread::spawn(move || {
             let mut bytes = [0_u8; 128];
@@ -3339,11 +3347,17 @@ mod tests {
         let buffer = encoded as u64 as usize as *mut RamlangByteBuffer;
         assert!(!buffer.is_null());
         // SAFETY: buffer is a live byte-buffer handle returned by the future.
-        assert_eq!(unsafe { ramlang_byte_buffer_len(buffer) }, payload.len() as i64);
+        assert_eq!(
+            unsafe { ramlang_byte_buffer_len(buffer) },
+            payload.len() as i64
+        );
         // SAFETY: the returned data pointer stays valid until byte_buffer_close.
         let data = unsafe { ramlang_byte_buffer_data(buffer) }.cast::<u8>();
         // SAFETY: the buffer length and data pointer describe the same live allocation.
-        assert_eq!(unsafe { slice::from_raw_parts(data, payload.len()) }, payload);
+        assert_eq!(
+            unsafe { slice::from_raw_parts(data, payload.len()) },
+            payload
+        );
 
         // SAFETY: both handles are live and no concurrent use is in progress.
         unsafe {
