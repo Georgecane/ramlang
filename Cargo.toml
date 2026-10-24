@@ -1,6 +1,6 @@
 [workspace]
 members = [".", "runtime", "crates/ramlang-core", "crates/ramlang-jit"]
-default-members = [".", "runtime", "crates/ramlang-core", "crates/ramlang-jit"]
+default-members = [".", "runtime"]
 resolver = "3"
 
 [package]
