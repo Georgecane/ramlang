@@ -2805,6 +2805,56 @@ pub unsafe extern "C" fn ramlang_future_spawn_i64(
     Box::into_raw(Box::new(RamlangFuture { state }))
 }
 
+/// Spawn a RamLang async-function callback on the cooperative coroutine executor.
+///
+/// Unlike ramlang_future_spawn_i64, this entry owns the context and invokes its cleanup
+/// exactly once after completion or cancellation. The coroutine executor suspends native
+/// await calls instead of blocking a runtime worker thread.
+///
+/// # Safety
+/// callback must be a valid non-unwinding C ABI function. context must remain valid until
+/// cleanup runs. cleanup, when present, must release context and must not unwind.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_future_spawn_owned_i64(
+    callback: Option<AsyncFunctionCallback>,
+    context: *mut c_void,
+    cleanup: Option<AsyncContextCleanupCallback>,
+) -> *mut RamlangFuture {
+    let context_cleanup = AsyncContextCleanup {
+        context_address: context as usize,
+        cleanup,
+    };
+    let Some(callback) = callback else {
+        drop(context_cleanup);
+        set_last_error("async callback must not be null");
+        return ptr::null_mut();
+    };
+    let sender = match async_coroutine_sender() {
+        Ok(sender) => sender,
+        Err(error) => {
+            drop(context_cleanup);
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+
+    let state = Arc::new(FutureState::new(None));
+    let job = AsyncCoroutineJob {
+        callback,
+        context_address: context as usize,
+        context_cleanup,
+        state: Arc::clone(&state),
+    };
+    if let Err(error) = sender.send(job) {
+        drop(error.0);
+        set_last_error("RamLang coroutine executor has stopped");
+        return ptr::null_mut();
+    }
+
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangFuture { state }))
+}
+
 /// Start a framed TCP text request as a native future.
 ///
 /// The input strings are copied before returning. The network work runs on the Tokio runtime
@@ -3218,6 +3268,20 @@ pub extern "C" fn ramlang_sleep_future(delay_ms: u64) -> *mut RamlangFuture {
     Box::into_raw(Box::new(RamlangFuture { state }))
 }
 
+struct OwnedFutureHandle(*mut RamlangFuture);
+
+impl Drop for OwnedFutureHandle {
+    fn drop(&mut self) {
+        if self.0.is_null() {
+            return;
+        }
+        // SAFETY: this guard consumes the owned Future handle exactly once.
+        let future = unsafe { Box::from_raw(self.0) };
+        future.state.close_handle();
+        drop(future);
+    }
+}
+
 /// Block until a future produces its i64 payload.
 ///
 /// # Safety
@@ -3227,37 +3291,67 @@ pub unsafe extern "C" fn ramlang_future_await_i64(future: *mut RamlangFuture) ->
     if future.is_null() {
         return fail_i64("future handle must not be null");
     }
-    // SAFETY: pointer validity is required by this function's contract.
-    let future = unsafe { &*future };
-    let mut data = future.state.data.lock().unwrap_or_else(|e| e.into_inner());
-    while data.result.is_none() {
-        data = future
-            .state
-            .ready
-            .wait(data)
-            .unwrap_or_else(|e| e.into_inner());
-    }
-    if data.consumed {
-        set_last_error("Future result has already been consumed");
-        return -1;
-    }
-    data.consumed = true;
-    match data.result.as_ref().expect("Future result checked above") {
-        Ok(value) => {
-            let value = *value;
-            if future.state.pointer_result_cleanup.is_some() {
-                data.pointer_result_transferred = true;
+    // Clone shared state so the native handle reference itself isn't held across suspension.
+    // SAFETY: pointer validity is required by this function's caller contract.
+    let state = unsafe { &*future }.state.clone();
+    let mut data = state.data.lock().unwrap_or_else(|e| e.into_inner());
+
+    loop {
+        while data.result.is_none() {
+            if data.closed {
+                set_last_error("Future was closed before completion");
+                return -1;
             }
-            clear_last_error();
-            value
+
+            let yielder = CURRENT_YIELDER.with(Cell::get);
+            if yielder.is_null() {
+                data = state
+                    .ready
+                    .wait(data)
+                    .unwrap_or_else(|e| e.into_inner());
+            } else {
+                drop(data);
+                // SAFETY: CURRENT_YIELDER is set only while the coroutine executor is resuming
+                // this exact native stack, and the executor keeps the coroutine pinned to its
+                // dedicated thread until the yielder returns.
+                unsafe { (&*yielder).suspend(Arc::clone(&state)) };
+                data = state.data.lock().unwrap_or_else(|e| e.into_inner());
+            }
         }
-        Err(error) => {
-            set_last_error(error);
-            -1
+
+        if data.consumed {
+            set_last_error("Future result has already been consumed");
+            return -1;
+        }
+        data.consumed = true;
+        match data.result.as_ref().expect("Future result checked above") {
+            Ok(value) => {
+                let value = *value;
+                if state.pointer_result_cleanup.is_some() {
+                    data.pointer_result_transferred = true;
+                }
+                clear_last_error();
+                return value;
+            }
+            Err(error) => {
+                set_last_error(error);
+                return -1;
+            }
         }
     }
 }
 
+/// Await a Future and take ownership of its handle. If this coroutine is cancelled while
+/// suspended, the handle is closed as the coroutine stack unwinds.
+///
+/// # Safety
+/// future must be null or a live handle owned by this await operation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_future_await_owned_i64(future: *mut RamlangFuture) -> i64 {
+    let _owned_future = OwnedFutureHandle(future);
+    // SAFETY: forwarded caller contract; _owned_future closes the handle after return/unwind.
+    unsafe { ramlang_future_await_i64(future) }
+}
 /// Query completion without waiting: 1 ready, 0 pending, -1 invalid handle.
 ///
 /// # Safety
