@@ -314,6 +314,15 @@ impl ArrayElement {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeHandleKind {
+    ByteBuffer,
+    TcpListener,
+    TcpStream,
+    UdpSocket,
+    UdpPacket,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FutureOutput {
     I8,
     I16,
@@ -328,6 +337,7 @@ enum FutureOutput {
     Bool,
     Str,
     Ptr,
+    Handle(NativeHandleKind),
     Void,
     Enum(u64),
 }
@@ -348,6 +358,7 @@ impl FutureOutput {
             Type::Bool => Some(Self::Bool),
             Type::Str => Some(Self::Str),
             Type::Ptr => Some(Self::Ptr),
+            Type::Handle(kind) => Some(Self::Handle(kind)),
             Type::Void => Some(Self::Void),
             Type::Enum(id) => Some(Self::Enum(id)),
             Type::Struct(_) | Type::Array(_, _) | Type::Future(_) => None,
@@ -369,6 +380,7 @@ impl FutureOutput {
             Self::Bool => Type::Bool,
             Self::Str => Type::Str,
             Self::Ptr => Type::Ptr,
+            Self::Handle(kind) => Type::Handle(kind),
             Self::Void => Type::Void,
             Self::Enum(id) => Type::Enum(id),
         }
@@ -390,6 +402,7 @@ enum Type {
     Bool,
     Str,
     Ptr,
+    Handle(NativeHandleKind),
     Future(FutureOutput),
     Array(ArrayElement, u32),
     Struct(u64),
@@ -412,7 +425,7 @@ impl Type {
             Self::F64 => "double",
             Self::Bool => "i1",
             Self::Str => "ptr",
-            Self::Ptr | Self::Future(_) => "ptr",
+            Self::Ptr | Self::Handle(_) | Self::Future(_) => "ptr",
             Self::Array(_, _) => "ptr",
             Self::Struct(_) => "ptr",
             Self::Enum(_) => "i32",
@@ -829,6 +842,11 @@ impl Parser {
             "bool" => Ok(Type::Bool),
             "str" => Ok(Type::Str),
             "ptr" => Ok(Type::Ptr),
+            "ByteBuffer" => Ok(Type::Handle(NativeHandleKind::ByteBuffer)),
+            "TcpListener" => Ok(Type::Handle(NativeHandleKind::TcpListener)),
+            "TcpStream" => Ok(Type::Handle(NativeHandleKind::TcpStream)),
+            "UdpSocket" => Ok(Type::Handle(NativeHandleKind::UdpSocket)),
+            "UdpPacket" => Ok(Type::Handle(NativeHandleKind::UdpPacket)),
             "Future" => {
                 self.expect_symbol("<")?;
                 let output = self.parse_type()?;
