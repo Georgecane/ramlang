@@ -11,7 +11,7 @@ RamLang is a statically typed systems-language experiment written in Rust. Its R
 - LLVM 18-23 bindings selectable with Cargo features (default: LLVM 18.1)
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
-- Rust-owned Tokio runtime with native RamLang `async fn`, `Future<T>`, `await`, `sleep_ms`, `tcp_request`, `udp_request`, and async TCP/UDP server built-ins, plus explicit low-level handle APIs and cancellation scopes
+- Rust-owned Tokio runtime with native RamLang `async fn`, `Future<T>`, `await`, `sleep_ms`, text and binary-safe `tcp_request`/`udp_request` built-ins, and async TCP/UDP servers. Binary responses use managed `ByteBuffer` handles; low-level handle APIs and cancellation scopes remain available.
 - Type aliases for scalar, array, struct, and enum types, including chained aliases
 - Simple enums with automatic or explicit integer discriminants, including cross-file type resolution
 - `extern static` declarations for C-defined scalar and raw-pointer globals
