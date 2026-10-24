@@ -33,5 +33,10 @@ jobs:
         run: |
           output="$(cargo run -p ramlang-core --bin ramrun -- examples/hello.ram)"
           test "$output" = "49"
+      - name: Run the Rust-native string subset
+        run: |
+          output="$(cargo run -p ramlang-core --bin ramrun -- examples/strings.ram)"
+          expected="$(printf 'Hello, LLVM!\nUTF-8 strings work.')"
+          test "$output" = "$expected"
       - name: Clippy
         run: cargo clippy -p ramlang-runtime --all-targets -- -D warnings
