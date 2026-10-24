@@ -1,3 +1,7 @@
+mod source;
+
+pub use source::compile_source;
+
 //! Dependency-free reference IR and interpreter for Ramlang.
 //!
 //! This crate is intentionally backend-neutral. It is the first extraction point for
