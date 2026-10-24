@@ -20,6 +20,22 @@ The compiler backend no longer invokes Clang to parse IR and emit machine code. 
 
 Default generated modules now route printing, allocation, byte-memory operations, string helpers, and the first async networking built-ins through project-owned Rust runtime symbols. The compiler no longer emits default references to libc's printf, malloc, memcpy, or related helpers. The platform linker and operating-system startup/runtime are still used to create an executable, and explicit extern fn declarations remain as optional foreign-function interoperability. This removes the requirement to write or compile C source for ordinary RamLang programs; it does not claim to remove every C ABI from the toolchain.
 
+## Experimental freestanding path
+
+Use `--freestanding` for the restricted compute-only subset:
+
+```sh
+cargo run --release -- examples/freestanding/compute.ram --freestanding -o target/compute
+target/compute
+readelf -l target/compute
+readelf -d target/compute
+nm -u target/compute
+```
+
+For native x86_64 GNU/Linux, this mode appends an ELF `_start` that calls the RamLang `main() -> i32` and exits with the Linux `exit` syscall, then invokes LLVM lld without CRT objects, a dynamic loader, libc, or the RamLang shared runtime. CI verifies the executable starts, contains no ELF interpreter or `DT_NEEDED` entries, and has no undefined symbols.
+
+This mode is not enabled by default and rejects `extern fn`, `extern static`, async functions, runtime futures, and calls to runtime built-ins. It is the first freestanding slice, not a replacement for the hosted Rust/Tokio runtime. Other architectures and custom sysroots are not supported by this mode yet.
+
 ## Migration roadmap
 
 - Replace string-based IR construction incrementally with typed Inkwell builders and typed LLVM values, starting with function signatures, basic blocks, and primitive expressions.
