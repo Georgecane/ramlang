@@ -1,0 +1,5 @@
+async fn main() -> i32 {
+    await sleep_ms(5);
+    print(42);
+    return 0;
+}
