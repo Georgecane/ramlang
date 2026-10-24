@@ -169,6 +169,42 @@ unsafe extern "C" fn cleanup_native_tcp_connection(pointer: *mut c_void) {
     unsafe { ramlang_tcp_native_close(pointer.cast::<RamlangNativeTcpConnection>()) };
 }
 
+/// Close a native TCP listener and signal any future accept operation to stop.
+///
+/// # Safety
+///
+/// A non-null pointer must have been returned by the runtime and must not be closed
+/// concurrently with any operation using the same handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_listener_close(
+    listener: *mut RamlangNativeTcpListener,
+) {
+    if !listener.is_null() {
+        // SAFETY: pointer validity is required by this function's caller contract.
+        let listener = unsafe { Box::from_raw(listener) };
+        let _ = listener.inner.closed.send(true);
+        drop(listener);
+    }
+    clear_last_error();
+}
+
+/// Close a native TCP connection handle.
+///
+/// # Safety
+///
+/// A non-null pointer must have been returned by the runtime and must not be closed
+/// concurrently with any operation using the same handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_native_close(
+    connection: *mut RamlangNativeTcpConnection,
+) {
+    if !connection.is_null() {
+        // SAFETY: pointer validity is required by this function's caller contract.
+        drop(unsafe { Box::from_raw(connection) });
+    }
+    clear_last_error();
+}
+
 fn set_last_error(message: &str) {
     let sanitized = message.replace('\0', "�");
     let message = CString::new(sanitized)
