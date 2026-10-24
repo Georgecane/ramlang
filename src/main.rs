@@ -1369,7 +1369,6 @@ struct FunctionGenerator<'a> {
     next_value: usize,
     next_label: usize,
     terminated: bool,
-    uses_printf: bool,
 }
 
 impl<'a> FunctionGenerator<'a> {
@@ -1388,7 +1387,7 @@ impl<'a> FunctionGenerator<'a> {
             scopes: vec![HashMap::new()], current_block: "entry".to_owned(),
             function_name: function_name.to_owned(), string_counter: 0,
             string_globals: Vec::new(), loop_stack: Vec::new(),
-            next_value: 0, next_label: 0, terminated: false, uses_printf: false,
+            next_value: 0, next_label: 0, terminated: false,
         }
     }
 
@@ -2744,7 +2743,6 @@ impl<'a> FunctionGenerator<'a> {
                         return Err("print expects exactly one argument".to_owned());
                     }
                     let (value, ty) = self.emit_expr(&args[0])?;
-                    self.uses_printf = true;
                     match ty {
                         Type::I8 => {
                             let promoted = self.fresh_value();
@@ -3897,7 +3895,7 @@ impl<'a> FunctionGenerator<'a> {
         Ok(())
     }
 
-    fn generate(mut self, function: &Function) -> Result<(String, Vec<String>, bool), String> {
+    fn generate(mut self, function: &Function) -> Result<(String, Vec<String>), String> {
         for (index, (name, ty)) in function.params.iter().enumerate() {
             if self.scopes[0].contains_key(name) {
                 return Err(format!("duplicate parameter '{name}'"));
@@ -3929,7 +3927,7 @@ impl<'a> FunctionGenerator<'a> {
             body.push_str(&line);
             body.push('\n');
         }
-        Ok((body, self.string_globals, self.uses_printf))
+        Ok((body, self.string_globals))
     }
 }
 
@@ -4891,12 +4889,6 @@ fn compile_to_llvm_for_target(
     if !global_declarations.is_empty() {
         module.push('\n');
     }
-    module.push_str("@.fmt.i32 = private unnamed_addr constant [4 x i8] [i8 37, i8 100, i8 10, i8 0], align 1\n");
-    module.push_str("@.fmt.i64 = private unnamed_addr constant [6 x i8] [i8 37, i8 108, i8 108, i8 100, i8 10, i8 0], align 1\n");
-    module.push_str("@.fmt.u32 = private unnamed_addr constant [4 x i8] [i8 37, i8 117, i8 10, i8 0], align 1\n");
-    module.push_str("@.fmt.u64 = private unnamed_addr constant [6 x i8] [i8 37, i8 108, i8 108, i8 117, i8 10, i8 0], align 1\n");
-    module.push_str("@.fmt.f64 = private unnamed_addr constant [4 x i8] [i8 37, i8 103, i8 10, i8 0], align 1\n");
-    module.push_str("@.fmt.str = private unnamed_addr constant [4 x i8] [i8 37, i8 115, i8 10, i8 0], align 1\n");
     module.push_str("declare void @ramlang_print_i32(i32)\n");
     module.push_str("declare void @ramlang_print_i64(i64)\n");
     module.push_str("declare void @ramlang_print_u32(i32)\n");
@@ -4987,7 +4979,7 @@ fn compile_to_llvm_for_target(
             .collect::<Vec<_>>()
             .join(", ");
         let generator = FunctionGenerator::new(&signatures, &structures, &enumerations, &global_values, &global_bindings, target_pointer_width, function.return_type, &function.name);
-        let (body, string_globals, _) = generator.generate(function)?;
+        let (body, string_globals) = generator.generate(function)?;
         for global in string_globals {
             module.push_str(&global);
             module.push('\n');
@@ -5770,7 +5762,7 @@ mod tests {
     fn lowers_panic_as_a_non_returning_trap() {
         let source = r#"fn main() -> i32 { panic("fatal error"); return 0; }"#;
         let ir = compile(source).unwrap();
-        assert!(ir.contains("@.fmt.str"));
+        assert!(ir.contains("call void @ramlang_print_str"));
         assert!(ir.contains("@.str.main.0"));
         assert!(ir.contains(r#"\66\61\74"#));
         assert!(ir.contains("call void @llvm.trap()"));
@@ -6201,7 +6193,7 @@ mod tests {
         let source = "fn main() -> i32 { let value: f64 = 1.5 + 2.0; print(value); return 0; }";
         let ir = compile(source).unwrap();
         assert!(ir.contains("fadd double"));
-        assert!(ir.contains("@.fmt.f64"));
+        assert!(ir.contains("call void @ramlang_print_f64"));
     }
 
     #[test]
@@ -6211,7 +6203,7 @@ mod tests {
         assert!(ir.contains("@.str.main.0"));
         assert!(ir.contains("\\C3\\A9"));
         assert!(ir.contains("\\0A"));
-        assert!(ir.contains("@.fmt.str"));
+        assert!(ir.contains("call void @ramlang_print_str"));
     }
 
     #[test]
@@ -7025,7 +7017,7 @@ mod tests {
         assert!(ir.contains("lshr i64"));
         assert!(ir.contains("zext i8"));
         assert!(ir.contains("uitofp i64"));
-        assert!(ir.contains("@.fmt.u64"));
+        assert!(ir.contains("call void @ramlang_print_u64"));
     }
 
     #[test]
