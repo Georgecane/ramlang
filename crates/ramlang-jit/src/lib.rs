@@ -309,7 +309,7 @@ fn translate_function(
             Instruction::DivI64 { dst, lhs, rhs } => {
                 let left = builder.use_var(variables[lhs.0]);
                 let right = builder.use_var(variables[rhs.0]);
-                let zero = builder.ins().icmp_imm(IntCC::Equal, right, 0);
+                let zero = builder.ins().icmp_imm_s(IntCC::Equal, right, 0);
                 let zero_block = builder.create_block();
                 let check_overflow = builder.create_block();
                 let overflow_block = builder.create_block();
@@ -320,8 +320,8 @@ fn translate_function(
                 emit_fail(&mut builder, module, fail_id, fallback, 4);
 
                 builder.switch_to_block(check_overflow);
-                let is_min = builder.ins().icmp_imm(IntCC::Equal, left, i64::MIN);
-                let is_negative_one = builder.ins().icmp_imm(IntCC::Equal, right, -1);
+                let is_min = builder.ins().icmp_imm_s(IntCC::Equal, left, i64::MIN);
+                let is_negative_one = builder.ins().icmp_imm_s(IntCC::Equal, right, -1);
                 let signed_overflow = builder.ins().band(is_min, is_negative_one);
                 builder.ins().brif(signed_overflow, overflow_block, &[], good_block, &[]);
 
@@ -351,7 +351,7 @@ fn translate_function(
             }
             Instruction::NotBool { dst, src } => {
                 let source = builder.use_var(variables[src.0]);
-                let condition = builder.ins().icmp_imm(IntCC::Equal, source, 0);
+                let condition = builder.ins().icmp_imm_s(IntCC::Equal, source, 0);
                 let value = bool_to_i8(&mut builder, condition);
                 builder.def_var(variables[dst.0], value);
                 jump_next(&mut builder, pc, &guards, fallback)?;
@@ -375,7 +375,7 @@ fn translate_function(
             }
             Instruction::JumpIfFalse { condition, target } => {
                 let source = builder.use_var(variables[condition.0]);
-                let condition_value = builder.ins().icmp_imm(IntCC::NotEqual, source, 0);
+                let condition_value = builder.ins().icmp_imm_s(IntCC::NotEqual, source, 0);
                 let next = guards.get(pc + 1)
                     .ok_or_else(|| JitError(format!("function '{}' falls off its end", function.name)))?;
                 let target = guards.get(*target)
