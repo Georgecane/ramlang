@@ -2491,6 +2491,38 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((decoded, output_type));
                 }
 
+                if name == "buffer_len" {
+                    if args.len() != 1 {
+                        return Err("buffer_len expects one byte-buffer handle".to_owned());
+                    }
+                    let (buffer, buffer_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, buffer_type, "buffer_len handle")?;
+                    let length = self.fresh_value();
+                    self.emit(format!("{length} = call i64 @ramlang_byte_buffer_len(ptr {buffer})"));
+                    return Ok((length, Type::I64));
+                }
+
+                if name == "buffer_data" {
+                    if args.len() != 1 {
+                        return Err("buffer_data expects one byte-buffer handle".to_owned());
+                    }
+                    let (buffer, buffer_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, buffer_type, "buffer_data handle")?;
+                    let data = self.fresh_value();
+                    self.emit(format!("{data} = call ptr @ramlang_byte_buffer_data(ptr {buffer})"));
+                    return Ok((data, Type::Ptr));
+                }
+
+                if name == "buffer_close" {
+                    if args.len() != 1 {
+                        return Err("buffer_close expects one byte-buffer handle".to_owned());
+                    }
+                    let (buffer, buffer_type) = self.emit_expr_expected(&args[0], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, buffer_type, "buffer_close handle")?;
+                    self.emit(format!("call void @ramlang_byte_buffer_close(ptr {buffer})"));
+                    return Ok((String::new(), Type::Void));
+                }
+
                 if name == "last_error" {
                     if !args.is_empty() {
                         return Err("last_error expects no arguments".to_owned());
@@ -2509,6 +2541,32 @@ impl<'a> FunctionGenerator<'a> {
                     let future = self.fresh_value();
                     self.emit(format!("{future} = call ptr @ramlang_sleep_future(i64 {delay})"));
                     return Ok((future, Type::Future(FutureOutput::Void)));
+                }
+
+                if name == "tcp_request_bytes" || name == "udp_request_bytes" {
+                    if args.len() != 4 {
+                        return Err(format!(
+                            "{name} expects an address, byte pointer, byte length, and timeout in milliseconds"
+                        ));
+                    }
+                    let (address, address_type) = self.emit_expr_expected(&args[0], Some(Type::Str))?;
+                    self.require_same(Type::Str, address_type, &format!("{name} address"))?;
+                    let (data, data_type) = self.emit_expr_expected(&args[1], Some(Type::Ptr))?;
+                    self.require_same(Type::Ptr, data_type, &format!("{name} data"))?;
+                    let (length, length_type) = self.emit_expr_expected(&args[2], Some(Type::I64))?;
+                    self.require_same(Type::I64, length_type, &format!("{name} byte length"))?;
+                    let (timeout, timeout_type) = self.emit_expr_expected(&args[3], Some(Type::I64))?;
+                    self.require_same(Type::I64, timeout_type, &format!("{name} timeout"))?;
+                    let future = self.fresh_value();
+                    let symbol = if name == "tcp_request_bytes" {
+                        "ramlang_tcp_request_bytes_future"
+                    } else {
+                        "ramlang_udp_request_bytes_future"
+                    };
+                    self.emit(format!(
+                        "{future} = call ptr @{symbol}(ptr {address}, ptr {data}, i64 {length}, i64 {timeout})"
+                    ));
+                    return Ok((future, Type::Future(FutureOutput::Ptr)));
                 }
 
                 if name == "tcp_request" {
@@ -4918,6 +4976,11 @@ fn compile_to_llvm_for_target(
     module.push_str("declare void @ramlang_future_close(ptr)\n");
     module.push_str("declare ptr @ramlang_tcp_request_future(ptr, ptr, i64)\n");
     module.push_str("declare ptr @ramlang_udp_request_future(ptr, ptr, i64)\n");
+    module.push_str("declare ptr @ramlang_tcp_request_bytes_future(ptr, ptr, i64, i64)\n");
+    module.push_str("declare ptr @ramlang_udp_request_bytes_future(ptr, ptr, i64, i64)\n");
+    module.push_str("declare i64 @ramlang_byte_buffer_len(ptr)\n");
+    module.push_str("declare ptr @ramlang_byte_buffer_data(ptr)\n");
+    module.push_str("declare void @ramlang_byte_buffer_close(ptr)\n");
     module.push_str("declare ptr @ramlang_tcp_listen_future(ptr, i64)\n");
     module.push_str("declare ptr @ramlang_tcp_listener_addr(ptr)\n");
     module.push_str("declare ptr @ramlang_tcp_accept_future(ptr)\n");
