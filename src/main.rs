@@ -6005,6 +6005,80 @@ mod tests {
     }
 
     #[test]
+    fn parses_freestanding_mode_option() {
+        let options = parse_args_from([
+            "compute.ram".to_owned(),
+            "--freestanding".to_owned(),
+        ])
+        .unwrap();
+        assert!(options.freestanding);
+        assert!(options.link_libs.is_empty());
+    }
+
+    #[test]
+    fn freestanding_ir_has_syscall_entry_without_runtime_calls() {
+        let program = parse_source(
+            "fn square(value: i32) -> i32 { return value * value; } fn main() -> i32 { return square(12) - 144; }",
+        )
+        .unwrap();
+        let options = parse_args_from([
+            "compute.ram".to_owned(),
+            "--freestanding".to_owned(),
+        ])
+        .unwrap();
+        let ir = compile_to_llvm(&program).unwrap();
+        let ir = prepare_freestanding_ir(&program, ir, &options).unwrap();
+
+        assert!(ir.contains("define void @_start() noreturn"));
+        assert!(ir.contains("call i32 @main()"));
+        assert!(ir.contains("\"syscall\""));
+        assert!(ir.contains("i64 60, i64 %ramlang_exit_code"));
+        assert!(!ir.lines().any(|line| line.contains("call ") && line.contains("@ramlang_")));
+    }
+
+    #[test]
+    fn freestanding_mode_rejects_runtime_builtins() {
+        let program = parse_source(
+            "fn main() -> i32 { print(42); return 0; }",
+        )
+        .unwrap();
+        let options = parse_args_from([
+            "runtime.ram".to_owned(),
+            "--freestanding".to_owned(),
+        ])
+        .unwrap();
+        let ir = compile_to_llvm(&program).unwrap();
+        let error = prepare_freestanding_ir(&program, ir, &options).unwrap_err();
+        assert!(error.contains("cannot call RamLang runtime functions"));
+    }
+
+    #[test]
+    fn freestanding_mode_rejects_foreign_and_async_functions() {
+        let options = parse_args_from([
+            "foreign.ram".to_owned(),
+            "--freestanding".to_owned(),
+        ])
+        .unwrap();
+
+        let foreign = parse_source(
+            "extern fn foreign_value() -> i32; fn main() -> i32 { return foreign_value(); }",
+        )
+        .unwrap();
+        let foreign_ir = compile_to_llvm(&foreign).unwrap();
+        let foreign_error = prepare_freestanding_ir(&foreign, foreign_ir, &options).unwrap_err();
+        assert!(foreign_error.contains("extern fn or extern static"));
+
+        let asynchronous = parse_source(
+            "async fn compute() -> i32 { return 42; } fn main() -> i32 { return 0; }",
+        )
+        .unwrap();
+        let asynchronous_ir = compile_to_llvm(&asynchronous).unwrap();
+        let async_error =
+            prepare_freestanding_ir(&asynchronous, asynchronous_ir, &options).unwrap_err();
+        assert!(async_error.contains("does not support async functions"));
+    }
+
+    #[test]
     fn emits_integer_arithmetic() {
         let ir = compile("fn main() -> i32 { let x: i32 = 20 + 22; return x; }").unwrap();
         assert!(ir.contains("add i32 20, 22"));
