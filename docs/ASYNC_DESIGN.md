@@ -1,59 +1,56 @@
-# RamLang async and networking roadmap
+# RamLang async and networking architecture
 
-## Status
+## Current implementation
 
-This change introduces `runtime/`, a standalone Rust async networking foundation. It does **not** claim that `async fn` or `.await` can be written in `.ram` files yet. The current compiler is a monolithic lexer/parser/LLVM backend; native async syntax requires coordinated language, type-checker, lowering, and runtime work.
+RamLang has an initial source-level async path and a Rust-owned runtime:
+
+- `async fn name(...) -> T` declares an async function.
+- `Future<T>` is a handle type; `await future` consumes the result once.
+- `future_is_ready(future)` checks completion without waiting.
+- `async fn main() -> i32` is supported through a generated native entry-point wrapper.
+- `sleep_ms`, `tcp_request`, and `udp_request` return typed futures.
+- Native server APIs provide TCP listen/accept/read/write and UDP bind/receive/send operations. Text APIs require UTF-8; TCP uses four-byte big-endian length-prefixed frames, while UDP preserves datagram boundaries.
+- Futures can return scalar values, `str`, or `ptr`; strings returned by the runtime are owned and must be freed exactly once.
+
+The runtime is implemented in Rust on Tokio. The LLVM backend is also driven in-process from Rust through Inkwell: generated IR is parsed and verified, then LLVM emits target objects, assembly, or bitcode. The system linker driver is still used for final executable linking; native code generation no longer requires Clang to parse or compile RamLang IR.
+
+The C-compatible functions under `runtime/src/ffi.rs` are an implementation ABI between generated LLVM and Rust. RamLang programs do not need to write C or declare those functions; the compiler lowers the built-in names directly to the runtime symbols. Explicit `extern fn` remains an opt-in interoperability feature for calling foreign libraries.
+
+## Critical limitation: await still blocks
+
+This is not yet a fully cooperative async execution model. Async function bodies run on Tokio's blocking pool. The current `await` operation blocks its calling operating-system thread until the future resolves. Network operations themselves run as Tokio tasks and can progress independently, but a large number of pending RamLang tasks can consume blocking-pool threads.
+
+The next major compiler milestone is to lower async functions into resumable state machines. Each async function should expose a poll/resume entry point; `await` should save the program counter and live values, register a wakeup, return pending, and resume only when the awaited future is ready. Merely scheduling the current function body on another thread is not sufficient to call the model non-blocking.
 
 ## Design goals
 
-- Preserve RamLang's systems-language character and C ABI interoperability.
-- Make async the language-level abstraction, with structured concurrency rather than detached tasks by default.
-- Keep the runtime replaceable: Tokio is the initial host runtime, not part of the language specification.
-- Make network I/O non-blocking, cancellation-aware, bounded, and explicit about errors.
-- Keep unsafe raw-pointer operations separate from safe high-level APIs.
-- Avoid promising memory safety or data-race freedom until ownership, borrowing, and task-boundary constraints are implemented and checked.
+- Make async a first-class language abstraction, not an API that requires users to manage opaque handles.
+- Keep Tokio behind a stable Rust runtime adapter rather than treating Tokio as part of the language specification.
+- Make networking bounded, timeout-aware, cancellation-aware, and explicit about ownership.
+- Keep unsafe pointer operations separate from high-level text/network APIs.
+- Do not promise memory safety or data-race freedom until task boundaries and values live across suspension points have enforceable ownership/lifetime rules.
+- Retain deliberate `extern fn` interoperability without requiring a C compiler for normal RamLang source programs.
 
-## Proposed source syntax (design sketch, not implemented)
+## Roadmap
 
-```ram
-async fn fetch_status(host: str, port: u16) -> Result<str, NetError> {
-    let connection = await Tcp.connect(host, port)?;
-    await connection.write("STATUS\\n")?;
-    let response = await connection.read_line(4096)?;
-    return Ok(response);
-}
+1. **Cooperative async lowering.** Build a typed async intermediate representation with explicit suspension points and liveness analysis. Spill values live across `await` into a task frame, implement poll/resume states, and connect runtime wakeups to the scheduler. Preserve the current blocking backend temporarily as a compatibility/debug mode.
+2. **Typed error propagation.** Introduce a first-class `Result<T, E>` and standard propagation/control-flow semantics. Replace the current `null`/thread-local-last-error convention for high-level APIs with typed errors while retaining last-error diagnostics at low-level ABI boundaries.
+3. **Structured concurrency.** Add language-level `spawn`, `join`/join sets, cancellation scopes, and deterministic parent-child lifetime rules. A parent should not accidentally leak detached tasks.
+4. **Safe network types.** Replace untyped `ptr` handles in safe code with opaque `TcpListener`, `TcpStream`, `UdpSocket`, and packet types. Restrict raw-pointer escapes to explicitly unsafe code.
+5. **Standard library expansion.** Add async DNS resolution, stream and datagram utilities, timers, cancellation, buffered I/O, and protocol parsing. Add TLS only with certificate validation and explicit trust configuration.
+6. **Remove the remaining compiler-driver dependency.** The LLVM library currently emits native object code, but final executable linking still uses a platform linker driver. Add and test a linker backend for supported targets without invoking Clang; keep system C runtime linkage clearly distinct from requiring C source or C APIs in RamLang code.
+7. **Reliability and performance.** Add negative type-checking tests, deterministic executor tests, stress tests for thousands of tasks, timeout/cancellation race tests, fuzzing for parser/IR/network framing, benchmark baselines, and cross-target CI.
+8. **Developer tooling.** Add language-server support, formatting, package/dependency management, diagnostics with source spans, module privacy, and semantic-versioned standard-library interfaces.
 
-async fn main() -> i32 {
-    let first = spawn(fetch_status("127.0.0.1", 9000));
-    let second = spawn(fetch_status("127.0.0.1", 9001));
-    let results = await join(first, second);
-    print(results);
-    return 0;
-}
-```
+## Runtime and CI
 
-This syntax is illustrative and is not accepted by the compiler yet.
-
-## Compiler implementation sequence
-
-1. Specify async function types, await precedence, error propagation, cancellation, task ownership, and async main.
-2. Add `Future<T>`, `Result<T, E>`, async signatures, and await type checking.
-3. Lower async functions into explicit state machines with poll/resume semantics. Initially reject locals borrowed across suspension points unless their lifetimes can be proven safe.
-4. Define a stable internal task, wake, cancellation, timer, and I/O ABI. Keep Tokio behind a runtime adapter.
-5. Add TCP, UDP, DNS, bounded framing, deadlines, and cancellation. Add TLS only with certificate validation and trust configuration.
-6. Use structured concurrency: parent tasks own child tasks; cancellation and failures propagate predictably.
-7. Establish ownership/borrowing or an equivalent enforceable lifetime model before describing high-level networking as memory-safe.
-8. Add parser/type-checker negative tests, deterministic executor tests, localhost integration tests, fuzzing, and benchmarks.
-
-## Runtime crate
-
-`runtime/` provides async TCP connect and listener/accept helpers, length-prefixed frames with a caller-supplied maximum, bounded UDP datagrams, per-operation timeouts, and a `TaskGroup<T>` for structured child-task ownership, joining, abort, and shutdown. Localhost tests cover TCP/UDP round trips, oversized payload rejection, and task-group joining/shutdown. The ordinary TCP connection API and UDP C API are blocking. The TCP request-handle API can start several connect/write/read transactions on a shared multithread Tokio runtime without blocking the calling thread, then expose readiness, timed waits, result retrieval, cancellation, and cleanup. This is explicit handle-based concurrency, not native async language support: `.ram` still has no native `async fn` or `await` syntax. This is currently a Rust API, not yet callable from RamLang without an explicit C ABI bridge or compiler-generated runtime integration.
+The `runtime/` crate includes TCP/UDP networking, bounded framed TCP reads, UDP payload bounds, asynchronous request handles, cancellation scopes, and `TaskGroup<T>` for Rust-side structured task ownership. RamLang examples and CI cover typed futures, async main, concurrent async functions, local TCP/UDP requests, and native TCP/UDP echo servers.
 
 ## Quality gates
 
-- `cargo fmt --check`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test --workspace`
-- Existing compiler tests and examples continue to pass.
-- CI checks the supported Rust toolchain and Clang/LLVM versions.
-- Tests cover cancellation, partial reads/writes, timeouts, malformed lengths, and concurrent clients.
+- Rust formatting check, runtime Clippy with warnings denied, and workspace unit tests.
+- LLVM parsing and verification before every emitted target artifact.
+- Native object, assembly, and bitcode emission tests.
+- Executable integration tests for async functions, async main, concurrent futures, and local TCP/UDP client/server paths.
+- Memory/ownership tests for allocator, pointer-valued futures, close/cancel races, and strings returned across task boundaries.
+- No claim of fully non-blocking awaits until state-machine lowering and scheduler-wakeup tests pass.
