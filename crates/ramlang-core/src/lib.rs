@@ -119,7 +119,8 @@ impl Program {
                         check_register(function, *src, Type::Bool).map_err(fail)?;
                     }
                     Instruction::PrintI64 { src } => check_register(function, *src, Type::I64).map_err(&fail)?,
-                    Instruction::PrintBool { src } => check_register(function, *src, Type::Bool).map_err(fail)?,
+                    Instruction::PrintBool { src } => check_register(function, *src, Type::Bool).map_err(&fail)?,
+                    Instruction::PrintStr { src } => check_register(function, *src, Type::Str).map_err(fail)?,
                     Instruction::Jump { target } => check_target(function, *target).map_err(fail)?,
                     Instruction::JumpIfFalse { condition, target } => {
                         check_register(function, *condition, Type::Bool).map_err(&fail)?;
