@@ -79,12 +79,36 @@ void ramlang_tcp_close(RamlangTcpConnection *connection);
  * handle so their callbacks can run concurrently. Awaiting i64 blocks the current caller
  * in this initial backend; state-machine lowering will remove that blocking phase.
  */
+typedef struct RamlangByteBuffer RamlangByteBuffer;
 typedef struct RamlangFuture RamlangFuture;
 typedef int64_t (*RamlangFutureCallback)(void *context);
 RamlangFuture *ramlang_future_spawn_i64(RamlangFutureCallback callback, void *context);
 int64_t ramlang_future_await_i64(RamlangFuture *future);
 int32_t ramlang_future_is_ready(RamlangFuture *future);
 void ramlang_future_close(RamlangFuture *future);
+/*
+ * Binary-safe asynchronous network requests.
+ *
+ * The payload pointer/length pair accepts arbitrary bytes, including embedded NUL and
+ * invalid UTF-8. Await returns a RamlangByteBuffer pointer encoded through Future<i64>;
+ * read its data and length with the helpers below, then close it exactly once.
+ */
+RamlangFuture *ramlang_tcp_request_bytes_future(
+    const char *address,
+    const uint8_t *data,
+    int64_t length,
+    int64_t timeout_ms
+);
+RamlangFuture *ramlang_udp_request_bytes_future(
+    const char *address,
+    const uint8_t *data,
+    int64_t length,
+    int64_t timeout_ms
+);
+int64_t ramlang_byte_buffer_len(const RamlangByteBuffer *buffer);
+void *ramlang_byte_buffer_data(const RamlangByteBuffer *buffer);
+void ramlang_byte_buffer_close(RamlangByteBuffer *buffer);
+
 /* Cancellable timer Future; delay is milliseconds. */
 RamlangFuture *ramlang_sleep_future(uint64_t delay_ms);
 /* Start a framed TCP text request. Await it through ramlang_future_await_i64; the returned response string is released with ramlang_free. */
