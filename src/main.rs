@@ -2019,7 +2019,7 @@ impl<'a> FunctionGenerator<'a> {
                             }
                         }
                     }
-                    Type::Ptr | Type::Str | Type::Future(_) => {
+                    Type::Ptr | Type::Str | Type::Handle(_) | Type::Future(_) => {
                         let one_past = self.fresh_value();
                         self.emit(format!("{one_past} = getelementptr ptr, ptr null, i64 1"));
                         let size = self.fresh_value();
@@ -2193,7 +2193,7 @@ impl<'a> FunctionGenerator<'a> {
             Expr::Bool(value) => Ok((if *value { "true" } else { "false" }.to_owned(), Type::Bool)),
             Expr::Null => {
                 let ty = expected
-                    .filter(|ty| matches!(ty, Type::Ptr | Type::Str | Type::Array(_, _)))
+                    .filter(|ty| matches!(ty, Type::Ptr | Type::Str | Type::Handle(_) | Type::Array(_, _)))
                     .unwrap_or(Type::Ptr);
                 Ok(("null".to_owned(), ty))
             },
@@ -2933,6 +2933,7 @@ impl<'a> FunctionGenerator<'a> {
                         }
                         Type::Str => self.emit(format!("call void @ramlang_print_str(ptr {value})")),
                         Type::Ptr => return Err("print does not accept raw pointers".to_owned()),
+                        Type::Handle(_) => return Err("print does not accept native resource handles directly".to_owned()),
                         Type::Future(_) => return Err("print does not accept Future values directly".to_owned()),
                         Type::Array(_, _) => return Err("print does not accept arrays directly".to_owned()),
                         Type::Struct(_) => return Err("print does not accept structs directly".to_owned()),
@@ -4382,7 +4383,7 @@ fn lower_global_constant(
         constant.ty.llvm()
     );
 
-    if matches!(constant.ty, Type::Ptr | Type::Str | Type::Array(_, _) | Type::Struct(_))
+    if matches!(constant.ty, Type::Ptr | Type::Str | Type::Handle(_) | Type::Array(_, _) | Type::Struct(_))
         && matches!(&constant.value, Expr::Null)
     {
         return Ok(("null".to_owned(), None));
@@ -5479,7 +5480,7 @@ fn c_type_name(ty: Type, program: &Program, depth: usize) -> Result<String, Stri
         Type::F64 => Ok("double".to_owned()),
         Type::Bool => Ok("bool".to_owned()),
         Type::Str => Ok("const char *".to_owned()),
-        Type::Ptr | Type::Future(_) => Ok("void *".to_owned()),
+        Type::Ptr | Type::Handle(_) | Type::Future(_) => Ok("void *".to_owned()),
         Type::Array(element, _) => Ok(format!("{} *", c_array_element_type(element, program, depth + 1)?)),
         Type::Enum(_) => Ok("int32_t".to_owned()),
         Type::Struct(id) => {
