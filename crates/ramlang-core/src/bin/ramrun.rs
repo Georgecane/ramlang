@@ -56,5 +56,6 @@ fn run() -> Result<i32, Box<dyn Error>> {
         Value::I64(status) => Ok(status as i32),
         Value::Unit => Ok(0),
         Value::Bool(_) => Err("main returned bool; expected an integer or void".into()),
+        Value::Str(_) => Err("main returned str; expected an integer or void".into()),
     }
 }
