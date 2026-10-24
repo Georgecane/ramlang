@@ -95,35 +95,35 @@ impl Program {
                 let fail = |message: String| VmError(format!("{} at {}:{pc}: {message}", function.name, function_index));
                 match instruction {
                     Instruction::ConstI64 { dst, .. } => check_register(function, *dst, Type::I64).map_err(fail)?,
-                    Instruction::ConstBool { dst, .. } => check_register(function, *dst, Type::Bool).map_err(&fail)?,
-                    Instruction::ConstStr { dst, .. } => check_register(function, *dst, Type::Str).map_err(&fail)?,
+                    Instruction::ConstBool { dst, .. } => check_register(function, *dst, Type::Bool).map_err(fail)?,
+                    Instruction::ConstStr { dst, .. } => check_register(function, *dst, Type::Str).map_err(fail)?,
                     Instruction::Copy { dst, src } => {
-                        let source_type = register_type(function, *src).map_err(&fail)?;
+                        let source_type = register_type(function, *src).map_err(fail)?;
                         check_register(function, *dst, source_type).map_err(fail)?;
                     }
                     Instruction::AddI64 { dst, lhs, rhs }
                     | Instruction::SubI64 { dst, lhs, rhs }
                     | Instruction::MulI64 { dst, lhs, rhs }
                     | Instruction::DivI64 { dst, lhs, rhs } => {
-                        check_register(function, *dst, Type::I64).map_err(&fail)?;
-                        check_register(function, *lhs, Type::I64).map_err(&fail)?;
+                        check_register(function, *dst, Type::I64).map_err(fail)?;
+                        check_register(function, *lhs, Type::I64).map_err(fail)?;
                         check_register(function, *rhs, Type::I64).map_err(fail)?;
                     }
                     Instruction::EqI64 { dst, lhs, rhs } | Instruction::LtI64 { dst, lhs, rhs } => {
-                        check_register(function, *dst, Type::Bool).map_err(&fail)?;
-                        check_register(function, *lhs, Type::I64).map_err(&fail)?;
+                        check_register(function, *dst, Type::Bool).map_err(fail)?;
+                        check_register(function, *lhs, Type::I64).map_err(fail)?;
                         check_register(function, *rhs, Type::I64).map_err(fail)?;
                     }
                     Instruction::NotBool { dst, src } => {
-                        check_register(function, *dst, Type::Bool).map_err(&fail)?;
+                        check_register(function, *dst, Type::Bool).map_err(fail)?;
                         check_register(function, *src, Type::Bool).map_err(fail)?;
                     }
-                    Instruction::PrintI64 { src } => check_register(function, *src, Type::I64).map_err(&fail)?,
-                    Instruction::PrintBool { src } => check_register(function, *src, Type::Bool).map_err(&fail)?,
+                    Instruction::PrintI64 { src } => check_register(function, *src, Type::I64).map_err(fail)?,
+                    Instruction::PrintBool { src } => check_register(function, *src, Type::Bool).map_err(fail)?,
                     Instruction::PrintStr { src } => check_register(function, *src, Type::Str).map_err(fail)?,
                     Instruction::Jump { target } => check_target(function, *target).map_err(fail)?,
                     Instruction::JumpIfFalse { condition, target } => {
-                        check_register(function, *condition, Type::Bool).map_err(&fail)?;
+                        check_register(function, *condition, Type::Bool).map_err(fail)?;
                         check_target(function, *target).map_err(fail)?;
                     }
                     Instruction::Call { dst, function: target_id, args } => {
@@ -133,22 +133,22 @@ impl Program {
                             return Err(fail(format!("call to '{}' has {} arguments, expected {}", target.name, args.len(), target.params.len())));
                         }
                         for (argument, expected) in args.iter().zip(&target.params) {
-                            check_register(function, *argument, *expected).map_err(&fail)?;
+                            check_register(function, *argument, *expected).map_err(fail)?;
                         }
                         match (*dst, target.result) {
                             (None, Type::Unit) => {}
-                            (Some(register), Type::I64) => check_register(function, register, Type::I64).map_err(&fail)?,
-                            (Some(register), Type::Bool) => check_register(function, register, Type::Bool).map_err(&fail)?,
-                            (Some(register), Type::Str) => check_register(function, register, Type::Str).map_err(&fail)?,
+                            (Some(register), Type::I64) => check_register(function, register, Type::I64).map_err(fail)?,
+                            (Some(register), Type::Bool) => check_register(function, register, Type::Bool).map_err(fail)?,
+                            (Some(register), Type::Str) => check_register(function, register, Type::Str).map_err(fail)?,
                             (None, result) => return Err(fail(format!("non-unit call to '{}' discards its {result:?} result", target.name))),
                             (Some(_), Type::Unit) => return Err(fail(format!("unit call to '{}' has a destination register", target.name))),
                         }
                     }
                     Instruction::Return { value } => match (*value, function.result) {
                         (None, Type::Unit) => {}
-                        (Some(register), Type::I64) => check_register(function, register, Type::I64).map_err(&fail)?,
-                        (Some(register), Type::Bool) => check_register(function, register, Type::Bool).map_err(&fail)?,
-                        (Some(register), Type::Str) => check_register(function, register, Type::Str).map_err(&fail)?,
+                        (Some(register), Type::I64) => check_register(function, register, Type::I64).map_err(fail)?,
+                        (Some(register), Type::Bool) => check_register(function, register, Type::Bool).map_err(fail)?,
+                        (Some(register), Type::Str) => check_register(function, register, Type::Str).map_err(fail)?,
                         (None, _) => return Err(fail("return value is missing".to_owned())),
                         (Some(_), Type::Unit) => return Err(fail("unit function cannot return a value".to_owned())),
                     },
