@@ -154,6 +154,7 @@ impl Program {
                     },
                 }
             }
+            verify_control_flow(function, function_index)?;
         }
         Ok(())
     }
@@ -241,6 +242,181 @@ impl Program {
                 },
             }
         }
+    }
+}
+
+
+// Verify that every reachable path either returns or remains in a control-flow cycle,
+// and that every register read is dominated by a definition on every incoming path.
+// The analysis operates on the same instruction-level CFG consumed by both backends.
+fn verify_control_flow(function: &Function, function_index: usize) -> Result<(), VmError> {
+    let code_len = function.code.len();
+    let register_count = function.registers.len();
+    let fail = |pc: usize, message: &str| {
+        VmError(format!("{} at {function_index}:{pc}: {message}", function.name))
+    };
+
+    let mut successors = vec![Vec::<usize>::new(); code_len];
+    let mut falls_off_end = vec![false; code_len];
+    for (pc, instruction) in function.code.iter().enumerate() {
+        match instruction {
+            Instruction::Return { .. } => {}
+            Instruction::Jump { target } => successors[pc].push(*target),
+            Instruction::JumpIfFalse { target, .. } => {
+                successors[pc].push(*target);
+                if pc + 1 < code_len {
+                    successors[pc].push(pc + 1);
+                } else {
+                    falls_off_end[pc] = true;
+                }
+            }
+            _ if pc + 1 < code_len => successors[pc].push(pc + 1),
+            _ => falls_off_end[pc] = true,
+        }
+    }
+
+    let mut reachable = vec![false; code_len];
+    let mut pending = vec![0usize];
+    while let Some(pc) = pending.pop() {
+        if reachable[pc] {
+            continue;
+        }
+        reachable[pc] = true;
+        if falls_off_end[pc] {
+            return Err(fail(pc, "reachable control flow can fall off the end without returning"));
+        }
+        pending.extend(successors[pc].iter().copied());
+    }
+
+    let mut predecessors = vec![Vec::<usize>::new(); code_len];
+    for (pc, targets) in successors.iter().enumerate() {
+        if reachable[pc] {
+            for target in targets {
+                predecessors[*target].push(pc);
+            }
+        }
+    }
+
+    let mut entry_state = vec![false; register_count];
+    for initialized in entry_state.iter_mut().take(function.params.len()) {
+        *initialized = true;
+    }
+
+    // This is a forward "definitely initialized" analysis. Start non-entry blocks at
+    // TOP (all registers initialized); predecessor intersections monotonically remove
+    // facts until loops and branch joins reach a fixed point.
+    let mut in_states = vec![vec![true; register_count]; code_len];
+    let mut out_states = in_states.clone();
+    in_states[0] = entry_state.clone();
+    out_states[0] = transfer_definitions(&function.code[0], &in_states[0]);
+
+    loop {
+        let mut changed = false;
+        for pc in 0..code_len {
+            if !reachable[pc] {
+                continue;
+            }
+
+            let mut new_in = if pc == 0 {
+                entry_state.clone()
+            } else {
+                vec![true; register_count]
+            };
+            let mut has_input = pc == 0;
+            for predecessor in &predecessors[pc] {
+                if !has_input {
+                    new_in.clone_from(&out_states[*predecessor]);
+                    has_input = true;
+                } else {
+                    for (initialized, predecessor_initialized) in
+                        new_in.iter_mut().zip(&out_states[*predecessor])
+                    {
+                        *initialized &= *predecessor_initialized;
+                    }
+                }
+            }
+            if has_input && new_in != in_states[pc] {
+                in_states[pc] = new_in;
+                changed = true;
+            }
+
+            let new_out = transfer_definitions(&function.code[pc], &in_states[pc]);
+            if new_out != out_states[pc] {
+                out_states[pc] = new_out;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    for (pc, instruction) in function.code.iter().enumerate() {
+        if !reachable[pc] {
+            continue;
+        }
+        for register in instruction_uses(instruction) {
+            if !in_states[pc].get(register.0).copied().unwrap_or(false) {
+                return Err(fail(
+                    pc,
+                    &format!("register r{} may be read before initialization", register.0),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn transfer_definitions(instruction: &Instruction, input: &[bool]) -> Vec<bool> {
+    let mut output = input.to_vec();
+    let destination = match instruction {
+        Instruction::ConstI64 { dst, .. }
+        | Instruction::ConstBool { dst, .. }
+        | Instruction::ConstStr { dst, .. }
+        | Instruction::Copy { dst, .. }
+        | Instruction::AddI64 { dst, .. }
+        | Instruction::SubI64 { dst, .. }
+        | Instruction::MulI64 { dst, .. }
+        | Instruction::DivI64 { dst, .. }
+        | Instruction::EqI64 { dst, .. }
+        | Instruction::LtI64 { dst, .. }
+        | Instruction::NotBool { dst, .. } => Some(*dst),
+        Instruction::Call { dst, .. } => *dst,
+        Instruction::PrintI64 { .. }
+        | Instruction::PrintBool { .. }
+        | Instruction::PrintStr { .. }
+        | Instruction::Jump { .. }
+        | Instruction::JumpIfFalse { .. }
+        | Instruction::Return { .. } => None,
+    };
+    if let Some(destination) = destination {
+        if let Some(initialized) = output.get_mut(destination.0) {
+            *initialized = true;
+        }
+    }
+    output
+}
+
+fn instruction_uses(instruction: &Instruction) -> Vec<Register> {
+    match instruction {
+        Instruction::ConstI64 { .. }
+        | Instruction::ConstBool { .. }
+        | Instruction::ConstStr { .. }
+        | Instruction::Jump { .. } => Vec::new(),
+        Instruction::Copy { src, .. }
+        | Instruction::NotBool { src, .. }
+        | Instruction::PrintI64 { src }
+        | Instruction::PrintBool { src }
+        | Instruction::PrintStr { src } => vec![*src],
+        Instruction::AddI64 { lhs, rhs, .. }
+        | Instruction::SubI64 { lhs, rhs, .. }
+        | Instruction::MulI64 { lhs, rhs, .. }
+        | Instruction::DivI64 { lhs, rhs, .. }
+        | Instruction::EqI64 { lhs, rhs, .. }
+        | Instruction::LtI64 { lhs, rhs, .. } => vec![*lhs, *rhs],
+        Instruction::JumpIfFalse { condition, .. } => vec![*condition],
+        Instruction::Call { args, .. } => args.clone(),
+        Instruction::Return { value } => value.iter().copied().collect(),
     }
 }
 
@@ -348,6 +524,48 @@ mod tests {
         assert!(program(vec![overflow], 0).run(&[], 20).unwrap_err().to_string().contains("overflow"));
         let loop_forever = Function { name: "loop".into(), params: vec![], result: Type::Unit, registers: vec![], code: vec![Instruction::Jump { target: 0 }] };
         assert!(program(vec![loop_forever], 0).run(&[], 5).unwrap_err().to_string().contains("budget"));
+    }
+
+    #[test]
+    fn rejects_reads_before_initialization() {
+        let function = Function {
+            name: "bad_read".into(),
+            params: vec![],
+            result: Type::I64,
+            registers: vec![Type::I64],
+            code: vec![Instruction::Return { value: Some(r(0)) }],
+        };
+        let error = program(vec![function], 0).verify().unwrap_err().to_string();
+        assert!(error.contains("read before initialization"), "{error}");
+    }
+
+    #[test]
+    fn rejects_reachable_control_flow_that_falls_off_the_end() {
+        let function = Function {
+            name: "bad_fallthrough".into(),
+            params: vec![],
+            result: Type::Unit,
+            registers: vec![Type::I64],
+            code: vec![Instruction::ConstI64 { dst: r(0), value: 1 }],
+        };
+        let error = program(vec![function], 0).verify().unwrap_err().to_string();
+        assert!(error.contains("fall off the end"), "{error}");
+    }
+
+    #[test]
+    fn accepts_dead_unreachable_tail_after_a_return() {
+        let function = Function {
+            name: "dead_tail".into(),
+            params: vec![],
+            result: Type::I64,
+            registers: vec![Type::I64],
+            code: vec![
+                Instruction::ConstI64 { dst: r(0), value: 7 },
+                Instruction::Return { value: Some(r(0)) },
+                Instruction::ConstI64 { dst: r(0), value: 9 },
+            ],
+        };
+        assert_eq!(program(vec![function], 0).run(&[], 10), Ok(Value::I64(7)));
     }
 
     #[test]
