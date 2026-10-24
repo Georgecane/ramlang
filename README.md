@@ -58,6 +58,20 @@ sudo pacman -S --needed rust llvm lld
 
 On native x86_64 GNU/Linux, RamLang invokes `ld.lld` directly after LLVM emits the object file, so normal RamLang builds do not need a C compiler driver. Install `lld` and ensure `ld.lld` is on `PATH`; set `RAMLANG_LLD` to choose an explicit LLD executable. Other targets or custom sysroots can use a compatible platform linker via `RAMLANG_LINKER` (legacy alias: `RAMLANG_CLANG`).
 
+### Freestanding executables (experimental)
+
+For compute-only programs, `--freestanding` creates a native x86_64 GNU/Linux ELF executable without CRT startup objects, libc, the Rust runtime, a dynamic loader, or dynamic-library dependencies:
+
+```sh
+cargo run --release -- examples/freestanding/compute.ram --freestanding -o compute
+./compute
+readelf -l compute
+readelf -d compute
+nm -u compute
+```
+
+This mode is deliberately restricted: it currently supports native x86_64 GNU/Linux only and rejects `extern fn`, `extern static`, async functions/futures, and any program that calls RamLang runtime built-ins such as `print`, allocation, string, or networking helpers. The example exits through the Linux `exit` syscall. Ordinary programs should keep using the default hosted runtime path; freestanding support is not yet a general-purpose libc or async-runtime replacement.
+
 ## Build and test
 
 ```sh
