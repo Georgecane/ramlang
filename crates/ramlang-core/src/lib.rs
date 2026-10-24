@@ -33,6 +33,8 @@ pub enum Instruction {
     EqI64 { dst: Register, lhs: Register, rhs: Register },
     LtI64 { dst: Register, lhs: Register, rhs: Register },
     NotBool { dst: Register, src: Register },
+    PrintI64 { src: Register },
+    PrintBool { src: Register },
     Jump { target: usize },
     JumpIfFalse { condition: Register, target: usize },
     Call { dst: Option<Register>, function: FunctionId, args: Vec<Register> },
@@ -57,6 +59,10 @@ impl fmt::Display for VmError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.0) }
 }
 impl std::error::Error for VmError {}
+
+impl VmError {
+    pub(crate) fn new(message: impl Into<String>) -> Self { Self(message.into()) }
+}
 
 impl Program {
     /// Verify register references, instruction types, calls and branch targets.
@@ -105,6 +111,8 @@ impl Program {
                         check_register(function, *dst, Type::Bool).map_err(&fail)?;
                         check_register(function, *src, Type::Bool).map_err(fail)?;
                     }
+                    Instruction::PrintI64 { src } => check_register(function, *src, Type::I64).map_err(&fail)?,
+                    Instruction::PrintBool { src } => check_register(function, *src, Type::Bool).map_err(fail)?,
                     Instruction::Jump { target } => check_target(function, *target).map_err(fail)?,
                     Instruction::JumpIfFalse { condition, target } => {
                         check_register(function, *condition, Type::Bool).map_err(&fail)?;
@@ -143,6 +151,11 @@ impl Program {
     /// Run the entry function with an instruction budget shared across all calls.
     /// Arithmetic is checked; overflow and invalid division produce VM errors.
     pub fn run(&self, args: &[Value], fuel: u64) -> Result<Value, VmError> {
+        self.run_capture(args, fuel).map(|(value, _)| value)
+    }
+
+    /// Run a program and capture lines emitted by the print instructions.
+    pub fn run_capture(&self, args: &[Value], fuel: u64) -> Result<(Value, Vec<String>), VmError> {
         self.verify()?;
         let entry = self.functions.get(self.entry.0).expect("entry was verified");
         if args.len() != entry.params.len() {
@@ -154,10 +167,12 @@ impl Program {
             }
         }
         let mut remaining_fuel = fuel;
-        self.invoke(self.entry, args, 0, &mut remaining_fuel)
+        let mut output = Vec::new();
+        let value = self.invoke(self.entry, args, 0, &mut remaining_fuel, &mut output)?;
+        Ok((value, output))
     }
 
-    fn invoke(&self, function_id: FunctionId, args: &[Value], depth: usize, fuel: &mut u64) -> Result<Value, VmError> {
+    fn invoke(&self, function_id: FunctionId, args: &[Value], depth: usize, fuel: &mut u64, output: &mut Vec<String>) -> Result<Value, VmError> {
         const MAX_CALL_DEPTH: usize = 1024;
         if depth >= MAX_CALL_DEPTH { return Err(VmError("maximum VM call depth exceeded".to_owned())); }
         let function = self.functions.get(function_id.0)
@@ -199,11 +214,13 @@ impl Program {
                     registers[dst.0] = Some(Value::Bool(read_i64(&registers, *lhs)? < read_i64(&registers, *rhs)?));
                 }
                 Instruction::NotBool { dst, src } => registers[dst.0] = Some(Value::Bool(!read_bool(&registers, *src)?)),
+                Instruction::PrintI64 { src } => output.push(read_i64(&registers, *src)?.to_string()),
+                Instruction::PrintBool { src } => output.push(read_bool(&registers, *src)?.to_string()),
                 Instruction::Jump { target } => pc = *target,
                 Instruction::JumpIfFalse { condition, target } => if !read_bool(&registers, *condition)? { pc = *target; },
                 Instruction::Call { dst, function: target, args } => {
                     let values = args.iter().map(|register| read_value(&registers, *register)).collect::<Result<Vec<_>, _>>()?;
-                    let result = self.invoke(*target, &values, depth + 1, fuel)?;
+                    let result = self.invoke(*target, &values, depth + 1, fuel, output)?;
                     if let Some(register) = dst { registers[register.0] = Some(result); }
                 }
                 Instruction::Return { value } => return match value {
