@@ -149,3 +149,10 @@ The existing baseline additionally needs its configured LLVM development librari
 - Async cancellation and resource destruction interact; state-machine lowering must preserve drops on every exit path.
 - System linking, libc, dynamic loaders, and OS APIs differ by target. “Rust-only implementation” is achievable; “no system tools or libraries on every target” is not a credible universal promise.
 - Current raw pointers, FFI conventions, and runtime error slots cannot simply be rebranded as safe abstractions. Each needs a specified ownership and failure contract.
+
+
+## Implementation update (2026-10-24)
+
+The first code milestone now exists in `crates/ramlang-core`, a dependency-free Rust crate added to the Cargo workspace. It defines a small typed register IR, verifies register types, call signatures and branch targets, and includes a budgeted reference interpreter with checked i64 arithmetic, function calls, branches, and explicit runtime errors.
+
+This is a semantic-core prototype, not yet connected to the existing `.ram` parser/compiler. The current `ramcomp` binary still uses the legacy LLVM backend; the project does not yet satisfy the no-LLVM build requirement. The crate's unit tests are included in workspace default members so the existing CI's `cargo test --all-targets` exercises the new core. The next implementation milestone is to add source spans and control-flow IR, then migrate a small subset of the existing parser/type checker into this backend-neutral pipeline.
