@@ -6986,6 +6986,38 @@ mod tests {
     }
 
     #[test]
+    fn lowers_native_async_udp_server_builtins() {
+        let source = r#"
+            fn main() -> i32 {
+                let bind_future: Future<ptr> = udp_bind("127.0.0.1:0", 5000);
+                let endpoint: ptr = await bind_future;
+                let address: str = udp_local_addr(endpoint);
+                let receive_future: Future<ptr> = udp_recv(endpoint);
+                let packet: ptr = await receive_future;
+                let payload: str = udp_packet_data(packet);
+                let peer: str = udp_packet_peer(packet);
+                let send_future: Future<i64> = udp_send(endpoint, peer, payload);
+                let sent: i64 = await send_future;
+                free(payload as ptr);
+                free(peer as ptr);
+                udp_packet_close(packet);
+                udp_endpoint_close(endpoint);
+                free(address as ptr);
+                return 0;
+            }
+        "#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("call ptr @ramlang_udp_bind_future"));
+        assert!(ir.contains("call ptr @ramlang_udp_native_addr"));
+        assert!(ir.contains("call ptr @ramlang_udp_recv_future"));
+        assert!(ir.contains("call ptr @ramlang_udp_packet_data"));
+        assert!(ir.contains("call ptr @ramlang_udp_packet_peer"));
+        assert!(ir.contains("call ptr @ramlang_udp_send_future"));
+        assert!(ir.contains("call void @ramlang_udp_packet_close"));
+        assert!(ir.contains("call void @ramlang_udp_native_close"));
+    }
+
+    #[test]
     fn lowers_native_async_tcp_server_builtins() {
         let source = r#"
             fn main() -> i32 {
