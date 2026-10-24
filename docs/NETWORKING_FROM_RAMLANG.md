@@ -25,6 +25,23 @@ tcp_request(address, payload, timeout_ms) and udp_request(address, payload, time
 The caller owns each successful response and must free it exactly once. A network, timeout, allocation, or UTF-8 error makes await yield a null pointer for Future<str> and records a diagnostic in the runtime's last-error slot. Read the most recent diagnostic with the native `last_error()` built-in. The returned diagnostic string is borrowed from thread-local runtime storage and must not be freed; consume or copy it before making another runtime call that can change the last error. The TCP protocol uses a four-byte big-endian length prefix. The UDP protocol sends and receives one datagram and has the standard 65,507-byte payload limit. The examples in examples/async/tcp_request.ram and examples/async/udp_request.ram are compiled and run against local echo servers in CI.
 
 
+## Future readiness
+
+`future_is_ready(future)` returns a `bool` without blocking. It is true only after the runtime task has completed, whether successfully or with a recorded error; it does not consume the result. You may then inspect the result with `await future`. A future that has not completed still requires await or a later readiness check; this builtin alone does not resume suspended code.
+
+    async fn answer() -> i32 {
+        return 42;
+    }
+
+    fn main() -> i32 {
+        let future: Future<i32> = answer();
+        let ready: bool = future_is_ready(future);
+        print(ready);
+        return await future;
+    }
+
+The current async-function body still runs on Tokio's blocking pool and `await` blocks the calling OS thread. True cooperative suspension/resumption is the next compiler architecture milestone.
+
 ## Native TCP server built-ins
 
 RamLang programs can now create a TCP listener without declaring C functions:
