@@ -2863,6 +2863,85 @@ mod tests {
         thread,
     };
 
+    #[test]
+    fn rust_allocator_is_aligned_and_frees_allocations() {
+        let allocation = ramlang_alloc(37);
+        assert!(!allocation.is_null());
+        assert_eq!(allocation as usize % 16, 0);
+
+        let bytes = b"ramlang-owned-allocation";
+        // SAFETY: the allocation contains 37 writable bytes and bytes fits the allocation.
+        unsafe {
+            ptr::copy_nonoverlapping(bytes.as_ptr(), allocation.cast::<u8>(), bytes.len());
+            assert_eq!(
+                slice::from_raw_parts(allocation.cast::<u8>(), bytes.len()),
+                bytes
+            );
+            ramlang_free(allocation);
+        }
+    }
+
+    #[test]
+    fn rust_calloc_zeroes_memory_and_realloc_preserves_contents() {
+        let allocation = ramlang_calloc(16, 1);
+        assert!(!allocation.is_null());
+        // SAFETY: calloc allocated 16 bytes and initializes each byte to zero.
+        unsafe {
+            assert_eq!(slice::from_raw_parts(allocation.cast::<u8>(), 16), &[0; 16]);
+            ptr::copy_nonoverlapping(b"ramlang".as_ptr(), allocation.cast::<u8>(), 7);
+        }
+
+        // SAFETY: allocation came from the RamLang allocator and is still live.
+        let grown = unsafe { ramlang_realloc(allocation, 64) };
+        assert!(!grown.is_null());
+        // SAFETY: realloc returned a live 64-byte allocation, preserving the old prefix.
+        unsafe {
+            assert_eq!(
+                slice::from_raw_parts(grown.cast::<u8>(), 7),
+                b"ramlang"
+            );
+            ramlang_free(grown);
+        }
+    }
+
+    #[test]
+    fn rust_memory_and_string_builtins_match_expected_semantics() {
+        let source = CString::new("hello").unwrap();
+        let longer = CString::new("hello world").unwrap();
+        // SAFETY: CString storage is NUL-terminated and remains live for the calls.
+        assert_eq!(unsafe { ramlang_strlen(source.as_ptr()) }, 5);
+        assert_eq!(unsafe { ramlang_strcmp(source.as_ptr(), longer.as_ptr()) }.signum(), -1);
+        assert_eq!(unsafe { ramlang_strncmp(source.as_ptr(), longer.as_ptr(), 5) }, 0);
+
+        let source_bytes = b"network";
+        let mut copied = [0_u8; 7];
+        // SAFETY: the source and destination ranges are valid and non-overlapping.
+        unsafe {
+            ramlang_memcpy(
+                copied.as_mut_ptr().cast::<c_void>(),
+                source_bytes.as_ptr().cast::<c_void>(),
+                source_bytes.len(),
+            );
+        }
+        assert_eq!(&copied, source_bytes);
+        // SAFETY: both pointers are valid for the copied range.
+        assert_eq!(
+            unsafe {
+                ramlang_memcmp(
+                    copied.as_ptr().cast::<c_void>(),
+                    source_bytes.as_ptr().cast::<c_void>(),
+                    copied.len(),
+                )
+            },
+            0
+        );
+        // SAFETY: copied points to seven valid readable bytes.
+        let found = unsafe {
+            ramlang_memchr(copied.as_ptr().cast::<c_void>(), b'w' as i32, copied.len())
+        };
+        assert_eq!(found.cast::<u8>(), copied.as_mut_ptr().wrapping_add(3));
+    }
+
     unsafe extern "C" fn return_context_address(context: *mut c_void) -> i64 {
         context as usize as i64
     }
