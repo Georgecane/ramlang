@@ -1,6 +1,6 @@
 fn main() -> i32 {
-    let listener_future: Future<ptr> = tcp_listen("127.0.0.1:0", 5000);
-    let listener: ptr = await listener_future;
+    let listener_future: Future<TcpListener> = tcp_listen("127.0.0.1:0", 5000);
+    let listener: TcpListener = await listener_future;
     if (listener == null) {
         print(last_error());
         return 1;
@@ -20,9 +20,9 @@ fn main() -> i32 {
     store_u8(ptr_offset(payload, 3), 65);
     store_u8(ptr_offset(payload, 4), 10);
 
-    let client_future: Future<ptr> = tcp_request_bytes(address, payload, 5, 5000);
-    let accept_future: Future<ptr> = tcp_accept(listener);
-    let connection: ptr = await accept_future;
+    let client_future: Future<ByteBuffer> = tcp_request_bytes(address, payload, 5, 5000);
+    let accept_future: Future<TcpStream> = tcp_accept(listener);
+    let connection: TcpStream = await accept_future;
     if (connection == null) {
         print(last_error());
         free(payload);
@@ -31,7 +31,7 @@ fn main() -> i32 {
         return 3;
     }
 
-    let incoming: ptr = await tcp_read_bytes(connection);
+    let incoming: ByteBuffer = await tcp_read_bytes(connection);
     if (incoming == null) {
         print(last_error());
         free(payload);
@@ -46,7 +46,7 @@ fn main() -> i32 {
     let write_future: Future<void> = tcp_write_bytes(connection, incoming_data, incoming_length);
     await write_future;
 
-    let response: ptr = await client_future;
+    let response: ByteBuffer = await client_future;
     if (response == null) {
         print(last_error());
         buffer_close(incoming);
