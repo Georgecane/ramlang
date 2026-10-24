@@ -29,5 +29,9 @@ jobs:
         run: cargo fmt --manifest-path runtime/Cargo.toml -- --check
       - name: Test workspace
         run: cargo test --workspace
+      - name: Run the Rust-native source subset
+        run: |
+          output="$(cargo run -p ramlang-core --bin ramrun -- examples/hello.ram)"
+          test "$output" = "49"
       - name: Clippy
         run: cargo clippy -p ramlang-runtime --all-targets -- -D warnings
