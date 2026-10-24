@@ -2174,7 +2174,12 @@ impl<'a> FunctionGenerator<'a> {
                 }
             }
             Expr::Bool(value) => Ok((if *value { "true" } else { "false" }.to_owned(), Type::Bool)),
-            Expr::Null => Ok(("null".to_owned(), Type::Ptr)),
+            Expr::Null => {
+                let ty = expected
+                    .filter(|ty| matches!(ty, Type::Ptr | Type::Str | Type::Array(_, _)))
+                    .unwrap_or(Type::Ptr);
+                Ok(("null".to_owned(), ty))
+            },
             Expr::Variable(name) => {
                 if let Some(binding) = self.lookup(name) {
                     let result = self.fresh_value();
@@ -6649,6 +6654,21 @@ mod tests {
         assert!(zero.contains("array length must be greater than zero"));
         let void_element = parse_source("fn main() -> i32 { let a: [void; 2] = null as [void; 2]; return 0; }").unwrap_err();
         assert!(void_element.contains("array element type must be a non-void scalar"));
+    }
+
+    #[test]
+    fn compares_null_with_string_pointer_values() {
+        let source = r#"
+            fn main() -> i32 {
+                let address: str = null;
+                if (address == null) {
+                    return 0;
+                }
+                return 1;
+            }
+        "#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("icmp eq ptr"));
     }
 
     #[test]
