@@ -2414,15 +2414,17 @@ pub unsafe extern "C" fn ramlang_byte_buffer_len(buffer: *const RamlangByteBuffe
 /// # Safety
 /// buffer must be null or a live handle returned by a RamLang byte-buffer future.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ramlang_byte_buffer_data(
-    buffer: *const RamlangByteBuffer,
-) -> *mut c_void {
+pub unsafe extern "C" fn ramlang_byte_buffer_data(buffer: *const RamlangByteBuffer) -> *mut c_void {
     if buffer.is_null() {
         set_last_error("byte buffer must not be null");
         return ptr::null_mut();
     }
     // SAFETY: buffer validity is part of this function's caller contract.
-    let data = unsafe { &*buffer }.bytes.as_ptr().cast_mut().cast::<c_void>();
+    let data = unsafe { &*buffer }
+        .bytes
+        .as_ptr()
+        .cast_mut()
+        .cast::<c_void>();
     clear_last_error();
     data
 }
