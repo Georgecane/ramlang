@@ -49,7 +49,15 @@ int main(void) {
         return 13;
     }
 
+    if (ramlang_byte_buffer_len(NULL) != -1) {
+        return 14;
+    }
+    if (ramlang_byte_buffer_data(NULL) != NULL) {
+        return 15;
+    }
+
     /* Closing null opaque handles is explicitly supported as a no-op. */
+    ramlang_byte_buffer_close(NULL);
     ramlang_task_scope_close(scope);
     ramlang_task_scope_close(NULL);
     ramlang_tcp_request_close(NULL);
