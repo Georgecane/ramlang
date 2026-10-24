@@ -2546,6 +2546,26 @@ impl<'a> FunctionGenerator<'a> {
                     return Ok((future, Type::Future(FutureOutput::Str)));
                 }
 
+                if name == "future_is_ready" {
+                    if args.len() != 1 {
+                        return Err("future_is_ready expects exactly one Future<T> handle".to_owned());
+                    }
+                    let (future, future_type) = self.emit_expr(&args[0])?;
+                    if !matches!(future_type, Type::Future(_)) {
+                        return Err(format!(
+                            "future_is_ready expects Future<T>, found {}",
+                            future_type.llvm()
+                        ));
+                    }
+                    let status = self.fresh_value();
+                    self.emit(format!(
+                        "{status} = call i32 @ramlang_future_is_ready(ptr {future})"
+                    ));
+                    let ready = self.fresh_value();
+                    self.emit(format!("{ready} = icmp eq i32 {status}, 1"));
+                    return Ok((ready, Type::Bool));
+                }
+
                 if name == "tcp_listen" {
                     if args.len() != 2 {
                         return Err("tcp_listen expects an address and timeout in milliseconds".to_owned());
@@ -4881,6 +4901,7 @@ fn compile_to_llvm_for_target(
     module.push_str("declare ptr @ramlang_alloc(i64)\n");
     module.push_str("declare ptr @ramlang_future_spawn_i64(ptr, ptr)\n");
     module.push_str("declare i64 @ramlang_future_await_i64(ptr)\n");
+    module.push_str("declare i32 @ramlang_future_is_ready(ptr)\n");
     module.push_str("declare ptr @ramlang_sleep_future(i64)\n");
     module.push_str("declare ptr @ramlang_last_error()\n");
     module.push_str("declare void @ramlang_future_close(ptr)\n");
@@ -6984,6 +7005,26 @@ mod tests {
     fn rejects_negative_literal_for_unsigned_initializer() {
         let error = compile("fn main() -> i32 { let x: u8 = -1; return 0; }").unwrap_err();
         assert!(error.contains("negative integer literals cannot initialize unsigned types"));
+    }
+
+    #[test]
+    fn exposes_non_blocking_future_readiness() {
+        let source = r#"
+            async fn value() -> i32 {
+                return 42;
+            }
+
+            fn main() -> i32 {
+                let future: Future<i32> = value();
+                let ready: bool = future_is_ready(future);
+                print(ready);
+                let result: i32 = await future;
+                return result;
+            }
+        "#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("call i32 @ramlang_future_is_ready(ptr"));
+        assert!(ir.contains("icmp eq i32"));
     }
 
     #[test]
