@@ -1,0 +1,10 @@
+async fn echo(message: str) -> str {
+    return message;
+}
+
+fn main() -> i32 {
+    let future: Future<str> = echo("async string result");
+    let result: str = await future;
+    print(result);
+    return 0;
+}
