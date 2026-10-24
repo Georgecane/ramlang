@@ -971,6 +971,26 @@ GPL-3.0. See [LICENSE](LICENSE).
 
 ## Rust-native redesign
 
-A staged redesign proposal now lives in [docs/RUST_NATIVE_REDESIGN.md](docs/RUST_NATIVE_REDESIGN.md). It records the verified current architecture and toolchain constraints, defines the intended ownership/error/async model, compares a Rust-native Cranelift backend with the existing LLVM path, and sets migration milestones and acceptance tests. This document is a plan, not a claim that LLVM has already been removed; the current compiler still requires the documented LLVM toolchain.
+The staged redesign contract and migration status are documented in [docs/RUST_NATIVE_REDESIGN.md](docs/RUST_NATIVE_REDESIGN.md). The legacy `ramcomp` compiler still uses Inkwell/LLVM and still requires the matching native LLVM development toolchain and LLD on its documented host path. The new Rust-native path is real and tested, but it is a restricted parallel implementation, not yet a replacement for every existing Ramlang feature.
 
-The first implementation milestone is now in `crates/ramlang-core`: a dependency-free typed register IR, verifier, bounded reference interpreter, small `.ram` source-subset compiler, and the `ramrun` command. Try `cargo run -p ramlang-core --bin ramrun -- examples/hello.ram`. This subset supports integer/boolean/string functions, arithmetic, conditions, loops, calls and `print`; integer widths are currently normalized to checked `i64`. See [the core README](crates/ramlang-core/README.md) for exact limitations. It is not yet wired into `ramcomp`; LLVM remains required by the existing compiler.
+### Rust-native interpreter
+
+`crates/ramlang-core` provides a dependency-free typed register IR, verifier, bounded reference interpreter, and `ramrun` source-subset runner:
+
+```sh
+cargo run -p ramlang-core --bin ramrun -- examples/hello.ram
+cargo run -p ramlang-core --bin ramrun -- examples/strings.ram
+```
+
+### Rust-native native-code JIT
+
+`crates/ramlang-jit` lowers the same core IR to host machine code with Rust Cranelift crates. It does not require LLVM, Clang, generated C/C++, or an external linker for in-process JIT execution:
+
+```sh
+cargo run -p ramlang-jit --bin ramjit -- examples/hello.ram
+cargo run -p ramlang-jit --bin ramjit -- examples/hello.ram --fuel 100000
+```
+
+The JIT currently supports a subset of integer/boolean code, calls, branches, loops, and numeric/boolean output. Strings and low-level/async/network features are not yet represented by this JIT subset. Both reference paths normalize source integer annotations to checked `i64`; they do not yet implement the declared widths faithfully. See the [core README](crates/ramlang-core/README.md), [JIT README](crates/ramlang-jit/README.md), and [redesign RFC](docs/RUST_NATIVE_REDESIGN.md) for exact boundaries and the migration plan.
+
+The Rust-native CI job builds/tests these paths and verifies that the JIT dependency graph does not contain LLVM. This does **not** establish that the entire repository builds without LLVM while the legacy `ramcomp` remains a workspace member.
