@@ -3298,8 +3298,7 @@ pub unsafe extern "C" fn ramlang_future_await_i64(future: *mut RamlangFuture) ->
     let state = unsafe { &*future }.state.clone();
     let mut data = state.data.lock().unwrap_or_else(|e| e.into_inner());
 
-    loop {
-        while data.result.is_none() {
+    while data.result.is_none() {
             if data.closed {
                 set_last_error("Future was closed before completion");
                 return -1;
