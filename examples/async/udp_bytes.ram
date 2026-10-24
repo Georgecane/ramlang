@@ -1,0 +1,26 @@
+fn main() -> i32 {
+    let payload: ptr = alloc(5);
+    store_u8(payload, 0);
+    store_u8(ptr_offset(payload, 1), 255);
+    store_u8(ptr_offset(payload, 2), 128);
+    store_u8(ptr_offset(payload, 3), 65);
+    store_u8(ptr_offset(payload, 4), 10);
+
+    let response: ptr = await udp_request_bytes("127.0.0.1:39877", payload, 5, 3000);
+    free(payload);
+    if (response == null) {
+        print(last_error());
+        return 1;
+    }
+
+    let length: i64 = buffer_len(response);
+    let data: ptr = buffer_data(response);
+    print(length);
+    print(load_u8(data));
+    print(load_u8(ptr_offset(data, 1)));
+    print(load_u8(ptr_offset(data, 2)));
+    print(load_u8(ptr_offset(data, 3)));
+    print(load_u8(ptr_offset(data, 4)));
+    buffer_close(response);
+    return 0;
+}
