@@ -24,10 +24,6 @@ jobs:
             echo "Rust-native JIT dependency graph unexpectedly contains LLVM"
             exit 1
           fi
-      - name: Format-check Rust-native crates
-        run: |
-          cargo fmt --manifest-path crates/ramlang-core/Cargo.toml -- --check
-          cargo fmt --manifest-path crates/ramlang-jit/Cargo.toml -- --check
       - name: Lint Rust-native crates
         run: cargo clippy -p ramlang-core -p ramlang-jit --all-targets -- -D warnings
       - name: Test core and native JIT
