@@ -1,0 +1,69 @@
+fn main() -> i32 {
+    let endpoint_future: Future<ptr> = udp_bind("127.0.0.1:0", 5000);
+    let endpoint: ptr = await endpoint_future;
+    if (endpoint == null) {
+        print(last_error());
+        return 1;
+    }
+
+    let address: str = udp_local_addr(endpoint);
+    if (address == null) {
+        print(last_error());
+        udp_endpoint_close(endpoint);
+        return 2;
+    }
+
+    let client_future: Future<str> = udp_request(address, "native UDP echo", 5000);
+    let packet_future: Future<ptr> = udp_recv(endpoint);
+    let packet: ptr = await packet_future;
+    if (packet == null) {
+        print(last_error());
+        udp_endpoint_close(endpoint);
+        free(address as ptr);
+        return 3;
+    }
+
+    let payload: str = udp_packet_data(packet);
+    let peer: str = udp_packet_peer(packet);
+    if (payload == null || peer == null) {
+        print(last_error());
+        free(payload as ptr);
+        free(peer as ptr);
+        udp_packet_close(packet);
+        udp_endpoint_close(endpoint);
+        free(address as ptr);
+        return 4;
+    }
+
+    let send_future: Future<i64> = udp_send(endpoint, peer, payload);
+    let sent: i64 = await send_future;
+    if (sent < 0) {
+        print(last_error());
+        free(payload as ptr);
+        free(peer as ptr);
+        udp_packet_close(packet);
+        udp_endpoint_close(endpoint);
+        free(address as ptr);
+        return 5;
+    }
+
+    let response: str = await client_future;
+    if (response == null) {
+        print(last_error());
+        free(payload as ptr);
+        free(peer as ptr);
+        udp_packet_close(packet);
+        udp_endpoint_close(endpoint);
+        free(address as ptr);
+        return 6;
+    }
+
+    print(response);
+    free(response as ptr);
+    free(payload as ptr);
+    free(peer as ptr);
+    udp_packet_close(packet);
+    udp_endpoint_close(endpoint);
+    free(address as ptr);
+    return 0;
+}
