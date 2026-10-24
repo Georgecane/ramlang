@@ -1850,8 +1850,9 @@ impl FutureState {
             }
             if data.closed {
                 if let Some(cleanup) = self.pointer_result_cleanup {
-                    value_to_release =
-                        value.ok().map(|encoded| (cleanup, encoded as usize as *mut c_void));
+                    value_to_release = value
+                        .ok()
+                        .map(|encoded| (cleanup, encoded as usize as *mut c_void));
                 }
             } else {
                 data.result = Some(value);
@@ -2088,7 +2089,7 @@ pub unsafe extern "C" fn ramlang_udp_request_future(
         }
     };
 
-    let state = Arc::new(FutureState::new(true));
+    let state = Arc::new(FutureState::new(Some(ramlang_free)));
     let task_state = Arc::clone(&state);
     let operation_timeout = Duration::from_millis(timeout_ms as u64);
     runtime.spawn(async move {
@@ -2162,7 +2163,7 @@ pub extern "C" fn ramlang_sleep_future(delay_ms: u64) -> *mut RamlangFuture {
             return ptr::null_mut();
         }
     };
-    let state = Arc::new(FutureState::new(false));
+    let state = Arc::new(FutureState::new(None));
     let task_state = Arc::clone(&state);
     let task = runtime.spawn(async move {
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
