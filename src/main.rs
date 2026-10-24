@@ -4892,14 +4892,14 @@ fn compile_to_llvm_for_target(
     module.push_str("declare ptr @ramlang_tcp_write_future(ptr, ptr)\n");
     module.push_str("declare void @ramlang_tcp_listener_close(ptr)\n");
     module.push_str("declare void @ramlang_tcp_native_close(ptr)\n");
-    module.push_str("declare ptr @ramlang_udp_bind_future(ptr, i64)\\n");
-    module.push_str("declare ptr @ramlang_udp_native_addr(ptr)\\n");
-    module.push_str("declare ptr @ramlang_udp_recv_future(ptr)\\n");
-    module.push_str("declare ptr @ramlang_udp_packet_data(ptr)\\n");
-    module.push_str("declare ptr @ramlang_udp_packet_peer(ptr)\\n");
-    module.push_str("declare ptr @ramlang_udp_send_future(ptr, ptr, ptr)\\n");
-    module.push_str("declare void @ramlang_udp_packet_close(ptr)\\n");
-    module.push_str("declare void @ramlang_udp_native_close(ptr)\\n");
+    module.push_str("declare ptr @ramlang_udp_bind_future(ptr, i64)\n");
+    module.push_str("declare ptr @ramlang_udp_native_addr(ptr)\n");
+    module.push_str("declare ptr @ramlang_udp_recv_future(ptr)\n");
+    module.push_str("declare ptr @ramlang_udp_packet_data(ptr)\n");
+    module.push_str("declare ptr @ramlang_udp_packet_peer(ptr)\n");
+    module.push_str("declare ptr @ramlang_udp_send_future(ptr, ptr, ptr)\n");
+    module.push_str("declare void @ramlang_udp_packet_close(ptr)\n");
+    module.push_str("declare void @ramlang_udp_native_close(ptr)\n");
     module.push_str("declare void @llvm.trap() cold noreturn nounwind\n");
     module.push_str("declare void @llvm.assume(i1) nounwind\n");
 
