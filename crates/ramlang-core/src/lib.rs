@@ -128,7 +128,7 @@ impl Program {
                     }
                     Instruction::Return { value } => match (*value, function.result) {
                         (None, Type::Unit) => {}
-                        (Some(register), result) if result != Type::Unit => check_register(function, *register, result).map_err(fail)?,
+                        (Some(register), result) if result != Type::Unit => check_register(function, register, result).map_err(fail)?,
                         (None, _) => return Err(fail("return value is missing".to_owned())),
                         (Some(_), Type::Unit) => return Err(fail("unit function cannot return a value".to_owned())),
                     },
