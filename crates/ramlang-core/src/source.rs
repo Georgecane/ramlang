@@ -402,7 +402,7 @@ struct FunctionCompiler<'a> {
 impl<'a> FunctionCompiler<'a> {
     fn new(declaration: &'a FunctionAst, signatures: &'a HashMap<String, Signature>) -> Result<Self, VmError> {
         let mut scope = HashMap::new();
-        let register_types = declaration.params.iter().enumerate().map(|(_, (_, ty))| *ty).collect::<Vec<_>>();
+        let register_types = declaration.params.iter().map(|(_, ty)| *ty).collect::<Vec<_>>();
         for (index, (name, ty)) in declaration.params.iter().enumerate() {
             if scope.insert(name.clone(), Binding { register: Register(index), ty: *ty, mutable: false }).is_some() {
                 return Err(VmError::new(format!("function '{}': duplicate parameter '{name}'", declaration.name)));
