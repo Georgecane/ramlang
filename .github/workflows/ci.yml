@@ -41,6 +41,23 @@ jobs:
           test -s target/hello-rust-llvm.s
           cargo run --release -- examples/hello.ram --emit-bc -o target/hello-rust-llvm.bc
           "$LLVM_BINDIR/llvm-dis" target/hello-rust-llvm.bc -o /dev/null
+      - name: Compile and run libc-free freestanding executable
+        run: |
+          cargo run --release -- examples/freestanding/compute.ram --freestanding -o target/freestanding-compute
+          target/freestanding-compute
+          if readelf -l target/freestanding-compute | grep -q INTERP; then
+            echo "freestanding executable unexpectedly has an ELF interpreter"
+            exit 1
+          fi
+          if readelf -d target/freestanding-compute 2>&1 | grep -q '(NEEDED)'; then
+            echo "freestanding executable unexpectedly has dynamic dependencies"
+            exit 1
+          fi
+          if test -n "$(nm -u target/freestanding-compute)"; then
+            echo "freestanding executable has undefined symbols"
+            nm -u target/freestanding-compute
+            exit 1
+          fi
       - name: Build TCP runtime shared library
         run: cargo build --release -p ramlang-runtime
       - name: Compile and run native async/await example
