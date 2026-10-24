@@ -5106,7 +5106,7 @@ where
         return Err("usage: ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc | --emit-header] [-o output] [--target TRIPLE] [--target-cpu CPU] [--target-feature FEATURE ...] [--sysroot PATH] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
     };
     if source == "--help" || source == "-h" {
-        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --emit-obj              Emit a native object file without linking\n  --emit-asm              Emit target assembly without linking\n  --emit-bc               Emit LLVM bitcode without linking\n  --emit-header           Generate a C header for callable functions and global symbols\n  --target <triple>       Select the Clang compilation target\n  --target-cpu <name>    Select the LLVM target CPU\n  --target-feature <f>   Enable (+) or disable (-) an LLVM target feature; repeatable\n  --sysroot <path>       Use a target sysroot when invoking Clang\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional argument to Clang\n  -h, --help              Show this help\n\nNative compilation uses clang (LLVM 15 or newer). Set RAMLANG_CLANG to override its path.");
+        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --emit-obj              Emit a native object file without linking\n  --emit-asm              Emit target assembly without linking\n  --emit-bc               Emit LLVM bitcode without linking\n  --emit-header           Generate a C header for callable functions and global symbols\n  --target <triple>       Select the LLVM code-generation target\n  --target-cpu <name>    Select the LLVM target CPU\n  --target-feature <f>   Enable (+) or disable (-) an LLVM target feature; repeatable\n  --sysroot <path>       Use a target sysroot with a platform linker override\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional linker argument\n  -h, --help              Show this help\n\nNative x86_64 GNU/Linux links with LLVM lld by default. Set RAMLANG_LLD to override lld or RAMLANG_LINKER to select a platform linker.");
         process::exit(0);
     }
 
@@ -7483,6 +7483,42 @@ mod tests {
         let ir = compile(source).unwrap();
         assert!(ir.contains("ptrtoint ptr"));
         assert!(ir.contains("inttoptr i64"));
+    }
+
+    #[test]
+    fn lld_support_is_limited_to_native_gnu_linux_without_sysroot() {
+        let native_supported =
+            cfg!(target_os = "linux") && env::consts::ARCH == "x86_64";
+        assert_eq!(
+            lld_supports_target(Some("x86_64-unknown-linux-gnu"), None),
+            native_supported
+        );
+        assert!(!lld_supports_target(
+            Some("x86_64-unknown-linux-musl"),
+            None
+        ));
+        assert!(!lld_supports_target(
+            Some("aarch64-unknown-linux-gnu"),
+            None
+        ));
+        assert!(!lld_supports_target(
+            Some("x86_64-unknown-linux-gnu"),
+            Some(Path::new("/opt/custom-sysroot"))
+        ));
+    }
+
+    #[test]
+    fn lld_link_arguments_translate_common_driver_forwarding() {
+        assert_eq!(
+            expand_lld_link_argument("-Wl,--as-needed,-rpath,/opt/ramlang"),
+            ["--as-needed", "-rpath", "/opt/ramlang"]
+        );
+        assert_eq!(expand_lld_link_argument("-pthread"), ["-lpthread"]);
+        assert_eq!(
+            expand_lld_link_argument("-Wl,--start-group,-lm,-ldl,--end-group"),
+            ["--start-group", "-lm", "-ldl", "--end-group"]
+        );
+        assert_eq!(expand_lld_link_argument("-z"), ["-z"]);
     }
 
     #[test]
