@@ -2476,6 +2476,7 @@ type FuturePointerCleanup = unsafe extern "C" fn(*mut c_void);
 struct FutureState {
     data: Mutex<FutureResultSlot>,
     ready: Condvar,
+    ready_notify: Notify,
     pointer_result_cleanup: Option<FuturePointerCleanup>,
 }
 
@@ -2490,6 +2491,7 @@ impl FutureState {
                 abort_handle: None,
             }),
             ready: Condvar::new(),
+            ready_notify: Notify::new(),
             pointer_result_cleanup,
         }
     }
@@ -2515,6 +2517,7 @@ impl FutureState {
 
     fn complete_result(&self, value: Result<i64, String>) {
         let mut value_to_release = None;
+        let mut published_result = false;
         {
             let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
             if data.result.is_some() {
@@ -2529,7 +2532,11 @@ impl FutureState {
             } else {
                 data.result = Some(value);
                 self.ready.notify_all();
+                published_result = true;
             }
+        }
+        if published_result {
+            self.ready_notify.notify_waiters();
         }
         if let Some((cleanup, pointer)) = value_to_release
             && !pointer.is_null()
@@ -2559,11 +2566,189 @@ impl FutureState {
         if let Some(handle) = abort_handle {
             handle.abort();
         }
+        self.ready_notify.notify_waiters();
         if let Some((cleanup, pointer)) = value_to_release
             && !pointer.is_null()
         {
-            // SAFETY: the future's configured cleanup matches its pointer payload type.
+            // SAFETY: the future's configured cleanup matches the pointer payload type.
             unsafe { cleanup(pointer) };
+        }
+    }
+
+    fn is_ready_or_closed(&self) -> bool {
+        let data = self.data.lock().unwrap_or_else(|error| error.into_inner());
+        data.result.is_some() || data.closed
+    }
+
+    fn is_closed(&self) -> bool {
+        self.data.lock().unwrap_or_else(|error| error.into_inner()).closed
+    }
+}
+
+type AsyncFunctionCallback = unsafe extern "C" fn(*mut c_void) -> i64;
+type AsyncContextCleanupCallback = unsafe extern "C" fn(*mut c_void);
+type AsyncYielder = Yielder<(), Arc<FutureState>>;
+type AsyncCoroutine = Coroutine<(), Arc<FutureState>, i64>;
+
+thread_local! {
+    /// Non-null only while the coroutine executor is actively resuming a RamLang async stack.
+    static CURRENT_YIELDER: Cell<*const AsyncYielder> = const { Cell::new(ptr::null()) };
+}
+
+struct AsyncContextCleanup {
+    context_address: usize,
+    cleanup: Option<AsyncContextCleanupCallback>,
+}
+
+impl Drop for AsyncContextCleanup {
+    fn drop(&mut self) {
+        if let Some(cleanup) = self.cleanup {
+            // SAFETY: the caller supplied the cleanup function for this context, and this guard
+            // owns the context's cleanup responsibility for exactly one completion/cancellation.
+            unsafe { cleanup(self.context_address as *mut c_void) };
+        }
+    }
+}
+
+struct AsyncCoroutineJob {
+    callback: AsyncFunctionCallback,
+    context_address: usize,
+    context_cleanup: AsyncContextCleanup,
+    state: Arc<FutureState>,
+}
+
+/// Owns a coroutine and its argument frame. Drop must unwind the stack before freeing the
+/// context, because generated LLVM frames can keep pointers into it across an await.
+struct ActiveAsyncCoroutine {
+    coroutine: Option<AsyncCoroutine>,
+    context_cleanup: Option<AsyncContextCleanup>,
+}
+
+impl Drop for ActiveAsyncCoroutine {
+    fn drop(&mut self) {
+        drop(self.coroutine.take());
+        drop(self.context_cleanup.take());
+    }
+}
+
+static ASYNC_COROUTINE_EXECUTOR: OnceLock<Result<UnboundedSender<AsyncCoroutineJob>, String>> =
+    OnceLock::new();
+
+fn async_coroutine_sender() -> Result<&'static UnboundedSender<AsyncCoroutineJob>, String> {
+    match ASYNC_COROUTINE_EXECUTOR.get_or_init(|| {
+        let (sender, mut receiver) =
+            tokio::sync::mpsc::unbounded_channel::<AsyncCoroutineJob>();
+        let (started_sender, started_receiver) =
+            std::sync::mpsc::sync_channel::<Result<(), String>>(1);
+        std::thread::Builder::new()
+            .name("ramlang-async-executor".to_owned())
+            .spawn(move || {
+                let runtime = match Builder::new_current_thread().enable_all().build() {
+                    Ok(runtime) => runtime,
+                    Err(error) => {
+                        let _ = started_sender.send(Err(format!(
+                            "could not start RamLang coroutine runtime: {error}"
+                        )));
+                        return;
+                    }
+                };
+                let local = LocalSet::new();
+                if started_sender.send(Ok(())).is_err() {
+                    return;
+                }
+                local.block_on(&runtime, async move {
+                    while let Some(job) = receiver.recv().await {
+                        let state = Arc::clone(&job.state);
+                        let task = tokio::task::spawn_local(run_async_coroutine(job));
+                        state.set_abort_handle(task.abort_handle());
+                        drop(task);
+                    }
+                });
+            })
+            .map_err(|error| format!("could not start RamLang async executor thread: {error}"))?;
+        started_receiver
+            .recv()
+            .map_err(|error| format!("RamLang async executor startup channel failed: {error}"))??;
+        Ok(sender)
+    }) {
+        Ok(sender) => Ok(sender),
+        Err(error) => Err(error.clone()),
+    }
+}
+
+async fn wait_for_future_ready(state: Arc<FutureState>) {
+    loop {
+        let notified = state.ready_notify.notified();
+        tokio::pin!(notified);
+        let _ = notified.as_mut().enable();
+        if state.is_ready_or_closed() {
+            return;
+        }
+        notified.await;
+    }
+}
+
+async fn run_async_coroutine(job: AsyncCoroutineJob) {
+    let AsyncCoroutineJob {
+        callback,
+        context_address,
+        context_cleanup,
+        state,
+    } = job;
+
+    if state.is_closed() {
+        drop(context_cleanup);
+        return;
+    }
+
+    let yielder_address = Arc::new(AtomicUsize::new(0));
+    let coroutine_yielder_address = Arc::clone(&yielder_address);
+    let coroutine = Coroutine::new(move |yielder, ()| {
+        coroutine_yielder_address.store(yielder as *const AsyncYielder as usize, Ordering::Release);
+        let previous = CURRENT_YIELDER.with(|slot| {
+            let previous = slot.get();
+            slot.set(yielder as *const AsyncYielder);
+            previous
+        });
+        // SAFETY: this callback/context pair is owned by the async job and remains valid until
+        // the coroutine completes or its stack is unwound during cancellation.
+        let result = unsafe { callback(context_address as *mut c_void) };
+        CURRENT_YIELDER.with(|slot| slot.set(previous));
+        result
+    });
+
+    let mut active = ActiveAsyncCoroutine {
+        coroutine: Some(coroutine),
+        context_cleanup: Some(context_cleanup),
+    };
+    let mut started = false;
+
+    loop {
+        if state.is_closed() {
+            break;
+        }
+        let previous = CURRENT_YIELDER.with(|slot| {
+            let previous = slot.get();
+            if started {
+                let yielder = yielder_address.load(Ordering::Acquire) as *const AsyncYielder;
+                slot.set(yielder);
+            }
+            previous
+        });
+        let result = active
+            .coroutine
+            .as_mut()
+            .expect("active async coroutine was already dropped")
+            .resume(());
+        CURRENT_YIELDER.with(|slot| slot.set(previous));
+        started = true;
+
+        match result {
+            CoroutineResult::Yield(awaited_state) => wait_for_future_ready(awaited_state).await,
+            CoroutineResult::Return(value) => {
+                state.complete(value);
+                break;
+            }
         }
     }
 }
