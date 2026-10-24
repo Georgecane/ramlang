@@ -3253,6 +3253,107 @@ mod tests {
     }
 
     #[test]
+    fn native_tcp_bytes_future_round_trips_embedded_nul_and_invalid_utf8() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let payload = vec![0_u8, 255, 128, 65, 10];
+        let server_payload = payload.clone();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut header = [0_u8; 4];
+            stream.read_exact(&mut header).unwrap();
+            let length = u32::from_be_bytes(header) as usize;
+            let mut received = vec![0_u8; length];
+            stream.read_exact(&mut received).unwrap();
+            assert_eq!(received, server_payload);
+            stream.write_all(&header).unwrap();
+            stream.write_all(&received).unwrap();
+        });
+
+        let address = CString::new(address.to_string()).unwrap();
+        // SAFETY: the address is NUL-terminated and payload's bytes are readable for its length.
+        let future = unsafe {
+            ramlang_tcp_request_bytes_future(
+                address.as_ptr(),
+                payload.as_ptr(),
+                payload.len() as i64,
+                2_000,
+            )
+        };
+        assert!(!future.is_null(), "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+        // SAFETY: the future is live and is not being consumed or closed concurrently.
+        let encoded = unsafe { ramlang_future_await_i64(future) };
+        assert_ne!(encoded, -1, "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+        let buffer = encoded as u64 as usize as *mut RamlangByteBuffer;
+        assert!(!buffer.is_null());
+        // SAFETY: buffer is a live byte-buffer handle returned by the future.
+        assert_eq!(unsafe { ramlang_byte_buffer_len(buffer) }, payload.len() as i64);
+        // SAFETY: the returned data pointer stays valid until byte_buffer_close.
+        let data = unsafe { ramlang_byte_buffer_data(buffer) }.cast::<u8>();
+        // SAFETY: the buffer length and data pointer describe the same live allocation.
+        assert_eq!(unsafe { slice::from_raw_parts(data, payload.len()) }, payload);
+
+        // SAFETY: both handles are live and no concurrent use is in progress.
+        unsafe {
+            ramlang_byte_buffer_close(buffer);
+            ramlang_future_close(future);
+        }
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn native_udp_bytes_future_round_trips_embedded_nul_and_invalid_utf8() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let address = server.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let mut bytes = [0_u8; 128];
+            let (length, peer) = server.recv_from(&mut bytes).unwrap();
+            assert_eq!(&bytes[..length], &[0, 255, 128, 65, 10]);
+            server.send_to(&bytes[..length], peer).unwrap();
+        });
+
+        let address = CString::new(address.to_string()).unwrap();
+        let payload = [0_u8, 255, 128, 65, 10];
+        // SAFETY: the address is NUL-terminated and payload's bytes are readable for its length.
+        let future = unsafe {
+            ramlang_udp_request_bytes_future(
+                address.as_ptr(),
+                payload.as_ptr(),
+                payload.len() as i64,
+                2_000,
+            )
+        };
+        assert!(!future.is_null(), "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+        // SAFETY: the future is live and is not being consumed or closed concurrently.
+        let encoded = unsafe { ramlang_future_await_i64(future) };
+        assert_ne!(encoded, -1, "{}", unsafe {
+            CStr::from_ptr(ramlang_last_error()).to_string_lossy()
+        });
+        let buffer = encoded as u64 as usize as *mut RamlangByteBuffer;
+        assert!(!buffer.is_null());
+        // SAFETY: buffer is a live byte-buffer handle returned by the future.
+        assert_eq!(unsafe { ramlang_byte_buffer_len(buffer) }, payload.len() as i64);
+        // SAFETY: the returned data pointer stays valid until byte_buffer_close.
+        let data = unsafe { ramlang_byte_buffer_data(buffer) }.cast::<u8>();
+        // SAFETY: the buffer length and data pointer describe the same live allocation.
+        assert_eq!(unsafe { slice::from_raw_parts(data, payload.len()) }, payload);
+
+        // SAFETY: both handles are live and no concurrent use is in progress.
+        unsafe {
+            ramlang_byte_buffer_close(buffer);
+            ramlang_future_close(future);
+        }
+        server.join().unwrap();
+    }
+
+    #[test]
     fn native_sleep_future_completes_after_timer() {
         let future = ramlang_sleep_future(1);
         assert!(!future.is_null());
