@@ -1,6 +1,6 @@
 fn main() -> i32 {
-    let endpoint_future: Future<ptr> = udp_bind("127.0.0.1:0", 5000);
-    let endpoint: ptr = await endpoint_future;
+    let endpoint_future: Future<UdpSocket> = udp_bind("127.0.0.1:0", 5000);
+    let endpoint: UdpSocket = await endpoint_future;
     if (endpoint == null) {
         print(last_error());
         return 1;
@@ -14,8 +14,8 @@ fn main() -> i32 {
     }
 
     let client_future: Future<str> = udp_request(address, "native UDP echo", 5000);
-    let packet_future: Future<ptr> = udp_recv(endpoint);
-    let packet: ptr = await packet_future;
+    let packet_future: Future<UdpPacket> = udp_recv(endpoint);
+    let packet: UdpPacket = await packet_future;
     if (packet == null) {
         print(last_error());
         udp_endpoint_close(endpoint);
