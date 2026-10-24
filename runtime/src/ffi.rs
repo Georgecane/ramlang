@@ -201,6 +201,260 @@ pub unsafe extern "C" fn ramlang_tcp_native_close(connection: *mut RamlangNative
     clear_last_error();
 }
 
+
+fn allocate_runtime_string(value: &str) -> Result<*mut c_char, String> {
+    let allocation_size = value
+        .len()
+        .checked_add(1)
+        .ok_or_else(|| "runtime string allocation size overflow".to_owned())?;
+    let output = ramlang_alloc(
+        u64::try_from(allocation_size)
+            .map_err(|_| "runtime string is too large for this platform".to_owned())?,
+    );
+    if output.is_null() {
+        return Err("unable to allocate a RamLang string".to_owned());
+    }
+    // SAFETY: output holds value.len() + 1 writable bytes from ramlang_alloc.
+    unsafe {
+        ptr::copy_nonoverlapping(value.as_ptr(), output.cast::<u8>(), value.len());
+        *output.cast::<u8>().add(value.len()) = 0;
+    }
+    Ok(output.cast::<c_char>())
+}
+
+/// Start binding a native TCP listener. Await the returned Future<ptr> to get its handle.
+///
+/// # Safety
+///
+/// address must be a valid readable NUL-terminated UTF-8 string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_listen_future(
+    address: *const c_char,
+    timeout_ms: i64,
+) -> *mut RamlangFuture {
+    let address = match read_c_string(address, "TCP listen address") {
+        Ok(address) => address,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    if timeout_ms <= 0 {
+        set_last_error("TCP listen timeout must be greater than zero");
+        return ptr::null_mut();
+    }
+    let runtime = match async_request_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    let state = Arc::new(FutureState::new(Some(cleanup_native_tcp_listener)));
+    let task_state = Arc::clone(&state);
+    let operation_timeout = Duration::from_millis(timeout_ms as u64);
+    let task = runtime.spawn(async move {
+        let result = async {
+            let server = TcpServer::bind(&address, operation_timeout)
+                .await
+                .map_err(|error| error.to_string())?;
+            let (closed, _receiver) = tokio::sync::watch::channel(false);
+            let listener = Box::new(RamlangNativeTcpListener {
+                inner: Arc::new(NativeTcpListenerInner { server, closed }),
+            });
+            Ok::<i64, String>(Box::into_raw(listener) as usize as i64)
+        }
+        .await;
+        task_state.complete_result(result);
+    });
+    state.set_abort_handle(task.abort_handle());
+    drop(task);
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangFuture { state }))
+}
+
+/// Return a newly allocated NUL-terminated string containing a listener's local address.
+///
+/// The caller owns the returned string and must release it using ramlang_free.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_listener_addr(
+    listener: *mut RamlangNativeTcpListener,
+) -> *mut c_char {
+    if listener.is_null() {
+        set_last_error("TCP listener handle must not be null");
+        return ptr::null_mut();
+    }
+    // SAFETY: pointer validity is required by this function's caller contract.
+    let listener = unsafe { &*listener };
+    match listener.inner.server.local_addr() {
+        Ok(address) => match allocate_runtime_string(&address.to_string()) {
+            Ok(output) => {
+                clear_last_error();
+                output
+            }
+            Err(error) => {
+                set_last_error(&error);
+                ptr::null_mut()
+            }
+        },
+        Err(error) => {
+            set_last_error(&error.to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
+/// Start accepting one incoming native TCP connection. Await the Future<ptr> for its handle.
+///
+/// # Safety
+///
+/// listener must be a live handle returned by ramlang_tcp_listen_future and must not be closed
+/// concurrently with this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_accept_future(
+    listener: *mut RamlangNativeTcpListener,
+) -> *mut RamlangFuture {
+    if listener.is_null() {
+        set_last_error("TCP listener handle must not be null");
+        return ptr::null_mut();
+    }
+    // SAFETY: pointer validity is required by this function's caller contract.
+    let inner = Arc::clone(&unsafe { &*listener }.inner);
+    let runtime = match async_request_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    let state = Arc::new(FutureState::new(Some(cleanup_native_tcp_connection)));
+    let task_state = Arc::clone(&state);
+    let task = runtime.spawn(async move {
+        let mut closed = inner.closed.subscribe();
+        let result = if *closed.borrow() {
+            Err("TCP listener is closed".to_owned())
+        } else {
+            tokio::select! {
+                _ = closed.changed() => Err("TCP listener was closed while accepting".to_owned()),
+                accepted = inner.server.accept() => {
+                    accepted.map(|(connection, _peer)| {
+                        let connection = Box::new(RamlangNativeTcpConnection {
+                            inner: Arc::new(tokio::sync::Mutex::new(connection)),
+                        });
+                        Box::into_raw(connection) as usize as i64
+                    }).map_err(|error| error.to_string())
+                }
+            }
+        };
+        task_state.complete_result(result);
+    });
+    state.set_abort_handle(task.abort_handle());
+    drop(task);
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangFuture { state }))
+}
+
+/// Write one framed UTF-8 message to a native TCP connection, returning Future<void>.
+///
+/// Errors are reported through last_error when the future is awaited.
+///
+/// # Safety
+///
+/// connection must be a live native TCP connection handle and payload must be a valid
+/// readable NUL-terminated UTF-8 string. The connection must not be closed concurrently
+/// with this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_write_future(
+    connection: *mut RamlangNativeTcpConnection,
+    payload: *const c_char,
+) -> *mut RamlangFuture {
+    if connection.is_null() {
+        set_last_error("TCP connection handle must not be null");
+        return ptr::null_mut();
+    }
+    let payload = match read_c_string(payload, "TCP payload") {
+        Ok(payload) => payload,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    // SAFETY: pointer validity is required by this function's caller contract.
+    let inner = Arc::clone(&unsafe { &*connection }.inner);
+    let runtime = match async_request_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    let state = Arc::new(FutureState::new(None));
+    let task_state = Arc::clone(&state);
+    let task = runtime.spawn(async move {
+        let result = inner
+            .lock()
+            .await
+            .write_frame(payload.as_bytes())
+            .await
+            .map(|()| 0)
+            .map_err(|error| error.to_string());
+        task_state.complete_result(result);
+    });
+    state.set_abort_handle(task.abort_handle());
+    drop(task);
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangFuture { state }))
+}
+
+/// Read one framed UTF-8 message from a native TCP connection, returning Future<str>.
+///
+/// The caller owns the awaited response string and must release it with free(response as ptr).
+///
+/// # Safety
+///
+/// connection must be a live native TCP connection handle and must not be closed concurrently
+/// with this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ramlang_tcp_read_future(
+    connection: *mut RamlangNativeTcpConnection,
+) -> *mut RamlangFuture {
+    if connection.is_null() {
+        set_last_error("TCP connection handle must not be null");
+        return ptr::null_mut();
+    }
+    // SAFETY: pointer validity is required by this function's caller contract.
+    let inner = Arc::clone(&unsafe { &*connection }.inner);
+    let runtime = match async_request_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            set_last_error(&error);
+            return ptr::null_mut();
+        }
+    };
+    let state = Arc::new(FutureState::new(Some(ramlang_free)));
+    let task_state = Arc::clone(&state);
+    let task = runtime.spawn(async move {
+        let result: Result<i64, String> = async {
+            let payload = inner
+                .lock()
+                .await
+                .read_frame(MAX_FFI_TCP_FRAME_SIZE)
+                .await
+                .map_err(|error| error.to_string())?;
+            let text = String::from_utf8(payload)
+                .map_err(|error| format!("TCP response is not valid UTF-8: {error}"))?;
+            let output = allocate_runtime_string(&text)? as usize as i64;
+            Ok(output)
+        }
+        .await;
+        task_state.complete_result(result);
+    });
+    state.set_abort_handle(task.abort_handle());
+    drop(task);
+    clear_last_error();
+    Box::into_raw(Box::new(RamlangFuture { state }))
+}
+
 fn set_last_error(message: &str) {
     let sanitized = message.replace('\0', "�");
     let message = CString::new(sanitized)
