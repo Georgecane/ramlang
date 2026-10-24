@@ -52,6 +52,12 @@ jobs:
           cargo run --release -- examples/async/string_future.ram -o target/async-string
           output="$(target/async-string)"
           test "$output" = "async string result"
+      - name: Compile and run concurrent native async functions
+        run: |
+          cargo run --release -- examples/async/concurrent.ram -o target/async-concurrent
+          output="$(target/async-concurrent)"
+          expected="$(printf '2\n1')"
+          test "$output" = "$expected"
       - name: Compile and run native timer Future
         run: |
           cargo run --release -- examples/async/timer.ram -o target/async-timer
