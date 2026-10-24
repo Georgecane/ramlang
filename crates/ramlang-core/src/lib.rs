@@ -389,10 +389,10 @@ fn transfer_definitions(instruction: &Instruction, input: &[bool]) -> Vec<bool> 
         | Instruction::JumpIfFalse { .. }
         | Instruction::Return { .. } => None,
     };
-    if let Some(destination) = destination {
-        if let Some(initialized) = output.get_mut(destination.0) {
-            *initialized = true;
-        }
+    if let Some(destination) = destination
+        && let Some(initialized) = output.get_mut(destination.0)
+    {
+        *initialized = true;
     }
     output
 }
@@ -534,6 +534,24 @@ mod tests {
             result: Type::I64,
             registers: vec![Type::I64],
             code: vec![Instruction::Return { value: Some(r(0)) }],
+        };
+        let error = program(vec![function], 0).verify().unwrap_err().to_string();
+        assert!(error.contains("read before initialization"), "{error}");
+    }
+
+    #[test]
+    fn rejects_values_initialized_on_only_one_branch() {
+        let function = Function {
+            name: "branch_init".into(),
+            params: vec![],
+            result: Type::I64,
+            registers: vec![Type::Bool, Type::I64],
+            code: vec![
+                Instruction::ConstBool { dst: r(0), value: true },
+                Instruction::JumpIfFalse { condition: r(0), target: 3 },
+                Instruction::ConstI64 { dst: r(1), value: 11 },
+                Instruction::Return { value: Some(r(1)) },
+            ],
         };
         let error = program(vec![function], 0).verify().unwrap_err().to_string();
         assert!(error.contains("read before initialization"), "{error}");
