@@ -1,0 +1,16 @@
+async fn delayed_value(value: i32, delay_ms: u64) -> i32 {
+    await sleep_ms(delay_ms);
+    return value;
+}
+
+fn main() -> i32 {
+    let slow: Future<i32> = delayed_value(1, 100);
+    let fast: Future<i32> = delayed_value(2, 10);
+
+    let fast_result: i32 = await fast;
+    let slow_result: i32 = await slow;
+
+    print(fast_result);
+    print(slow_result);
+    return 0;
+}
