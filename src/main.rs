@@ -7399,7 +7399,7 @@ mod tests {
         let ir = compile(source).unwrap();
         assert!(ir.contains("define i32 @__ramlang_async_main_body()"));
         assert!(ir.contains("define i32 @main()"));
-        assert!(ir.contains("call ptr @ramlang_future_spawn_i64(ptr @__ramlang_async_entry_"));
+        assert!(ir.contains("call ptr @ramlang_future_spawn_owned_i64(ptr @__ramlang_async_entry_"));
         assert!(ir.contains("call i64 @ramlang_future_await_i64(ptr %future)"));
     }
 
@@ -7439,8 +7439,8 @@ mod tests {
         "#;
         let ir = compile(source).unwrap();
         assert!(ir.contains("%__ramlang_async_args_"));
-        assert!(ir.contains("@ramlang_future_spawn_i64(ptr @__ramlang_async_entry_"));
-        assert!(ir.contains("@ramlang_future_await_i64(ptr"));
+        assert!(ir.contains("@ramlang_future_spawn_owned_i64(ptr @__ramlang_async_entry_"));
+        assert!(ir.contains("@ramlang_future_await_owned_i64(ptr"));
         assert!(ir.contains("@ramlang_future_close(ptr"));
         assert!(ir.contains("trunc i64"));
     }
