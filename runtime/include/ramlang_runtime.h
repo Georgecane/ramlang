@@ -14,6 +14,8 @@ typedef struct RamlangTcpRequest RamlangTcpRequest;
 typedef struct RamlangUdpEndpoint RamlangUdpEndpoint;
 typedef struct RamlangUdpRequest RamlangUdpRequest;
 typedef struct RamlangTaskScope RamlangTaskScope;
+typedef struct RamlangNativeTcpListener RamlangNativeTcpListener;
+typedef struct RamlangNativeTcpConnection RamlangNativeTcpConnection;
 
 /*
  * Blocking C ABI for the current RamLang compiler.
@@ -86,6 +88,20 @@ RamlangFuture *ramlang_sleep_future(uint64_t delay_ms);
 /* Start a framed TCP text request. Await it through ramlang_future_await_i64; the returned response string is released with ramlang_free. */
 RamlangFuture *ramlang_tcp_request_future(const char *address, const char *payload, int64_t timeout_ms);
 RamlangFuture *ramlang_udp_request_future(const char *address, const char *payload, int64_t timeout_ms);
+
+/*
+ * Native TCP server API. The listen and accept operations return futures; await them to
+ * obtain an opaque listener/connection handle. Read and write use bounded length-prefixed
+ * UTF-8 frames. Strings returned by listener_addr and awaited tcp_read are allocated by the
+ * RamLang runtime and must be released with ramlang_free.
+ */
+RamlangFuture *ramlang_tcp_listen_future(const char *address, int64_t timeout_ms);
+char *ramlang_tcp_listener_addr(RamlangNativeTcpListener *listener);
+RamlangFuture *ramlang_tcp_accept_future(RamlangNativeTcpListener *listener);
+RamlangFuture *ramlang_tcp_read_future(RamlangNativeTcpConnection *connection);
+RamlangFuture *ramlang_tcp_write_future(RamlangNativeTcpConnection *connection, const char *payload);
+void ramlang_tcp_listener_close(RamlangNativeTcpListener *listener);
+void ramlang_tcp_native_close(RamlangNativeTcpConnection *connection);
 
 /*
  * Explicit cancellation scope for background network requests.
