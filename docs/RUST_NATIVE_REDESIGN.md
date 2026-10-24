@@ -1,10 +1,10 @@
 # Ramlang Rust-native redesign RFC
 
-Status: proposed architecture and migration contract; not a claim that the current compiler already implements it.
+Status: migration contract with an implemented interpreter and restricted Cranelift JIT milestone. The legacy `ramcomp` compiler is still LLVM-dependent; this RFC does not claim full replacement or production readiness.
 
 ## 1. Repository baseline (verified)
 
-The current default branch is a Rust 2024 Cargo workspace with two packages: `ramlang` and `ramlang-runtime`. The compiler driver is `src/main.rs`; it contains the lexer and parser and builds textual LLVM IR. `src/llvm_backend.rs` parses and verifies that IR using Inkwell, then emits object, assembly, or bitcode through LLVM's in-process target machine. The runtime is Rust, uses Tokio and corosensei, and exposes an FFI surface. The current feature set includes scalar types, functions, aliases, enums, globals/statics, layout queries, atomics, inline assembly, and an initial async/networking API.
+The current default branch is a Rust 2024 Cargo workspace with four packages: `ramlang`, `ramlang-runtime`, `ramlang-core`, and `ramlang-jit`. The legacy compiler driver is `src/main.rs`; it contains the lexer and parser and builds textual LLVM IR. `src/llvm_backend.rs` parses and verifies that IR using Inkwell, then emits object, assembly, or bitcode through LLVM's in-process target machine. The runtime is Rust, uses Tokio and corosensei, and exposes an FFI surface. The legacy feature set includes scalar types, functions, aliases, enums, globals/statics, layout queries, atomics, inline assembly, and an initial async/networking API. The two new crates provide a backend-neutral typed IR/reference interpreter and a restricted Cranelift native JIT; neither yet implements the full legacy feature set.
 
 This is a useful foundation, but it does **not** meet the strict self-contained Rust-toolchain goal yet:
 
@@ -157,4 +157,6 @@ The first code milestone is implemented in `crates/ramlang-core`, a dependency-f
 
 The crate now also contains a small source parser/lowerer and the `ramrun` binary. It can execute the existing `examples/hello.ram` example and supports a deliberately restricted subset: integer/boolean functions, arithmetic, comparisons, short-circuit boolean operators, mutable locals, if/else, while, function calls, and numeric/boolean print. The reference runner normalizes supported integer annotations to checked i64, so it is not a target-accurate implementation of i8/i32/u8/etc. Its tests include source-to-IR execution; CI has a smoke-test step for `examples/hello.ram`.
 
-This is now a runnable Rust-native interpreter path, but it is **not yet connected to `ramcomp`** and does not replace its LLVM backend. The main compiler still requires the documented LLVM toolchain. The next milestones are to unify source spans/name resolution/type checking, expand core semantics, and lower the same typed IR to a native backend without LLVM.
+The repository now has two runnable Rust-native paths over the core subset: `ramrun` interprets verified IR and `ramjit` compiles it to in-process host machine code through Cranelift. CI on the merged `main` head passed for the core/JIT tests, the Rust workflow, and the legacy workflow. The JIT dependency audit confirms that this crate's dependency graph excludes LLVM; it does not prove that the whole workspace or legacy `ramcomp` can build without LLVM.
+
+The critical next step is integration, not adding more surface syntax: extract and share source spans, diagnostics, name resolution, and type checking; define exact integer-width and overflow semantics; expand the typed IR with strings, aggregates, pointers and explicit effects; then make the legacy compiler use the shared frontend. After that, implement ownership/borrowing and async state-machine lowering. Do not claim Rust-like memory safety, full networking parity, cross-platform AOT output, or production readiness until those features and their negative tests exist.
