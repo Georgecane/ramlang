@@ -7117,6 +7117,21 @@ mod tests {
     }
 
     #[test]
+    fn supports_async_main_as_native_program_entrypoint() {
+        let source = r#"
+            async fn main() -> i32 {
+                await sleep_ms(1);
+                return 42;
+            }
+        "#;
+        let ir = compile(source).unwrap();
+        assert!(ir.contains("define i32 @__ramlang_async_main_body()"));
+        assert!(ir.contains("define i32 @main()"));
+        assert!(ir.contains("call ptr @ramlang_future_spawn_i64(ptr @__ramlang_async_entry_"));
+        assert!(ir.contains("call i64 @ramlang_future_await_i64(ptr %future)"));
+    }
+
+    #[test]
     fn supports_native_async_functions_with_string_parameters_and_results() {
         let source = r#"
             async fn echo(message: str) -> str {
