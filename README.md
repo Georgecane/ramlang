@@ -11,7 +11,7 @@ RamLang is a statically typed systems-language experiment written in Rust. Its R
 - LLVM 18-23 bindings selectable with Cargo features (default: LLVM 18.1)
 - Static types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `str`, `ptr`, and `void`
 - Functions, typed parameters, return values, recursive calls, and `extern fn` declarations for C ABI interop
-- Rust-owned Tokio runtime with native RamLang `async fn`, `Future<T>`, `await`, `sleep_ms`, `tcp_request` and `udp_request` built-ins, plus explicit TCP/UDP handle APIs and cancellation scopes
+- Rust-owned Tokio runtime with native RamLang `async fn`, `Future<T>`, `await`, `sleep_ms`, `tcp_request`, `udp_request`, and async TCP/UDP server built-ins, plus explicit low-level handle APIs and cancellation scopes
 - Type aliases for scalar, array, struct, and enum types, including chained aliases
 - Simple enums with automatic or explicit integer discriminants, including cross-file type resolution
 - `extern static` declarations for C-defined scalar and raw-pointer globals
@@ -39,7 +39,7 @@ RamLang is a statically typed systems-language experiment written in Rust. Its R
 
 ## TCP networking runtime
 
-Build the compiler and runtime with `cargo build --release`. RamLang has an initial native `Future<T>` / `async fn` / `await` path, a cancellable `sleep_ms` timer, UTF-8 TCP/UDP request built-ins that return `Future<str>`, and a `last_error()` built-in to inspect runtime diagnostics. The current `await` bridge still blocks the calling OS thread; state-machine lowering that suspends and resumes without blocking remains in progress. Legacy handle APIs are available for binary protocols and explicit cancellation. See [docs/NETWORKING_FROM_RAMLANG.md](docs/NETWORKING_FROM_RAMLANG.md) for examples and limitations.
+Build the compiler and runtime with `cargo build --release`. RamLang has a native `Future<T>` / `async fn` / `await` path, a cancellable `sleep_ms` timer, UTF-8 TCP/UDP request built-ins that return `Future<str>`, and async TCP/UDP server built-ins for accepting framed stream connections or receiving/replying to datagrams. The current `await` bridge still blocks the calling OS thread; state-machine lowering that suspends and resumes without blocking remains in progress. Low-level handle APIs remain available for binary protocols and explicit cancellation. See [docs/NETWORKING_FROM_RAMLANG.md](docs/NETWORKING_FROM_RAMLANG.md) for examples and limitations.
 
 ## Requirements
 
