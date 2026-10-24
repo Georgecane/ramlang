@@ -34,6 +34,12 @@ int main(void) {
     if (ramlang_udp_request_cancel(NULL) != -1) {
         return 9;
     }
+    if (ramlang_future_await_owned_i64(NULL) != -1) {
+        return 16;
+    }
+    if (ramlang_future_spawn_owned_i64(NULL, NULL, NULL) != NULL) {
+        return 17;
+    }
     if (ramlang_task_scope_track_tcp(NULL, NULL) != -1) {
         return 10;
     }
