@@ -12,7 +12,7 @@ RamLang has an initial source-level async path and a Rust-owned runtime:
 - Native server APIs provide TCP listen/accept/read/write and UDP bind/receive/send operations. Text APIs require UTF-8; TCP uses four-byte big-endian length-prefixed frames, while UDP preserves datagram boundaries.
 - Futures can return scalar values, `str`, or `ptr`; strings returned by the runtime are owned and must be freed exactly once. Binary-safe `tcp_request_bytes` and `udp_request_bytes` return an opaque `ByteBuffer` pointer with explicit length/data access and deterministic close semantics.
 
-The runtime is implemented in Rust on Tokio. The LLVM backend is also driven in-process from Rust through Inkwell: generated IR is parsed and verified, then LLVM emits target objects, assembly, or bitcode. The system linker driver is still used for final executable linking; native code generation no longer requires Clang to parse or compile RamLang IR.
+The runtime is implemented in Rust on Tokio. The LLVM backend is also driven in-process from Rust through Inkwell: generated IR is parsed and verified, then LLVM emits target objects, assembly, or bitcode. Native x86_64 GNU/Linux executables link with LLVM lld directly; an explicitly selected platform linker remains available for custom targets and sysroots. Native code generation never requires Clang to parse or compile RamLang IR.
 
 The C-compatible functions under `runtime/src/ffi.rs` are an implementation ABI between generated LLVM and Rust. RamLang programs do not need to write C or declare those functions; the compiler lowers the built-in names directly to the runtime symbols. Explicit `extern fn` remains an opt-in interoperability feature for calling foreign libraries.
 
@@ -38,7 +38,7 @@ The next major compiler milestone is to lower async functions into resumable sta
 3. **Structured concurrency.** Add language-level `spawn`, `join`/join sets, cancellation scopes, and deterministic parent-child lifetime rules. A parent should not accidentally leak detached tasks.
 4. **Safe network types.** Replace untyped `ptr` handles in safe code with opaque `TcpListener`, `TcpStream`, `UdpSocket`, and packet types. Restrict raw-pointer escapes to explicitly unsafe code.
 5. **Standard library expansion.** Add async DNS resolution, stream and datagram utilities, timers, cancellation, buffered I/O, and protocol parsing. Add TLS only with certificate validation and explicit trust configuration.
-6. **Remove the remaining compiler-driver dependency.** The LLVM library currently emits native object code, but final executable linking still uses a platform linker driver. Add and test a linker backend for supported targets without invoking Clang; keep system C runtime linkage clearly distinct from requiring C source or C APIs in RamLang code.
+6. **Expand direct linker support.** Native x86_64 GNU/Linux executables now link directly with LLVM lld rather than the Clang compiler driver. Add/test native link backends for more ELF and non-ELF targets, and keep system startup/runtime linkage clearly distinct from requiring C source or C APIs in RamLang code.
 7. **Reliability and performance.** Add negative type-checking tests, deterministic executor tests, stress tests for thousands of tasks, timeout/cancellation race tests, fuzzing for parser/IR/network framing, benchmark baselines, and cross-target CI.
 8. **Developer tooling.** Add language-server support, formatting, package/dependency management, diagnostics with source spans, module privacy, and semantic-versioned standard-library interfaces.
 
