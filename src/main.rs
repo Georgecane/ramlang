@@ -2455,9 +2455,8 @@ impl<'a> FunctionGenerator<'a> {
                     };
                     let encoded = self.fresh_value();
                     self.emit(format!(
-                        "{encoded} = call i64 @ramlang_future_await_i64(ptr {future})"
+                        "{encoded} = call i64 @ramlang_future_await_owned_i64(ptr {future})"
                     ));
-                    self.emit(format!("call void @ramlang_future_close(ptr {future})"));
                     let output_type = output.ty();
                     if output_type == Type::Void {
                         return Ok((String::new(), Type::Void));
@@ -3533,7 +3532,7 @@ impl<'a> FunctionGenerator<'a> {
                     let future = self.fresh_value();
                     let entry = async_entry_symbol(name);
                     self.emit(format!(
-                        "{future} = call ptr @ramlang_future_spawn_i64(ptr @{entry}, ptr {frame})"
+                        "{future} = call ptr @ramlang_future_spawn_owned_i64(ptr @{entry}, ptr {frame}, ptr @ramlang_free)"
                     ));
                     return Ok((future, Type::Future(output)));
                 }
@@ -4007,7 +4006,7 @@ fn async_body_symbol(name: &str) -> String {
 
 fn emit_async_main_launcher() -> String {
     String::from(
-        "define i32 @main() {\nentry:\n  %context = call ptr @ramlang_alloc(i64 1)\n  %context_is_null = icmp eq ptr %context, null\n  br i1 %context_is_null, label %allocation_failed, label %spawn\nallocation_failed:\n  ret i32 -1\nspawn:\n  %future = call ptr @ramlang_future_spawn_i64(ptr @__ramlang_async_entry_0000000000000000, ptr %context)\n  %future_is_null = icmp eq ptr %future, null\n  br i1 %future_is_null, label %spawn_failed, label %await_result\nspawn_failed:\n  call void @ramlang_free(ptr %context)\n  ret i32 -1\nawait_result:\n  %encoded = call i64 @ramlang_future_await_i64(ptr %future)\n  call void @ramlang_future_close(ptr %future)\n  %result = trunc i64 %encoded to i32\n  ret i32 %result\n}\n\n",
+        "define i32 @main() {\nentry:\n  %context = call ptr @ramlang_alloc(i64 1)\n  %context_is_null = icmp eq ptr %context, null\n  br i1 %context_is_null, label %allocation_failed, label %spawn\nallocation_failed:\n  ret i32 -1\nspawn:\n  %future = call ptr @ramlang_future_spawn_owned_i64(ptr @__ramlang_async_entry_0000000000000000, ptr %context, ptr @ramlang_free)\n  %future_is_null = icmp eq ptr %future, null\n  br i1 %future_is_null, label %spawn_failed, label %await_result\nspawn_failed:\n  ret i32 -1\nawait_result:\n  %encoded = call i64 @ramlang_future_await_i64(ptr %future)\n  call void @ramlang_future_close(ptr %future)\n  %result = trunc i64 %encoded to i32\n  ret i32 %result\n}\n\n",
     )
     .replace(
         "@__ramlang_async_entry_0000000000000000",
@@ -4033,7 +4032,7 @@ fn emit_async_entry_wrapper(function: &Function) -> String {
     let arguments = args.join(", ");
     if function.return_type == Type::Void {
         output.push_str(&format!("  call void @{body_name}({arguments})\n"));
-        output.push_str("  call void @ramlang_free(ptr %context)\n  ret i64 0\n}\n");
+        output.push_str("  ret i64 0\n}\n");
         return output;
     }
 
@@ -4042,7 +4041,6 @@ fn emit_async_entry_wrapper(function: &Function) -> String {
         function.return_type.llvm(),
         body_name
     ));
-    output.push_str("  call void @ramlang_free(ptr %context)\n");
     match function.return_type {
         Type::I8 => output.push_str("  %encoded = sext i8 %result to i64\n  ret i64 %encoded\n"),
         Type::I16 => output.push_str("  %encoded = sext i16 %result to i64\n  ret i64 %encoded\n"),
@@ -4969,7 +4967,9 @@ fn compile_to_llvm_for_target(
     module.push_str(&format!("declare ptr @ramlang_memchr(ptr, i32, {size_t})\n"));
     module.push_str("declare ptr @ramlang_alloc(i64)\n");
     module.push_str("declare ptr @ramlang_future_spawn_i64(ptr, ptr)\n");
+    module.push_str("declare ptr @ramlang_future_spawn_owned_i64(ptr, ptr, ptr)\n");
     module.push_str("declare i64 @ramlang_future_await_i64(ptr)\n");
+    module.push_str("declare i64 @ramlang_future_await_owned_i64(ptr)\n");
     module.push_str("declare i32 @ramlang_future_is_ready(ptr)\n");
     module.push_str("declare ptr @ramlang_sleep_future(i64)\n");
     module.push_str("declare ptr @ramlang_last_error()\n");
