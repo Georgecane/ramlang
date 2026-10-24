@@ -5149,6 +5149,7 @@ struct Options {
     emit_bitcode: bool,
     emit_header: bool,
     check_only: bool,
+    freestanding: bool,
     link_libs: Vec<String>,
     link_search_paths: Vec<PathBuf>,
     link_args: Vec<String>,
@@ -5170,10 +5171,10 @@ where
 {
     let mut args = arguments.into_iter().peekable();
     let Some(source) = args.next() else {
-        return Err("usage: ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc | --emit-header] [-o output] [--target TRIPLE] [--target-cpu CPU] [--target-feature FEATURE ...] [--sysroot PATH] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
+        return Err("usage: ramcomp <source.ram> [additional.ram ...] [--check] [--freestanding] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc | --emit-header] [-o output] [--target TRIPLE] [--target-cpu CPU] [--target-feature FEATURE ...] [--sysroot PATH] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]".to_owned());
     };
     if source == "--help" || source == "-h" {
-        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --emit-obj              Emit a native object file without linking\n  --emit-asm              Emit target assembly without linking\n  --emit-bc               Emit LLVM bitcode without linking\n  --emit-header           Generate a C header for callable functions and global symbols\n  --target <triple>       Select the LLVM code-generation target\n  --target-cpu <name>    Select the LLVM target CPU\n  --target-feature <f>   Enable (+) or disable (-) an LLVM target feature; repeatable\n  --sysroot <path>       Use a target sysroot with a platform linker override\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional linker argument\n  -h, --help              Show this help\n\nNative x86_64 GNU/Linux links with LLVM lld by default. Set RAMLANG_LLD to override lld or RAMLANG_LINKER to select a platform linker.");
+        println!("ramcomp - RamLang LLVM compiler\n\nUSAGE:\n  ramcomp <source.ram> [additional.ram ...] [--check] [--emit-llvm [output.ll] | --emit-obj | --emit-asm | --emit-bc] [-o output] [--target TRIPLE] [--opt-level LEVEL] [--link-lib NAME] [--link-search PATH] [--link-arg ARG]\n\nOPTIONS:\n  --check                 Parse and type-check without producing an executable\n  --freestanding          Link a libc-free x86_64 Linux executable (no runtime/extern/built-ins)\n  --emit-llvm             Write LLVM IR instead of compiling a native executable\n  --emit-obj              Emit a native object file without linking\n  --emit-asm              Emit target assembly without linking\n  --emit-bc               Emit LLVM bitcode without linking\n  --emit-header           Generate a C header for callable functions and global symbols\n  --target <triple>       Select the LLVM code-generation target\n  --target-cpu <name>    Select the LLVM target CPU\n  --target-feature <f>   Enable (+) or disable (-) an LLVM target feature; repeatable\n  --sysroot <path>       Use a target sysroot with a platform linker override\n  --opt-level <level>     Optimization level: 0, 1, 2, 3, s, or z (default: 2)\n  -o <path>               Set output executable or IR path\n  -l, --link-lib <name>   Link a native library (for example, --link-lib m)\n  -L, --link-search <dir> Add a native library search directory\n  --link-arg <arg>        Pass an additional linker argument\n  -h, --help              Show this help\n\nNative x86_64 GNU/Linux links with LLVM lld by default. Set RAMLANG_LLD to override lld or RAMLANG_LINKER to select a platform linker.");
         process::exit(0);
     }
 
@@ -5186,6 +5187,7 @@ where
         emit_bitcode: false,
         emit_header: false,
         check_only: false,
+        freestanding: false,
         link_libs: Vec::new(),
         link_search_paths: Vec::new(),
         link_args: Vec::new(),
@@ -5199,6 +5201,7 @@ where
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--check" => options.check_only = true,
+            "--freestanding" => options.freestanding = true,
             "--emit-obj" | "--emit-object" => options.emit_object = true,
             "--emit-asm" => options.emit_assembly = true,
             "--emit-bc" | "--emit-bitcode" => options.emit_bitcode = true,
@@ -5594,6 +5597,52 @@ fn expand_lld_link_argument(argument: &str) -> Vec<String> {
     }
 }
 
+fn link_freestanding_with_lld(
+    object_path: &Path,
+    output: &Path,
+    options: &Options,
+) -> Result<(), String> {
+    if !lld_supports_target(options.target.as_deref(), options.sysroot.as_deref()) {
+        return Err(
+            "--freestanding currently supports native x86_64 GNU/Linux without a custom sysroot"
+                .to_owned(),
+        );
+    }
+    if !options.link_libs.is_empty()
+        || !options.link_search_paths.is_empty()
+        || !options.link_args.is_empty()
+    {
+        return Err(
+            "--freestanding cannot use external libraries, library paths, or linker arguments"
+                .to_owned(),
+        );
+    }
+
+    let lld = select_lld()?;
+    let result = Command::new(&lld)
+        .arg("-m")
+        .arg("elf_x86_64")
+        .arg("-e")
+        .arg("_start")
+        .arg("--build-id=none")
+        .arg("-o")
+        .arg(output)
+        .arg(object_path)
+        .output()
+        .map_err(|error| {
+            format!(
+                "could not launch LLVM lld for freestanding link ({lld:?}): {error}; install lld"
+            )
+        })?;
+    if !result.status.success() {
+        return Err(format!(
+            "freestanding LLVM lld link failed:\n{}",
+            String::from_utf8_lossy(&result.stderr)
+        ));
+    }
+    Ok(())
+}
+
 fn link_with_lld(
     object_path: &Path,
     output: &Path,
@@ -5738,6 +5787,53 @@ fn link_with_platform_driver(
     Ok(())
 }
 
+fn prepare_freestanding_ir(
+    program: &Program,
+    mut llvm_ir: String,
+    options: &Options,
+) -> Result<String, String> {
+    if !lld_supports_target(options.target.as_deref(), options.sysroot.as_deref()) {
+        return Err(
+            "--freestanding currently supports native x86_64 GNU/Linux without a custom sysroot"
+                .to_owned(),
+        );
+    }
+    if program.functions.iter().any(|function| function.asynchronous) {
+        return Err("--freestanding does not support async functions or runtime futures".to_owned());
+    }
+    if program.functions.iter().any(|function| function.external)
+        || program.static_vars.iter().any(|variable| variable.external)
+    {
+        return Err("--freestanding cannot use extern fn or extern static declarations".to_owned());
+    }
+    if llvm_ir
+        .lines()
+        .any(|line| line.contains("call ") && line.contains("@ramlang_"))
+    {
+        return Err(
+            "--freestanding cannot call RamLang runtime functions; remove print, allocation, strings, networking, and other runtime built-ins"
+                .to_owned(),
+        );
+    }
+    if options.sysroot.is_some() {
+        return Err("--freestanding cannot use a custom sysroot".to_owned());
+    }
+
+    llvm_ir.push_str(
+        r#"
+; Freestanding Linux x86_64 entry point. No CRT, libc, or dynamic loader is used.
+define void @_start() noreturn {
+entry:
+  %ramlang_exit_status = call i32 @main()
+  %ramlang_exit_code = zext i32 %ramlang_exit_status to i64
+  call void asm sideeffect "syscall", "{rax},{rdi},~{rcx},~{r11},~{memory}"(i64 60, i64 %ramlang_exit_code)
+  unreachable
+}
+"#,
+    );
+    Ok(llvm_ir)
+}
+
 fn compile(options: Options) -> Result<(), String> {
     let mut program = Program::default();
     let mut visited = HashSet::<PathBuf>::new();
@@ -5753,6 +5849,12 @@ fn compile(options: Options) -> Result<(), String> {
     let pointer_width = target_pointer_width(options.target.as_deref())?;
     let llvm_ir = compile_to_llvm_for_target(&program, pointer_width, options.target.as_deref())
         .map_err(|error| format!("{source_label}: {error}"))?;
+    let llvm_ir = if options.freestanding {
+        prepare_freestanding_ir(&program, llvm_ir, &options)
+            .map_err(|error| format!("{source_label}: {error}"))?
+    } else {
+        llvm_ir
+    };
 
     if options.check_only {
         println!("{source_label}: OK");
@@ -5809,8 +5911,12 @@ fn compile(options: Options) -> Result<(), String> {
         return Ok(());
     }
 
-    // LLVM code generation happens in-process in Rust. The platform driver is used
-    // only to link the resulting object with the system runtime and requested libraries.
+    // LLVM owns code generation. Freestanding programs use a private syscall entrypoint
+    // and link without startup objects, libc, or the Rust runtime.
+    // Ordinary executables use the Rust runtime and system startup/runtime libraries.
+    // Prefer LLVM lld directly on native x86_64 GNU/Linux. This removes the Clang
+    // compiler driver from the normal RamLang build path. A platform driver remains an
+    // explicit compatibility option for other targets, custom sysroots, and foreign ABIs.
     let object_path = env::temp_dir().join(format!("ramlang-{}-linked.o", process::id()));
     llvm_backend::emit_file(
         &llvm_ir,
@@ -5822,9 +5928,14 @@ fn compile(options: Options) -> Result<(), String> {
         &options.opt_level,
     )?;
 
-    // Prefer LLVM lld directly on native x86_64 GNU/Linux. This removes the Clang
-    // compiler driver from the normal RamLang build path. A platform driver remains an
-    // explicit compatibility option for other targets, custom sysroots, and foreign ABIs.
+    if options.freestanding {
+        let link_result = link_freestanding_with_lld(&object_path, &output, &options);
+        let _ = fs::remove_file(&object_path);
+        link_result?;
+        println!("built freestanding {}", output.display());
+        return Ok(());
+    }
+
     let runtime_library_dir = env::var_os("RAMLANG_RUNTIME_DIR")
         .map(PathBuf::from)
         .or_else(|| {
