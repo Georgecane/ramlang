@@ -3941,9 +3941,28 @@ fn async_entry_symbol(name: &str) -> String {
     format!("__ramlang_async_entry_{:016x}", struct_type_id(name))
 }
 
+fn async_body_symbol(name: &str) -> String {
+    if name == "main" {
+        "__ramlang_async_main_body".to_owned()
+    } else {
+        name.to_owned()
+    }
+}
+
+fn emit_async_main_launcher() -> String {
+    String::from(
+        "define i32 @main() {\nentry:\n  %context = call ptr @ramlang_alloc(i64 1)\n  %context_is_null = icmp eq ptr %context, null\n  br i1 %context_is_null, label %allocation_failed, label %spawn\nallocation_failed:\n  ret i32 -1\nspawn:\n  %future = call ptr @ramlang_future_spawn_i64(ptr @__ramlang_async_entry_0000000000000000, ptr %context)\n  %future_is_null = icmp eq ptr %future, null\n  br i1 %future_is_null, label %spawn_failed, label %await_result\nspawn_failed:\n  call void @ramlang_free(ptr %context)\n  ret i32 -1\nawait_result:\n  %encoded = call i64 @ramlang_future_await_i64(ptr %future)\n  call void @ramlang_future_close(ptr %future)\n  %result = trunc i64 %encoded to i32\n  ret i32 %result\n}\n\n",
+    )
+    .replace(
+        "@__ramlang_async_entry_0000000000000000",
+        &format!("@{}", async_entry_symbol("main")),
+    )
+}
+
 fn emit_async_entry_wrapper(function: &Function) -> String {
     let frame_type = async_frame_type_name(&function.name);
     let entry = async_entry_symbol(&function.name);
+    let body_name = async_body_symbol(&function.name);
     let mut output = format!("define i64 @{entry}(ptr %context) {{\nentry:\n");
     let mut args = Vec::new();
     for (index, (_, ty)) in function.params.iter().enumerate() {
@@ -3957,7 +3976,7 @@ fn emit_async_entry_wrapper(function: &Function) -> String {
     }
     let arguments = args.join(", ");
     if function.return_type == Type::Void {
-        output.push_str(&format!("  call void @{}({arguments})\n", function.name));
+        output.push_str(&format!("  call void @{body_name}({arguments})\n"));
         output.push_str("  call void @ramlang_free(ptr %context)\n  ret i64 0\n}\n");
         return output;
     }
@@ -3965,7 +3984,7 @@ fn emit_async_entry_wrapper(function: &Function) -> String {
     output.push_str(&format!(
         "  %result = call {} @{}({arguments})\n",
         function.return_type.llvm(),
-        function.name
+        body_name
     ));
     output.push_str("  call void @ramlang_free(ptr %context)\n");
     match function.return_type {
@@ -4826,8 +4845,8 @@ fn compile_to_llvm_for_target(
 
     let main = signatures.get("main").ok_or_else(|| "program must define fn main() -> i32".to_owned())?;
     let main_function = functions.iter().find(|function| function.name == "main").unwrap();
-    if main_function.external || main_function.asynchronous || !main.params.is_empty() || main.return_type != Type::I32 {
-        return Err("entry point must be a synchronous definition with signature fn main() -> i32".to_owned());
+    if main_function.external || !main.params.is_empty() || main.return_type != Type::I32 {
+        return Err("entry point must have signature fn main() -> i32 (synchronous or asynchronous)".to_owned());
     }
     for function in functions {
         if let Some(body) = &function.body {
@@ -4973,7 +4992,12 @@ fn compile_to_llvm_for_target(
             module.push_str(&global);
             module.push('\n');
         }
-        let header = format!("define {} @{}({params}) {{\n", function.return_type.llvm(), function.name);
+        let emitted_name = if function.asynchronous {
+            async_body_symbol(&function.name)
+        } else {
+            function.name.clone()
+        };
+        let header = format!("define {} @{emitted_name}({params}) {{\n", function.return_type.llvm());
         module.push_str(&header);
         module.push_str(&body);
         module.push_str("}\n\n");
@@ -4981,6 +5005,9 @@ fn compile_to_llvm_for_target(
             module.push_str(&emit_async_entry_wrapper(function));
             module.push_str("\n");
         }
+    }
+    if main_function.asynchronous {
+        module.push_str(&emit_async_main_launcher());
     }
     Ok(module)
 }
