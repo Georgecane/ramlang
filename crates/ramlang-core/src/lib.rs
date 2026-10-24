@@ -121,14 +121,16 @@ impl Program {
                         }
                         match (*dst, target.result) {
                             (None, Type::Unit) => {}
-                            (Some(register), result) if result != Type::Unit => check_register(function, register, result).map_err(fail)?,
-                            (None, _) => return Err(fail(format!("non-unit call to '{}' discards its result", target.name))),
+                            (Some(register), Type::I64) => check_register(function, register, Type::I64).map_err(&fail)?,
+                            (Some(register), Type::Bool) => check_register(function, register, Type::Bool).map_err(&fail)?,
+                            (None, result) => return Err(fail(format!("non-unit call to '{}' discards its {result:?} result", target.name))),
                             (Some(_), Type::Unit) => return Err(fail(format!("unit call to '{}' has a destination register", target.name))),
                         }
                     }
                     Instruction::Return { value } => match (*value, function.result) {
                         (None, Type::Unit) => {}
-                        (Some(register), result) if result != Type::Unit => check_register(function, register, result).map_err(fail)?,
+                        (Some(register), Type::I64) => check_register(function, register, Type::I64).map_err(&fail)?,
+                        (Some(register), Type::Bool) => check_register(function, register, Type::Bool).map_err(&fail)?,
                         (None, _) => return Err(fail("return value is missing".to_owned())),
                         (Some(_), Type::Unit) => return Err(fail("unit function cannot return a value".to_owned())),
                     },
