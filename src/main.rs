@@ -4791,13 +4791,13 @@ fn compile_to_llvm_for_target(
     module.push_str("declare void @ramlang_future_close(ptr)\n");
     module.push_str("declare ptr @ramlang_tcp_request_future(ptr, ptr, i64)\n");
     module.push_str("declare ptr @ramlang_udp_request_future(ptr, ptr, i64)\n");
-    module.push_str("declare ptr @ramlang_tcp_listen_future(ptr, i64)\\n");
-    module.push_str("declare ptr @ramlang_tcp_listener_addr(ptr)\\n");
-    module.push_str("declare ptr @ramlang_tcp_accept_future(ptr)\\n");
-    module.push_str("declare ptr @ramlang_tcp_read_future(ptr)\\n");
-    module.push_str("declare ptr @ramlang_tcp_write_future(ptr, ptr)\\n");
-    module.push_str("declare void @ramlang_tcp_listener_close(ptr)\\n");
-    module.push_str("declare void @ramlang_tcp_native_close(ptr)\\n");
+    module.push_str("declare ptr @ramlang_tcp_listen_future(ptr, i64)\n");
+    module.push_str("declare ptr @ramlang_tcp_listener_addr(ptr)\n");
+    module.push_str("declare ptr @ramlang_tcp_accept_future(ptr)\n");
+    module.push_str("declare ptr @ramlang_tcp_read_future(ptr)\n");
+    module.push_str("declare ptr @ramlang_tcp_write_future(ptr, ptr)\n");
+    module.push_str("declare void @ramlang_tcp_listener_close(ptr)\n");
+    module.push_str("declare void @ramlang_tcp_native_close(ptr)\n");
     module.push_str("declare void @llvm.trap() cold noreturn nounwind\n");
     module.push_str("declare void @llvm.assume(i1) nounwind\n");
 
